@@ -1,0 +1,13 @@
+{
+    "name":        "mcbor-conformance-tests",
+    "private":     true,
+    "type":        "module",
+    "description": "Cross-implementation conformance tests for Metrological CBOR (tag 44252): C# (Vanaheimr Styx) vs TypeScript (MetrologicalCBOR.TS) vs the specification.",
+    "scripts": {
+        "test":   "node compare/run.mjs",
+        "report": "node compare/run.mjs --skip-run"
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}

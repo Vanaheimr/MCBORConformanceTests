@@ -1,0 +1,12 @@
+{
+    "name":        "mcbor-conformance-runner-ts",
+    "private":     true,
+    "type":        "module",
+    "description": "Conformance runner for the TypeScript reference implementation (imports ../../libs/MetrologicalCBOR.TS from source).",
+    "scripts": {
+        "run": "tsx runner.ts"
+    },
+    "devDependencies": {
+        "tsx": "^4.20.3"
+    }
+}

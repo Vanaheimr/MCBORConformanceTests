@@ -1,0 +1,9 @@
+[submodule "libs/specification"]
+	path = libs/specification
+	url = git@github.com:OpenChargingTechnology/Whitepapers.git
+[submodule "libs/Styx"]
+	path = libs/Styx
+	url = https://github.com/Vanaheimr/Styx
+[submodule "libs/MetrologicalCBOR.TS"]
+	path = libs/MetrologicalCBOR.TS
+	url = https://github.com/Vanaheimr/MetrologicalCBOR.TS

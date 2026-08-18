@@ -1,0 +1,103 @@
+{
+    "suite":       "json-to-cbor",
+    "description": "The JSON → CBOR direction on exact JSON text. The number cases probe whether an implementation keeps the digits as written (exact decimal fractions) or goes through binary floats.",
+    "cases": [
+
+        {
+            "id":          "integer",
+            "json":        "{\"x\":5}",
+            "cborHex":     "A1617805"
+        },
+        {
+            "id":          "root-number",
+            "json":        "5",
+            "cborHex":     "05"
+        },
+        {
+            "id":          "root-reading-string",
+            "json":        "\"5 A\"",
+            "cborHex":     "D9ACDC820504"
+        },
+        {
+            "id":          "empty-string",
+            "json":        "\"\"",
+            "cborHex":     "60"
+        },
+        {
+            "id":          "reading-string",
+            "description": "The scale of the reading survives, because it travels as text",
+            "json":        "{\"e\":\"1.10 kWh\"}",
+            "cborHex":     "A16165D9ACDC83C48221186E0203"
+        },
+        {
+            "id":          "ascii-reading-string",
+            "description": "ASCII spellings of ± and · are accepted on the way in",
+            "json":        "{\"e\":\"(5.00 +-0.02) mA\"}",
+            "cborHex":     "A16165D9ACDC84C482211901F40422C4822102"
+        },
+        {
+            "id":          "caret-compound-reading",
+            "description": "Compound unit in the caret spelling",
+            "json":        "{\"e\":\"9.81 m·s^-2\"}",
+            "cborHex":     "A16165D9ACDC82C482211903D582820F01820821"
+        },
+        {
+            "id":          "superscript-compound-reading",
+            "description": "Compound unit in the superscript spelling — TS canonical output; does the other side read it?",
+            "json":        "{\"e\":\"9.81 m·s⁻²\"}",
+            "cborHex":     "A16165D9ACDC82C482211903D582820F01820821",
+            "class":       "survey"
+        },
+        {
+            "id":          "prose-string",
+            "description": "Anchored grammar: prose stays text",
+            "json":        "{\"s\":\"about 1 h\"}",
+            "cborHex":     "A161736961626F757420312068"
+        },
+        {
+            "id":          "bare-number-string",
+            "description": "\"5\" — text (C#: a reading always states a unit) or a dimensionless reading (TS grammar)?",
+            "json":        "{\"s\":\"5\"}",
+            "class":       "survey"
+        },
+        {
+            "id":          "fractional-number",
+            "description": "5.0 — exact decimal fraction (C# doc §3.2: numbers never become binary floats) vs float64 (TS)",
+            "json":        "{\"x\":5.0}",
+            "class":       "survey"
+        },
+        {
+            "id":          "scale-preserving-number",
+            "description": "1.10 — trailing zero: kept by an exact reader, lost by JSON.parse",
+            "json":        "{\"x\":1.10}",
+            "class":       "survey"
+        },
+        {
+            "id":          "exponent-number",
+            "json":        "{\"x\":1e2}",
+            "class":       "survey"
+        },
+        {
+            "id":          "unsafe-integer",
+            "description": "2^53+1 — exact (C#) vs silently rounded by JSON.parse (TS)",
+            "json":        "{\"n\":9007199254740993}",
+            "class":       "survey"
+        },
+        {
+            "id":          "uint64-max",
+            "description": "18446744073709551615 — exact CBOR integer vs rounded to 2^64 bignum",
+            "json":        "{\"n\":18446744073709551615}",
+            "class":       "survey"
+        },
+        {
+            "id":          "negative-zero",
+            "json":        "-0.0",
+            "class":       "survey"
+        },
+        {
+            "id":          "huge-exponent",
+            "json":        "1e100",
+            "class":       "survey"
+        }
+    ]
+}
