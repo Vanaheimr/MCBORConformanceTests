@@ -19,7 +19,10 @@ import { dirname, join, resolve }                             from 'node:path';
 import { fileURLToPath }                                      from 'node:url';
 
 const root       = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const vectorsDir = join(root, 'vectors');
+
+// The vectors are the normative annex of the specification and live with it;
+// this repository contributes the runners, the cross-feed and the judgement.
+const vectorsDir = join(root, 'libs', 'specification', 'MetrologicalCBOR', 'test-vectors');
 const resultsDir = join(root, 'results');
 const skipRun    = process.argv.includes('--skip-run');
 

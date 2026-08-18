@@ -19,10 +19,9 @@ the other.
 
 | Path | Content |
 |---|---|
-| `libs/specification` | the specification (git submodule) |
+| `libs/specification` | the specification (git submodule) — including `MetrologicalCBOR/test-vectors/`, the normative vector annex this suite executes |
 | `libs/Styx` | the C# implementation (git submodule) |
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
-| `vectors/` | the shared test vectors — see [vectors/README.md](vectors/README.md) |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |
@@ -40,8 +39,10 @@ npm test
 
 (equivalently `./run-conformance.sh` or `node compare/run.mjs`). The driver
 
-1. runs the C# and the TypeScript runner over `vectors/` — each records what
-   its implementation does with **default settings**, without judging;
+1. runs the C# and the TypeScript runner over the specification's
+   [test-vectors annex](libs/specification/MetrologicalCBOR/test-vectors/) —
+   each records what its implementation does with **default settings**,
+   without judging;
 2. **cross-feeds**: every JSON document and every canonical text produced by
    one implementation is handed to the other to convert back;
 3. judges everything against the vector expectations — `normative` mismatches
