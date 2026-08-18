@@ -151,16 +151,16 @@ TypeScript package with its own dependency (`@noble/curves`), leaving the mCBOR
 library's dependency tree empty exactly as Styx keeps `Illias/COSE` beside
 `Illias/CBOR` rather than inside it.
 
-**Result: 13 cases, 58 byte-level agreements, 26 cross-verifications, zero
+**Result: 14 cases, 62 byte-level agreements, 28 cross-verifications, zero
 failures.** Both implementations produce *identical bytes* for the
 Sig_structure, the signature, the complete message and the RFC 9679 key
 thumbprint, and each verifies everything the other signed — across `ES256`,
-`ES384`, `ES512`, `ESP256`, `ESB256` (brainpoolP256r1), `ES256K` (secp256k1),
-tagged and untagged messages, detached payloads, external additional
-authenticated data, the empty-protected-bucket application-algorithm form,
-`COSE_Sign` with two signers on two curves, and RFC 9338 version 2
-countersignatures. One case signs a tag-44252 reading directly, which is the
-claim the whole suite exists to make.
+`ES384`, `ES512`, `ESP256`, `ESB256` (brainpoolP256r1), `ESB320`
+(brainpoolP320r1), `ES256K` (secp256k1), tagged and untagged messages, detached
+payloads, external additional authenticated data, the empty-protected-bucket
+application-algorithm form, `COSE_Sign` with two signers on two curves, and
+RFC 9338 version 2 countersignatures. One case signs a tag-44252 reading
+directly, which is the claim the whole suite exists to make.
 
 Byte-for-byte comparison is possible at all only because both sides sign
 **deterministically** (RFC 6979) for this suite. That is the one place where
@@ -182,11 +182,17 @@ Three things this surfaced that a single implementation could not have:
   C.2.1's payload with its published key reproduces the published signature
   byte for byte, which is a considerably stronger check on the Sig_structure
   than verifying it, and the suite now takes it.
-- **brainpoolP320r1 is registered by COSE and absent from the curve library.**
-  `ESB320` therefore parses, is recognized and is refused at the point of use.
-  Stating that is the honest failure; silently substituting another curve would
-  not be. It is the one algorithm in the registry the TypeScript side cannot
-  compute with, and the only asymmetry against Styx.
+- **brainpoolP320r1 had to be defined by hand**, because the TypeScript curve
+  library ships the other three brainpool curves and not that one. It is now
+  written out in `cose/src/ecdsa.ts` from RFC 5639 §3.4, and the cross-signing
+  case is what proves the transcription: a curve with one wrong hex digit in
+  `p`, `a`, `b`, `n`, `Gx` or `Gy` works perfectly, signs and verifies against
+  itself, and produces different bytes from everybody else. Byte agreement with
+  Bouncy Castle's own brainpoolP320r1 settles all six constants at once, and
+  incidentally confirms that both sides derive the RFC 6979 nonce with SHA-384
+  there — the digest RFC 9864 pairs with a 320-bit curve, which looks like a
+  mistake and is not. There is now **no asymmetry left**: every EC2 curve in
+  the COSE registry is computable on both sides.
 
 The COSE vectors live in [`vectors/cose-sign.json`](vectors/cose-sign.json)
 rather than in the specification's annex, because COSE is how a metrological

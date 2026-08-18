@@ -33,6 +33,8 @@
 
 import { createHash }                                   from 'node:crypto';
 
+import { ecdsa, weierstrass }                           from '@noble/curves/abstract/weierstrass.js';
+import { sha384 }                                       from '@noble/hashes/sha2.js';
 import { p256, p384, p521 }                             from '@noble/curves/nist.js';
 import { brainpoolP256r1, brainpoolP384r1,
          brainpoolP512r1 }                              from '@noble/curves/misc.js';
@@ -40,6 +42,37 @@ import { secp256k1 }                                    from '@noble/curves/secp
 
 import { CoseError }                                    from './errors.ts';
 import type { CoseCurve }                               from './curve.ts';
+
+
+/**
+ * brainpoolP320r1 [RFC 5639, Section 3.4].
+ *
+ * The one curve of the COSE registry the underlying library does not ship —
+ * the three other brainpool curves it does — so it is defined here from its
+ * published domain parameters. Nothing about that is exotic: a Weierstrass
+ * curve *is* these seven numbers, and the library's own brainpool definitions
+ * are written exactly this way.
+ *
+ * Transcribing 320-bit constants is the kind of task that fails silently, so
+ * they are checked three times over: `weierstrass()` refuses a generator that
+ * is not on the curve, `tests/brainpool.test.ts` checks that the order really
+ * is the order, and the conformance suite signs with them and compares the
+ * bytes against Bouncy Castle's own brainpoolP320r1. A single wrong digit
+ * survives none of the three.
+ *
+ * SHA-384 goes with a 320-bit curve, which looks like a mistake and is what
+ * RFC 9864 registers for `ESB320`. It matters twice over here: it is the
+ * message digest, and it is the hash the RFC 6979 nonce is derived with.
+ */
+const brainpoolP320r1 = /* @__PURE__ */ ecdsa(weierstrass({
+    p:  BigInt('0xd35e472036bc4fb7e13c785ed201e065f98fcfa6f6f40def4f92b9ec7893ec28fcd412b1f1b32e27'),
+    a:  BigInt('0x3ee30b568fbab0f883ccebd46d3f3bb8a2a73513f5eb79da66190eb085ffa9f492f375a97d860eb4'),
+    b:  BigInt('0x520883949dfdbc42d3ad198640688a6fe13f41349554b49acc31dccd884539816f5eb4ac8fb1f1a6'),
+    n:  BigInt('0xd35e472036bc4fb7e13c785ed201e065f98fcfa5b68f12a32d482ec7ee8658e98691555b44c59311'),
+    Gx: BigInt('0x43bd7e9afb53d8b85289bcc48ee5bfe6f20137d10a087eb6e7871e2a10a599c710af8d0d39e20611'),
+    Gy: BigInt('0x14fdd05545ec1cc8ab4093247f77275e0743ffed117182eaa9c77877aaac6ac7d35245d1692e8ee1'),
+    h:  BigInt(1),
+}), sha384);
 
 
 /** The digest algorithms COSE signature algorithms use. */
@@ -60,12 +93,8 @@ interface EcdsaCurve {
 
 
 /**
- * The curves this build can actually compute with, by COSE curve name.
- *
- * brainpoolP320r1 is registered by COSE and is absent here, because the
- * underlying library does not implement it. That is stated rather than hidden:
- * `ESB320` parses, is recognized and is refused at the point of use, which is
- * the honest failure — silently substituting another curve would not be.
+ * The curves this build can compute with, by COSE curve name — which is every
+ * EC2 curve the COSE registry has.
  */
 const IMPLEMENTED: Readonly<Record<string, EcdsaCurve>> = {
     'P-256':            p256            as unknown as EcdsaCurve,
@@ -73,6 +102,7 @@ const IMPLEMENTED: Readonly<Record<string, EcdsaCurve>> = {
     'P-521':            p521            as unknown as EcdsaCurve,
     'secp256k1':        secp256k1       as unknown as EcdsaCurve,
     'brainpoolP256r1':  brainpoolP256r1 as unknown as EcdsaCurve,
+    'brainpoolP320r1':  brainpoolP320r1 as unknown as EcdsaCurve,
     'brainpoolP384r1':  brainpoolP384r1 as unknown as EcdsaCurve,
     'brainpoolP512r1':  brainpoolP512r1 as unknown as EcdsaCurve,
 };

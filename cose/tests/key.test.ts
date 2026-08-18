@@ -15,6 +15,7 @@ import { describe, expect, it }              from 'vitest';
 import { ALL_ALGORITHMS, ALL_CURVES, cbor,
          CoseAlgorithms, CoseCurves, CoseError,
          CoseKey, CoseSign1, isImplemented,
+         KEY_TYPE_EC2, KEY_TYPE_OKP,
          KeyLabel }                          from '../src/index.ts';
 import { hex, KEY_11, KEY_BILBO, unhex }     from './vectors.ts';
 
@@ -207,21 +208,25 @@ describe('the curve registry', () => {
 
     });
 
-    it('says plainly which registered curves this build cannot compute with', () => {
+    it('can compute with every EC2 curve it registers', () => {
 
-        // Registered by COSE, absent from the underlying library. Stating it
-        // is the honest failure; silently substituting a curve would not be.
-        expect(isImplemented(CoseCurves.brainpoolP320r1)).toBe(false);
+        for (const curve of ALL_CURVES.filter(each => each.keyType === KEY_TYPE_EC2))
+            expect(isImplemented(curve), curve.name).toBe(true);
 
-        expect(() => CoseKey.fromPrivateScalar(CoseCurves.brainpoolP320r1,
-                                               new Uint8Array(40).fill(1),
-                                               { algorithm: CoseAlgorithms.ESB320 }))
+    });
+
+    it('refuses the OKP curves rather than pretending to sign with them', () => {
+
+        // X25519 and Ed448 are in the registry and are not ECDSA curves. The
+        // refusal names the curve, which is the honest failure; silently
+        // substituting one would not be.
+        for (const curve of ALL_CURVES.filter(each => each.keyType === KEY_TYPE_OKP))
+            expect(isImplemented(curve), curve.name).toBe(false);
+
+        expect(() => CoseKey.fromPrivateScalar(CoseCurves.Ed25519,
+                                               new Uint8Array(32).fill(1),
+                                               { algorithm: CoseAlgorithms.Ed25519 }))
             .toThrow(/registered by COSE, but this build does not implement it/u);
-
-        for (const curve of [CoseCurves.P256, CoseCurves.P384, CoseCurves.P521,
-                             CoseCurves.secp256k1, CoseCurves.brainpoolP256r1,
-                             CoseCurves.brainpoolP384r1, CoseCurves.brainpoolP512r1])
-            expect(isImplemented(curve)).toBe(true);
 
     });
 

@@ -57,6 +57,17 @@
             "payload": "546869732069732074686520636F6E74656E742E"
         },
         {
+            "id": "sign1-esb320-brainpool",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "brainpoolP320r1, which the TypeScript side's curve library does not ship and which is therefore defined there from the domain parameters of RFC 5639 Section 3.4. Byte agreement with Bouncy Castle's own brainpoolP320r1 is what proves that transcription — a single wrong hex digit in p, a, b, n, Gx or Gy gives a curve that works perfectly and is not this one. Note the 320-bit curve paired with SHA-384, which RFC 9864 registers deliberately and which is also the hash the RFC 6979 nonce is derived with.",
+            "algorithm": "ESB320",
+            "curve": "brainpoolP320r1",
+            "keyD": "2A7C6E1B4F9038D5C2A1B60E7F3D8C4952E1A0B7C6D5E4F3021A9B8C7D6E5F40312B4A5968C7D8E9",
+            "keyIdentifier": "B320B320B320B320",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
             "id": "sign1-es256k-secp256k1",
             "class": "normative",
             "shape": "sign1",

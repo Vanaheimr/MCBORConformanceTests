@@ -53,10 +53,16 @@ into a repository of its own is a `git mv` and one import.
 | `ESB256` / `ESB320` / `ESB384` / `ESB512` | −265 / −266 / −267 / −268 | brainpoolP256r1 / P320r1 / P384r1 / P512r1 | SHA-256 / 384 / 384 / 512 |
 | `ES256K` | −47 | secp256k1 | SHA-256 |
 
-**brainpoolP320r1 is registered but not computable here**, because the
-underlying curve library does not implement it. `ESB320` therefore parses, is
-recognized and is refused at the point of use — the honest failure, where
-silently substituting another curve would not be.
+Every EC2 curve in the COSE registry is computable here. **brainpoolP320r1 is
+the one this package defines itself**, in [`src/ecdsa.ts`](src/ecdsa.ts), from
+the domain parameters of [RFC 5639 §3.4](https://www.rfc-editor.org/rfc/rfc5639#section-3.4):
+the underlying library ships the three other brainpool curves and not that one.
+Transcribing 320-bit constants is the kind of task that fails silently, so they
+are checked three times over — the curve constructor refuses a generator that
+is not on the curve, [`tests/brainpool.test.ts`](tests/brainpool.test.ts)
+checks that the order really is the order, and the conformance suite signs with
+them and compares the bytes against Bouncy Castle's own brainpoolP320r1. A
+single wrong digit survives none of the three.
 
 Not implemented: `COSE_Countersignature0`, EdDSA, MAC, encryption, and the
 X.509 header parameters of [RFC 9360](https://www.rfc-editor.org/rfc/rfc9360)
@@ -153,6 +159,12 @@ reproduced by signing — but they can be *verified*, which is the stronger
 statement: a single wrong byte anywhere in the `Sig_structure`, the header
 buckets or the key would make the verification fail. Where the signer used
 RFC 6979, reproduction is available too, and the tests take it.
+
+RFC 5639 publishes brainpoolP320r1's domain parameters and no ECDSA vector for
+them, so that curve is checked by arithmetic identity instead — the generator
+lies on the curve, and the order really is the order of the generator — and
+then, decisively, by the conformance suite comparing its signatures against a
+second implementation of the same curve.
 
 ## A note on German calibration law
 
