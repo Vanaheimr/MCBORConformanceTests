@@ -92,11 +92,18 @@ jobs:
       # The verdict table and — on a red run — the normative failures, on the
       # Actions front page, so that "which implementation failed which vector"
       # does not take downloading an artifact. The full report, the survey
-      # observations and the divergence list stay in results/.
+      # observations and the divergence list stay in results/. A run that died
+      # before the driver wrote a report has nothing to publish, and saying so
+      # must not turn into a second failure next to the real one.
       - name: Publish the summary
         if: ${{ !cancelled() }}
         shell: bash
-        run: awk '/^## Cross-implementation divergences/{exit} {print}' results/report.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          if [ -f results/report.md ]; then
+            awk '/^## Cross-implementation divergences/{exit} {print}' results/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'The suite did not get as far as writing a report.' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # The report is what a red run is about: which implementation failed
       # which vector, what both sides actually produced, and the raw
