@@ -27,29 +27,29 @@ findings that need a human decision, most important first.
   uncertainties, probability outside ]0,1], non-positive degrees of freedom,
   malformed rational exponents, unknown distributions.
 
-## 2. Interoperability breaks (JSON written by one side, unreadable or misread by the other)
+## 2. Interoperability breaks — all resolved (2026-08-18)
 
-These are the findings that matter for the JSON conversion, because a reading
-that fails to parse **silently stays a text string** — the measurement quietly
-becomes prose.
+Every break listed here on the first run is closed: the specification now
+names one canonical spelling per point (metrological-text.md §2), both
+implementations write it, and both accept the other's former spelling as
+input. Concretely: the canonical form is the caret form (`9.81 m·s^-2`,
+`×10^3`) with superscripts accepted on input everywhere; `+/-` and `x` are
+accepted spellings of `±` and `×`; the canonical distribution name is
+`student-t` with `t` accepted; the canonical degrees-of-freedom key is `ν=`
+with `nu=` accepted; a dimensionless reading states the unit `1` (`42 1`),
+so a bare numeric string is never a reading; and decimal fractions with a
+non-negative exponent no longer exist on the wire (finding 4.1), so the
+`500e0 V` spelling is gone.
 
-| # | Producer writes | Consumer behaviour | Root cause |
-|---|---|---|---|
-| 2.1 | TS: `9.81 m·s⁻²` (superscript exponents, default output) | C# cannot parse it → stays a string | C# grammar/parser has no superscripts; TS default canonical uses them |
-| 2.2 | TS: `5×10³ m²` / `1.25×10⁻² d` (superscript scale) | C# cannot parse it | same |
-| 2.3 | TS (ascii mode): `(5 +/-1) A`, `2x10^3 s^-2` | C# accepts only `+-` and `×`/`*` before `10^` | C# §2.6 tolerance list is narrower than TS's |
-| 2.4 | C#: `(5 ±1) A, dist=t` | TS rejects `t` (knows only `student-t`) | the two documents specify different distribution names; C# *parses* both, TS only its own |
-| 2.5 | TS: `42` (dimensionless reading, unit omitted) | C# rejects: "a metrological value must state its unit" | TS grammar makes the unit optional; C# doc says a reading always states one |
-| 2.6 | TS: `500e0 V`, `50e1 V` (decimal fractions with exponent ≥ 0) | C# parses them but collapses to the integer `500` | see finding 4.1 |
-
-**Where they already interoperate:** `ν=45` (C#) ↔ `nu=45` (TS) parse in both
-directions; `·`, `*`, `±`, `+-`, `µ`/`μ`, `Ω` both codepoints, `e`-notation
-input, and the unit aliases all cross-parse.
+The cross-feed of the suite — every canonical text and every JSON document
+written by one implementation, read back by the other — passes with **zero
+failures in both directions**.
 
 ## 3. Normative failures against the current specification texts
 
-**All resolved on 2026-08-18** — the suite now reports **zero normative
-failures** for both implementations. What happened to each finding:
+**All resolved on 2026-08-18** — the suite reports **zero normative
+failures** for both implementations (335 normative passes each, §4-decision
+state). What happened to each finding:
 
 | Finding was | Resolution |
 |---|---|
@@ -59,10 +59,40 @@ failures** for both implementations. What happened to each finding:
 | TS text parser accepted `5.0mA` (missing space before the unit) | **MetrologicalCBOR.TS fixed**: the space between the number (with its scale) and the unit is now required. |
 | TS text parser accepted duplicate statements (`k=2, k=3` yielded k=3) | **MetrologicalCBOR.TS fixed**: the same statement twice is now an error, matching metrological-text §2.5. |
 
-## 4. Divergences the specification must decide (currently undefined or contradictory)
+## 4. Divergences the specification decided (2026-08-18)
 
-Each row is observed behaviour with defaults; recommendations are proposals,
-not applied anywhere.
+Every row below is **resolved**: the specification was amended (tag
+specification `README.md` §3.1–§3.4 and §6; `metrological-text.md` §2 and
+§3), and both implementations were brought to it. The suite now reports 335
+normative passes and zero failures per implementation; the four remaining
+default-behaviour divergences are exactly the strict/lenient decoder-profile
+difference §6 now describes (non-shortest heads, indefinite lengths,
+non-preferred bignums — the strict profile is RECOMMENDED, TS's default;
+the lenient profile is C#'s generic-reader default) plus TS's tolerance for
+spaces as factor separators, which the specification does not bless and the
+suite keeps under survey.
+
+What was decided, per row of the original table:
+
+| # | Decision |
+|---|---|
+| 4.1 | Decimal fractions with exponent ≥ 0 are **forbidden on the wire** (§3.1): an integral reading is written as an integer (or bignum), scientific text input with no decimal places left denotes that integer, and both decoders reject the wire spelling. This also dissolved C#'s `Decimal`-model limitation and TS's `500e0` output. |
+| 4.2/4.3 | Canonical text = the **caret form** (`m·s^-2`, `×10^3`). Superscripts, `x` for `×` and `+/-` for `±` are accepted input in both implementations and listed in §2.6. TS changed its default output; C# gained the tolerances. |
+| 4.4 | **`dist=student-t`** is written; `t` is an accepted input alias. C# changed its output, TS gained the alias. |
+| 4.5 | **`ν=`** is written (`nu=` in ASCII mode and always accepted). TS changed its Unicode output. |
+| 4.6 | A metrological text **always states its unit**; dimensionless readings are `42 1`. TS dropped its bare-number form, which also stopped its JSON conversion from tagging every numeric string. |
+| 4.7 | **`km²` is rejected** — a prefix never folds onto a factor that is not at the first power, superscript or caret (`ks^-2`). TS fixed both paths. |
+| 4.8 | Unit **names are not symbols** (`1 hour` is prose). §2.1 says symbols and aliases only; C# restricted its text and wire lookups. |
+| 4.9 | Non-reduced rational exponents (and the rational spelling of an integer, `[2, 1]`) are **rejected**, not reduced (§3.2). C# added the checks. |
+| 4.10 | `[[unit, 1]]`, the redundant prefix 0, unknown uncertainty-map keys and the exponent zero are all **decoder-MUST rejections** now (§3.2–§3.4). C# added the first three, TS the last. |
+| 4.11 | §6 now names the two decoder profiles: **strict (RECOMMENDED)** verifies deterministic encoding; **lenient** MAY accept non-deterministic bytes but MUST NOT reproduce them. The defaults of the two implementations are both describable and stay as they are. |
+| 4.12–4.16 | The JSON conversion is **exact and pinned** (metrological-text §3): integers of any size and decimal fractions are exact JSON numbers in both directions and never pass through binary floats; floats are written with their point (`1.0`) and come back as exact decimals; tag 1 becomes the instant as `YYYY-MM-DDThh:mm:ss.fffZ`; tags 2/3/4 outside readings convert as numbers. TS grew the exact text path this requires (`mcborToJsonText` / `jsonTextToMcbor`), since JavaScript's `JSON.parse`/`stringify` cannot carry exact digits; C# normalises JSON exponents that leave no decimal places to integers. |
+
+Still open, deliberately: whether `k = 0` is valid (the spec is silent, both
+reject differently-shaped inputs around it — kept under survey), and the
+input-tolerance micro-questions the suite records without judging (leading
+zeros `05.0`, surrounding whitespace, `(5.00±0.02)` without the inner space,
+spaces as factor separators).
 
 | # | Question | C# (Styx) | TS | Recommendation |
 |---|---|---|---|---|

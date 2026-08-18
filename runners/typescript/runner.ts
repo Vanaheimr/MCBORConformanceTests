@@ -6,9 +6,9 @@
  * the comparison driver — this program only records what the implementation
  * does.
  *
- * Note on JSON numbers: this runner deliberately uses JSON.parse/JSON.stringify,
- * because that is what the ecosystem this library serves uses. Digit loss on
- * numbers like 1.10 or 2^53+1 is observed behaviour, not a runner bug.
+ * JSON conversion goes through the library's exact text path
+ * (mcborToJsonText / jsonTextToMcbor), which reads and writes the digits as
+ * written — the tree path through JSON.parse cannot, and is not under test.
  *
  * Usage: tsx runner.ts <output.json> <vectorFileOrDir> [more...]
  */
@@ -21,8 +21,8 @@ import {
     encodeMetrologicalValue,
     formatMetrologicalValue,
     parseMetrologicalValue,
-    mcborToJson,
-    jsonToMcbor,
+    mcborToJsonText,
+    jsonTextToMcbor,
     bytesToHex,
     hexToBytes,
     type MetrologicalValue,
@@ -65,7 +65,7 @@ function parseTextToHex(text: string): Check {
 }
 
 function jsonToCborHex(jsonText: string): Check {
-    return capture(() => okHex(bytesToHex(jsonToMcbor(JSON.parse(jsonText)))));
+    return capture(() => okHex(bytesToHex(jsonTextToMcbor(jsonText))));
 }
 
 
@@ -123,7 +123,7 @@ function runDocuments(testCase: VectorCase, checks: Record<string, Check>): void
     let json: string | undefined;
 
     checks['toJson'] = capture(() => {
-        json = JSON.stringify(mcborToJson(hexToBytes(testCase.cborHex!)));
+        json = mcborToJsonText(hexToBytes(testCase.cborHex!));
         return okJson(json);
     });
 
