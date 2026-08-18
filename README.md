@@ -1,5 +1,7 @@
 # Metrological CBOR conformance tests
 
+[![Conformance](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml)
+
 Cross-implementation conformance testing for **Metrological CBOR**
 (CBOR tag 44252): the C# reference implementation ([Vanaheimr
 Styx](https://github.com/Vanaheimr/Styx)) and the TypeScript reference
@@ -52,6 +54,15 @@ npm test
 
 `node compare/run.mjs --skip-run` re-judges existing recordings without
 re-running the implementations.
+
+## Continuous integration
+
+Every push runs the suite against the **pinned** submodule states on Linux
+and Windows. A nightly job additionally advances all three submodules to
+their latest `master` and runs again — red there and green on the pinned job
+means an upstream change broke conformance or interoperability, and the fix
+belongs upstream before the pins are bumped. Either way,
+`results/report.md` is uploaded as a build artifact.
 
 ## Reading the results
 

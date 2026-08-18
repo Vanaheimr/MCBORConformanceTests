@@ -1,0 +1,116 @@
+name: Conformance
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  # Manual runs from the Actions tab ("Run workflow").
+  workflow_dispatch:
+  schedule:
+    # Nightly drift detection: the pinned states do not change overnight, but
+    # the three upstream repositories do — and neither reference
+    # implementation pins the other, so a change that breaks
+    # cross-implementation interop or the specification's vectors would
+    # otherwise surface only on the next manual run here.
+    - cron: '17 4 * * *'
+
+concurrency:
+  # Pull requests: one run per branch, newest wins. Pushes: one run per
+  # commit, nothing cancels anything — the same reasoning as Styx's gate:
+  # a commit with no verdict is a hole nobody comes back to fill.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+
+  pinned:
+    # The state this repository actually pins: the three submodule commits
+    # recorded here, on both platforms the suite is used on. This is the
+    # verdict a clone of this repository reproduces.
+    name: pinned submodules (${{ matrix.os }})
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # The TypeScript runner needs tsx (the library itself has no runtime
+      # dependencies and is imported from source). Installed explicitly from
+      # the lockfile rather than by the driver's fallback `npm install`, so
+      # that CI is deterministic.
+      - name: Install the TypeScript runner's toolchain
+        run: npm ci
+        working-directory: runners/typescript
+
+      - name: Run the conformance suite
+        run: node compare/run.mjs
+
+      # The report is what a red run is about: which implementation failed
+      # which vector, and what both sides actually produced. !cancelled()
+      # rather than success(), because the files matter most when the run is
+      # red — and results/ exists even then, the driver writes it before it
+      # exits non-zero.
+      - name: Upload the results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: results-pinned-${{ matrix.os }}
+          path: results/
+
+  latest:
+    # Drift detection: the same suite against the latest master of all three
+    # submodules. Red here and green on `pinned` means an upstream change
+    # broke conformance or interop; the fix belongs upstream (or in the
+    # vectors), and this repository's pins are bumped once it is green again.
+    name: latest submodules
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Advance every submodule to its latest master
+        run: |
+          git submodule foreach 'git fetch origin master && git checkout FETCH_HEAD'
+          git submodule status
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install the TypeScript runner's toolchain
+        run: npm ci
+        working-directory: runners/typescript
+
+      - name: Run the conformance suite
+        run: node compare/run.mjs
+
+      - name: Upload the results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: results-latest
+          path: results/

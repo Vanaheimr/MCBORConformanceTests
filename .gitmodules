@@ -1,6 +1,6 @@
 [submodule "libs/specification"]
 	path = libs/specification
-	url = git@github.com:OpenChargingTechnology/Whitepapers.git
+	url = https://github.com/OpenChargingTechnology/Whitepapers.git
 [submodule "libs/Styx"]
 	path = libs/Styx
 	url = https://github.com/Vanaheimr/Styx
