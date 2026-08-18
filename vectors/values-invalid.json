@@ -5,7 +5,7 @@
 
         { "id": "value-float",                    "hex": "D9ACDC82F9480004",                 "reason": "value MUST NOT be a binary float (spec §3.1)",                       "description": "half-precision 8.0 as value" },
         { "id": "value-bigfloat",                 "hex": "D9ACDC82C582200304",               "reason": "value MUST NOT be a bigfloat (spec §3.1)",                           "description": "tag 5 as value" },
-        { "id": "value-bare-bignum",              "hex": "D9ACDC82C24901000000000000000004", "reason": "value MUST be an integer or a decimal fraction (spec §3.1)",         "description": "bare tag 2 bignum as value, without a decimal fraction around it" },
+        { "id": "value-non-preferred-bignum",     "hex": "D9ACDC82C2410504",                 "reason": "an integer that major type 0 can carry MUST NOT be written as a bignum (spec §3.1); decoder acceptance is the deterministic-profile question", "description": "5 as a tag 2 bignum", "expect": "survey" },
         { "id": "arity-one",                      "hex": "D9ACDC8105",                       "reason": "array MUST have 2..4 items (spec §3)",                               "description": "one-element array" },
         { "id": "arity-five",                     "hex": "D9ACDC850504000000",               "reason": "array MUST have 2..4 items (spec §3)",                               "description": "five-element array" },
         { "id": "tag-content-integer",            "hex": "D9ACDC05",                         "reason": "tag content MUST be an array (spec §3)",                             "description": "bare integer as tag content" },

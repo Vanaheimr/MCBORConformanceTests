@@ -241,6 +241,13 @@
             "text":        "12345678901234567890.1 Wh"
         },
         {
+            "id":          "bignum-integer-value",
+            "description": "2^64 A — an integer beyond major type 0 as a tag 2 bignum value",
+            "source":      "spec §3.1",
+            "hex":         "D9ACDC82C24901000000000000000004",
+            "text":        "18446744073709551616 A"
+        },
+        {
             "id":          "decfrac-exponent-zero",
             "description": "4([0, 500]) V — decimal fraction with exponent zero; distinct from the plain integer on the wire",
             "hex":         "D9ACDC82C482001901F405",

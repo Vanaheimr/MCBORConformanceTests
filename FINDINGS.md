@@ -48,13 +48,16 @@ input, and the unit aliases all cross-parse.
 
 ## 3. Normative failures against the current specification texts
 
-| Implementation | Finding |
+**All resolved on 2026-08-18** — the suite now reports **zero normative
+failures** for both implementations. What happened to each finding:
+
+| Finding was | Resolution |
 |---|---|
-| **both** | A **bare bignum (tag 2) as `value`** is accepted; spec §3.1 says the value MUST be a CBOR integer (major type 0/1) or a tag-4 decimal fraction. Either both add the check, or the spec legalises `int/bignum` values (they are already legal as decfrac mantissas). |
-| C# | Accepts `{1: 1, 4: 0}` (distribution 0) and silently normalises it away; spec §3.4 says 0 MUST be omitted rather than written. TS rejects. |
-| C# | Text parser accepts `5. A` and `.5 A`; the grammar requires digits on both sides of the point. |
-| TS | Text parser accepts `5.0mA` (missing space before the unit); both grammars require the space. |
-| TS | Text parser accepts duplicate statements — `(5 ±0.5) A, k=2, k=3` yields k=3; metrological-text §2.5 says the same statement twice is an error. |
+| **both** accepted a bare bignum (tag 2/3) as `value`, which spec §3.1 forbade | **Specification changed** (§3.1 + CDDL): a bignum is now a legal value for integers beyond major type 0/1. Bignum mantissas were already legal — every parser handles bignums anyway — and huge integral readings were otherwise unrepresentable. Writing an integer that fits major type 0/1 as a bignum stays forbidden (preferred serialization); whether a decoder rejects that spelling is the deterministic-profile question of §4.11, surveyed as `value-non-preferred-bignum`. |
+| C# accepted `{1: 1, 4: 0}` (distribution 0) and silently normalised it away | **Styx fixed**: decoding now rejects a written distribution 0. |
+| C# text parser accepted `5. A` and `.5 A` | **Styx fixed**: a number-grammar gate requires digits on both sides of the decimal point and after the exponent marker — for the value, the uncertainty magnitude and the `k=`/`p=`/`ν=` statement values alike. |
+| TS text parser accepted `5.0mA` (missing space before the unit) | **MetrologicalCBOR.TS fixed**: the space between the number (with its scale) and the unit is now required. |
+| TS text parser accepted duplicate statements (`k=2, k=3` yielded k=3) | **MetrologicalCBOR.TS fixed**: the same statement twice is now an error, matching metrological-text §2.5. |
 
 ## 4. Divergences the specification must decide (currently undefined or contradictory)
 
