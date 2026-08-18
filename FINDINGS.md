@@ -63,14 +63,13 @@ state). What happened to each finding:
 
 Every row below is **resolved**: the specification was amended (tag
 specification `README.md` §3.1–§3.4 and §6; `metrological-text.md` §2 and
-§3), and both implementations were brought to it. The suite now reports 335
-normative passes and zero failures per implementation; the four remaining
+§3), and both implementations were brought to it. The suite reports zero
+normative failures per implementation — including the cross-feed of the
+TypeScript ASCII rendering into the C# parser — and the only remaining
 default-behaviour divergences are exactly the strict/lenient decoder-profile
-difference §6 now describes (non-shortest heads, indefinite lengths,
+difference §6 describes (non-shortest heads, indefinite lengths,
 non-preferred bignums — the strict profile is RECOMMENDED, TS's default;
-the lenient profile is C#'s generic-reader default) plus TS's tolerance for
-spaces as factor separators, which the specification does not bless and the
-suite keeps under survey.
+the lenient profile is C#'s generic-reader default).
 
 What was decided, per row of the original table:
 
@@ -88,11 +87,14 @@ What was decided, per row of the original table:
 | 4.11 | §6 now names the two decoder profiles: **strict (RECOMMENDED)** verifies deterministic encoding; **lenient** MAY accept non-deterministic bytes but MUST NOT reproduce them. The defaults of the two implementations are both describable and stay as they are. |
 | 4.12–4.16 | The JSON conversion is **exact and pinned** (metrological-text §3): integers of any size and decimal fractions are exact JSON numbers in both directions and never pass through binary floats; floats are written with their point (`1.0`) and come back as exact decimals; tag 1 becomes the instant as `YYYY-MM-DDThh:mm:ss.fffZ`; tags 2/3/4 outside readings convert as numbers. TS grew the exact text path this requires (`mcborToJsonText` / `jsonTextToMcbor`), since JavaScript's `JSON.parse`/`stringify` cannot carry exact digits; C# normalises JSON exponents that leave no decimal places to integers. |
 
-Still open, deliberately: whether `k = 0` is valid (the spec is silent, both
-reject differently-shaped inputs around it — kept under survey), and the
-input-tolerance micro-questions the suite records without judging (leading
-zeros `05.0`, surrounding whitespace, `(5.00±0.02)` without the inner space,
-spaces as factor separators).
+The last tolerance questions were decided on 2026-08-18 as well, each the
+way both implementations already agreed where they agreed: the coverage
+factor MUST be positive (§3.4); leading zeros, surrounding whitespace, the
+missing space inside the `±` parenthesis and after the statement comma are
+accepted input (§2.6); and a bare space is **never** a factor separator —
+`5 m s` stays prose (§2.6, the one point where the implementations differed;
+TypeScript dropped the tolerance). Nothing outside the decoder-profile
+choice remains open.
 
 | # | Question | C# (Styx) | TS | Recommendation |
 |---|---|---|---|---|

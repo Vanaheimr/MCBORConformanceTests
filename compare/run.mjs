@@ -81,9 +81,18 @@ function crossVectorsFrom(sourceResults) {
     }
 
     for (const testCase of vectors['values']) {
+
         const recorded = sourceResults.results[`values:${testCase.id}`];
+
         if (recorded?.format?.status === 'ok')
             textCases.push({ id: `xtext-${testCase.id}`, text: recorded.format.text });
+
+        // The ASCII rendering is a second spelling of the same reading and
+        // must cross-parse just like the canonical one. Only the TypeScript
+        // runner records it; the C# implementation has one canonical output.
+        if (recorded?.formatAscii?.status === 'ok')
+            textCases.push({ id: `xtext-ascii-${testCase.id}`, text: recorded.formatAscii.text });
+
     }
 
     return [
@@ -207,6 +216,24 @@ for (const testCase of vectors['values']) {
         judge(testCase.id, `cross-text ${impl}→${otherName}`, otherName, klass,
               parsed?.status === 'ok' && parsed.hex === canonicalHex,
               `${otherName} parsing ${JSON.stringify(format.text)} (written by ${impl}): expected ${canonicalHex}, got ${describe(parsed)}`);
+
+    }
+
+    // cross-feed: the TypeScript ASCII rendering, parsed by C#. A second
+    // spelling of the same reading, held to the same expectation.
+    {
+
+        const ascii = checkOf(ts, key, 'formatAscii');
+
+        if (ascii?.status === 'ok') {
+
+            const parsed = checkOf(csharpCross, `parse-texts:xtext-ascii-${testCase.id}`, 'parse');
+            const klass  = hexClass === 'normative' && textClass === 'normative' ? 'normative' : 'survey';
+            judge(testCase.id, 'cross-text-ascii typescript→csharp', 'csharp', klass,
+                  parsed?.status === 'ok' && parsed.hex === canonicalHex,
+                  `csharp parsing the ASCII form ${JSON.stringify(ascii.text)} (written by typescript): expected ${canonicalHex}, got ${describe(parsed)}`);
+
+        }
 
     }
 
