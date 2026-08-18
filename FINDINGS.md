@@ -132,3 +132,66 @@ choice remains open.
   The IANA "Description of semantics" URL in the specification's Section 8,
   which pointed at the removed Styx file, now points at the specification
   itself.
+
+## 6. COSE cross-signing (added 2026-08-18)
+
+Signing is what turns a metrological value into something a third party can
+check, and it is also the sharpest possible conformance test of the encoders:
+the encoding of a reading is a pure function of its value, scale, unit, prefix
+and uncertainty, so two implementations that disagree about **one byte** of one
+reading produce signatures that fail at the other. Nothing about that failure
+is visible in either implementation's own test suite.
+
+Styx has carried a full COSE implementation (`Styx/Illias/COSE`) since before
+this project; MetrologicalCBOR.TS deliberately has none and never will — a data
+format that also carried a crypto stack would be unusable as the leaf of
+somebody else's schema. There was therefore nothing to cross-sign against. This
+project adds the missing half as [`cose/`](cose/README.md), a separate
+TypeScript package with its own dependency (`@noble/curves`), leaving the mCBOR
+library's dependency tree empty exactly as Styx keeps `Illias/COSE` beside
+`Illias/CBOR` rather than inside it.
+
+**Result: 13 cases, 58 byte-level agreements, 26 cross-verifications, zero
+failures.** Both implementations produce *identical bytes* for the
+Sig_structure, the signature, the complete message and the RFC 9679 key
+thumbprint, and each verifies everything the other signed — across `ES256`,
+`ES384`, `ES512`, `ESP256`, `ESB256` (brainpoolP256r1), `ES256K` (secp256k1),
+tagged and untagged messages, detached payloads, external additional
+authenticated data, the empty-protected-bucket application-algorithm form,
+`COSE_Sign` with two signers on two curves, and RFC 9338 version 2
+countersignatures. One case signs a tag-44252 reading directly, which is the
+claim the whole suite exists to make.
+
+Byte-for-byte comparison is possible at all only because both sides sign
+**deterministically** (RFC 6979) for this suite. That is the one place where
+the runners depart from "the implementation's default settings" — Styx's
+default is a randomized nonce — and it is recorded in the vector file. The
+randomized mode is still exercised, by the cross-verification, which accepts
+either form.
+
+Three things this surfaced that a single implementation could not have:
+
+- **Low-S normalization is an interoperability trap, not a detail.**
+  `@noble/curves` normalizes `s` to its low form by default; COSE does not, and
+  RFC 6979 publishes the un-normalized values. With the default left alone, the
+  TypeScript side produced signatures that verified everywhere and were
+  nevertheless *different bytes* from the C# ones for the same key and message.
+  Signing now passes `lowS: false`, and verification passes it too, so a meter
+  that signs without normalizing is not refused.
+- **The RFC 9052 examples are themselves deterministic.** Signing Appendix
+  C.2.1's payload with its published key reproduces the published signature
+  byte for byte, which is a considerably stronger check on the Sig_structure
+  than verifying it, and the suite now takes it.
+- **brainpoolP320r1 is registered by COSE and absent from the curve library.**
+  `ESB320` therefore parses, is recognized and is refused at the point of use.
+  Stating that is the honest failure; silently substituting another curve would
+  not be. It is the one algorithm in the registry the TypeScript side cannot
+  compute with, and the only asymmetry against Styx.
+
+The COSE vectors live in [`vectors/cose-sign.json`](vectors/cose-sign.json)
+rather than in the specification's annex, because COSE is how a metrological
+value is signed and not what one is. The new package is additionally pinned
+against RFC 9052 C.2.1/C.1.1/C.1.2, RFC 9338 A.2.1, RFC 6979 A.2.5 and the
+specification's own 713-byte worked signed record — whose station signature,
+both meter signatures and operator countersignature it verifies, and three of
+whose four signatures it reproduces byte for byte.

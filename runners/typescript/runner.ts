@@ -28,6 +28,15 @@ import {
     type MetrologicalValue,
 } from '../../libs/MetrologicalCBOR.TS/src/index.ts';
 
+import {
+    algorithmByName,
+    CoseKey,
+    CoseSign,
+    CoseSign1,
+    curveByName,
+} from '../../cose/src/index.ts';
+import type { CoseSignature, Verification } from '../../cose/src/index.ts';
+
 
 type Check = Record<string, unknown>;
 
@@ -78,6 +87,22 @@ interface VectorCase {
     parseTexts?:  { text: string }[];
     cborHex?:     string;
     json?:        string;
+
+    // cose-sign / cose-verify
+    shape?:            string;
+    algorithm?:        string;
+    curve?:            string;
+    keyD?:             string;
+    keyIdentifier?:    string;
+    algorithm2?:       string;
+    curve2?:           string;
+    keyD2?:            string;
+    keyIdentifier2?:   string;
+    payload?:          string;
+    externalAad?:      string;
+    detached?:         boolean;
+    tagged?:           boolean;
+    message?:          string;
 }
 
 function runValues(testCase: VectorCase, checks: Record<string, Check>): void {
@@ -141,6 +166,207 @@ function runParseTexts(testCase: VectorCase, checks: Record<string, Check>): voi
 }
 
 
+// -------------------------------------------------------------------- COSE --
+
+/**
+ * The key a case signs or verifies with. Both halves are derived from the
+ * private scalar, so a verifier and a signer can never disagree about which
+ * public key belongs to which private one.
+ */
+function keyOf(curveName: string, dHex: string, algorithmName: string, keyIdentifier?: string): CoseKey {
+
+    const curve = curveByName(curveName);
+
+    if (curve === null)
+        throw new Error(`unknown curve '${curveName}'`);
+
+    const algorithm = algorithmByName(algorithmName);
+
+    if (algorithm === null)
+        throw new Error(`unknown algorithm '${algorithmName}'`);
+
+    return CoseKey.fromPrivateScalar(curve, hexToBytes(dHex), {
+        algorithm,
+        keyIdentifier: keyIdentifier !== undefined ? hexToBytes(keyIdentifier) : null,
+    });
+
+}
+
+const optionalBytes = (hex?: string): Uint8Array | null =>
+    hex !== undefined ? hexToBytes(hex) : null;
+
+const primaryKey   = (testCase: VectorCase): CoseKey =>
+    keyOf(testCase.curve!, testCase.keyD!, testCase.algorithm!, testCase.keyIdentifier);
+
+const secondaryKey = (testCase: VectorCase): CoseKey =>
+    keyOf(testCase.curve2!, testCase.keyD2!, testCase.algorithm2!, testCase.keyIdentifier2);
+
+
+/**
+ * Sign one case, recording what a second implementation has to agree with:
+ * the structure that was signed, the signature bytes, the whole message, and
+ * the key thumbprints.
+ *
+ * Signing is deterministic (RFC 6979), which is what makes the signature bytes
+ * comparable at all — a randomized signature is a different 64 bytes every
+ * time and says nothing about whether two implementations agree.
+ */
+function runCoseSign(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    const key         = primaryKey(testCase);
+    const payload     = hexToBytes(testCase.payload!);
+    const externalAad = optionalBytes(testCase.externalAad);
+
+    const options = {
+        externalAad,
+        detachPayload: testCase.detached === true,
+        tagged:        testCase.tagged !== false,
+    };
+
+    checks['thumbprint'] = capture(() => okHex(bytesToHex(key.thumbprint())));
+
+    switch (testCase.shape) {
+
+        case 'sign1':
+        case 'sign1-app-algorithm': {
+
+            const message = testCase.shape === 'sign1'
+                                ? CoseSign1.sign(payload, key, options)
+                                : CoseSign1.signWithApplicationAlgorithm(payload, key, options);
+
+            checks['toBeSigned'] = capture(() => okHex(bytesToHex(
+                CoseSign1.toBeSigned(message.protectedHeaderBytes, payload, externalAad))));
+            checks['signature']  = capture(() => okHex(bytesToHex(message.signature)));
+            checks['message']    = capture(() => okHex(bytesToHex(message.toBytes())));
+
+            break;
+
+        }
+
+        case 'sign': {
+
+            const second  = secondaryKey(testCase);
+            const message = CoseSign.sign(payload, key, options).addSignature(second, options);
+
+            checks['toBeSigned']  = capture(() => okHex(bytesToHex(
+                message.toBeSigned(message.signatures[0]!, { externalAad }))));
+            checks['toBeSigned2'] = capture(() => okHex(bytesToHex(
+                message.toBeSigned(message.signatures[1]!, { externalAad }))));
+            checks['signature']   = capture(() => okHex(bytesToHex(message.signatures[0]!.signature)));
+            checks['signature2']  = capture(() => okHex(bytesToHex(message.signatures[1]!.signature)));
+            checks['message']     = capture(() => okHex(bytesToHex(message.toBytes())));
+            checks['thumbprint2'] = capture(() => okHex(bytesToHex(second.thumbprint())));
+
+            break;
+
+        }
+
+        case 'countersign': {
+
+            const second  = secondaryKey(testCase);
+            const signed  = CoseSign1.sign(payload, key, options);
+            const message = signed.addCountersignature(second, options);
+
+            checks['toBeSigned']  = capture(() => okHex(bytesToHex(
+                CoseSign1.toBeSigned(signed.protectedHeaderBytes, payload, externalAad))));
+            checks['toBeSigned2'] = capture(() => okHex(bytesToHex(
+                message.toBeCountersigned(message.countersignatures[0]!, { externalAad }))));
+            checks['signature']   = capture(() => okHex(bytesToHex(message.signature)));
+            checks['signature2']  = capture(() => okHex(bytesToHex(message.countersignatures[0]!.signature)));
+            checks['message']     = capture(() => okHex(bytesToHex(message.toBytes())));
+            checks['thumbprint2'] = capture(() => okHex(bytesToHex(second.thumbprint())));
+
+            break;
+
+        }
+
+        default:
+            checks['message'] = error(`unknown COSE shape '${String(testCase.shape)}'`);
+
+    }
+
+}
+
+
+/** A verification, recorded rather than judged. */
+function verification(result: Verification): Check {
+    return result.verified
+               ? { status: 'ok', verified: true }
+               : { status: 'ok', verified: false, reason: result.reason };
+}
+
+
+/**
+ * Verify a message the *other* implementation produced.
+ *
+ * Everything a case carries has to verify, not merely something: a COSE_Sign
+ * verifies only when every one of its signatures does, and a countersigned
+ * message only when the body and the vouching both do.
+ */
+function runCoseVerify(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    checks['verify'] = capture(() => {
+
+        const key         = primaryKey(testCase).publicKey();
+        const externalAad = optionalBytes(testCase.externalAad);
+        const detached    = testCase.detached === true ? hexToBytes(testCase.payload!) : null;
+        const options     = { externalAad, detachedPayload: detached };
+        const message     = hexToBytes(testCase.message!);
+
+        switch (testCase.shape) {
+
+            case 'sign1':
+            case 'sign1-app-algorithm':
+                return verification(CoseSign1.parse(message).verify(key, options));
+
+            case 'sign': {
+
+                const parsed = CoseSign.parse(message);
+                const second = secondaryKey(testCase).publicKey();
+
+                if (parsed.signatures.length !== 2)
+                    return { status: 'ok', verified: false, reason: `expected 2 signatures, found ${String(parsed.signatures.length)}` };
+
+                const first  = parsed.verify(parsed.signatures[0] as CoseSignature, key,    options);
+                const other  = parsed.verify(parsed.signatures[1] as CoseSignature, second, options);
+
+                return first.verified && other.verified
+                           ? { status: 'ok', verified: true }
+                           : { status: 'ok', verified: false,
+                               reason: [first, other].filter(each => !each.verified)
+                                                     .map(each => each.verified ? '' : each.reason).join('; ') };
+
+            }
+
+            case 'countersign': {
+
+                const parsed = CoseSign1.parse(message);
+                const second = secondaryKey(testCase).publicKey();
+
+                if (parsed.countersignatures.length !== 1)
+                    return { status: 'ok', verified: false, reason: `expected 1 countersignature, found ${String(parsed.countersignatures.length)}` };
+
+                const body    = parsed.verify(key, options);
+                const vouched = parsed.verifyCountersignature(parsed.countersignatures[0] as CoseSignature, second, options);
+
+                return body.verified && vouched.verified
+                           ? { status: 'ok', verified: true }
+                           : { status: 'ok', verified: false,
+                               reason: [body, vouched].filter(each => !each.verified)
+                                                      .map(each => each.verified ? '' : each.reason).join('; ') };
+
+            }
+
+            default:
+                return error(`unknown COSE shape '${String(testCase.shape)}'`);
+
+        }
+
+    });
+
+}
+
+
 // -------------------------------------------------------------------- main --
 
 const [outputFile, ...inputs] = process.argv.slice(2);
@@ -179,6 +405,8 @@ for (const vectorFile of vectorFiles) {
                 case 'documents':      runDocuments    (testCase, checks); break;
                 case 'json-to-cbor':   runJsonToCbor   (testCase, checks); break;
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
+                case 'cose-sign':      runCoseSign     (testCase, checks); break;
+                case 'cose-verify':    runCoseVerify   (testCase, checks); break;
             }
         }
         catch (cause) {

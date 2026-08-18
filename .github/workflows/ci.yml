@@ -85,6 +85,22 @@ jobs:
         working-directory: runners/typescript
         run: npm ci
 
+      # The COSE package carries the one cryptography dependency of this suite.
+      # It is the TypeScript side of the cross-signing tests, and it is the
+      # reason there is a second COSE implementation to cross-sign against at
+      # all — the mCBOR library does no cryptography and never will.
+      - name: Install the COSE package
+        working-directory: cose
+        run: npm ci
+
+      # Its own golden vectors first: RFC 9052, RFC 9338, RFC 6979 and the
+      # worked signed record of the specification. An implementation that
+      # cannot verify a published example has nothing to say about whether it
+      # agrees with the C# one, so this failing first is the useful order.
+      - name: Test the COSE implementation against the published vectors
+        working-directory: cose
+        run: npm test
+
       - name: Run the conformance suite
         timeout-minutes: 30
         run: node compare/run.mjs

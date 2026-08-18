@@ -23,6 +23,11 @@ const root       = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The vectors are the normative annex of the specification and live with it;
 // this repository contributes the runners, the cross-feed and the judgement.
 const vectorsDir = join(root, 'libs', 'specification', 'MetrologicalCBOR', 'test-vectors');
+
+// COSE is not part of the tag specification — it is how a metrological value
+// is signed, not what one is — so its vectors belong to this repository.
+const coseDir    = join(root, 'vectors');
+
 const resultsDir = join(root, 'results');
 const skipRun    = process.argv.includes('--skip-run');
 
@@ -42,9 +47,15 @@ function runCSharp(outputFile, ...inputs) {
         outputFile, ...inputs], { cwd: root });
 }
 
+const coseDirTS = join(root, 'cose');
+
 function runTypeScript(outputFile, ...inputs) {
     if (!existsSync(join(tsRunnerDir, 'node_modules', 'tsx')))
         sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: tsRunnerDir });
+    // The COSE package carries the one cryptography dependency of this suite;
+    // the runner imports it from source, as it does the mCBOR implementation.
+    if (!existsSync(join(coseDirTS, 'node_modules', '@noble', 'curves')))
+        sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: coseDirTS });
     sh('npx', ['tsx', 'runner.ts', outputFile, ...inputs], { cwd: tsRunnerDir });
 }
 
@@ -52,8 +63,8 @@ const phase1CSharp = join(resultsDir, 'csharp.json');
 const phase1TS     = join(resultsDir, 'typescript.json');
 
 if (!skipRun) {
-    runCSharp(phase1CSharp, vectorsDir);
-    runTypeScript(phase1TS, vectorsDir);
+    runCSharp(phase1CSharp, vectorsDir, coseDir);
+    runTypeScript(phase1TS, vectorsDir, coseDir);
 }
 
 const loadResults = file => JSON.parse(readFileSync(file, 'utf8'));
@@ -68,11 +79,16 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
     const suite = JSON.parse(readFileSync(join(vectorsDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
+{
+    const suite = JSON.parse(readFileSync(join(coseDir, 'cose-sign.json'), 'utf8'));
+    vectors[suite.suite] = suite.cases;
+}
 
 function crossVectorsFrom(sourceResults) {
 
     const jsonCases = [];
     const textCases = [];
+    const coseCases = [];
 
     for (const testCase of vectors['documents']) {
         const recorded = sourceResults.results[`documents:${testCase.id}`];
@@ -95,9 +111,20 @@ function crossVectorsFrom(sourceResults) {
 
     }
 
+    // Every signed message one implementation produced, for the other one to
+    // verify. The case travels with it, because a verifier needs to know which
+    // key, which algorithm and whether the payload was detached — none of
+    // which is guessable from the bytes alone.
+    for (const testCase of vectors['cose-sign']) {
+        const recorded = sourceResults.results[`cose-sign:${testCase.id}`];
+        if (recorded?.message?.status === 'ok')
+            coseCases.push({ ...testCase, id: `xcose-${testCase.id}`, message: recorded.message.hex });
+    }
+
     return [
         { suite: 'json-to-cbor', description: 'cross-feed', cases: jsonCases },
         { suite: 'parse-texts',  description: 'cross-feed', cases: textCases },
+        { suite: 'cose-verify',  description: 'cross-feed', cases: coseCases },
     ];
 }
 
@@ -107,16 +134,17 @@ const crossForCSharp = join(resultsDir, 'cross-from-typescript');
 if (!skipRun) {
 
     for (const [prefix, source] of [[crossForTS, csharp], [crossForCSharp, ts]]) {
-        const [jsonSuite, textSuite] = crossVectorsFrom(source);
+        const [jsonSuite, textSuite, coseSuite] = crossVectorsFrom(source);
         writeFileSync(`${prefix}-json.json`, JSON.stringify(jsonSuite, null, 2));
         writeFileSync(`${prefix}-text.json`, JSON.stringify(textSuite, null, 2));
+        writeFileSync(`${prefix}-cose.json`, JSON.stringify(coseSuite, null, 2));
     }
 
     runCSharp(join(resultsDir, 'csharp-cross.json'),
-              `${crossForCSharp}-json.json`, `${crossForCSharp}-text.json`);
+              `${crossForCSharp}-json.json`, `${crossForCSharp}-text.json`, `${crossForCSharp}-cose.json`);
 
     runTypeScript(join(resultsDir, 'typescript-cross.json'),
-                  `${crossForTS}-json.json`, `${crossForTS}-text.json`);
+                  `${crossForTS}-json.json`, `${crossForTS}-text.json`, `${crossForTS}-cose.json`);
 
 }
 
@@ -145,6 +173,8 @@ function checkOf(results, key, check) {
 function describe(recorded) {
     if (recorded === undefined)            return 'not recorded';
     if (recorded.status === 'error')       return `error: ${recorded.message}`;
+    if (recorded.verified === true)        return 'verified';
+    if (recorded.verified === false)       return `NOT verified: ${recorded.reason}`;
     if (recorded.hex  !== undefined)       return `ok: ${recorded.hex}`;
     if (recorded.text !== undefined)       return `ok: ${JSON.stringify(recorded.text)}`;
     if (recorded.json !== undefined)       return `ok: ${recorded.json}`;
@@ -345,6 +375,72 @@ for (const testCase of vectors['json-to-cbor']) {
 
 }
 
+// --- suite: cose-sign, and the cross-signing that is the point of it ---
+
+/**
+ * What a second implementation has to agree with, and why each one matters.
+ *
+ * `toBeSigned` is the structure claim: two implementations that disagree here
+ * disagree about what a signature *means*, and no amount of correct
+ * cryptography further down would help. `signature` is the arithmetic claim,
+ * available only because both sides sign deterministically. `message` is the
+ * serialization claim, and `thumbprint` the identity one.
+ */
+const COSE_AGREEMENTS = [
+    ['toBeSigned',  'the structure that was signed'],
+    ['toBeSigned2', 'the structure the second party signed'],
+    ['signature',   'the signature bytes (RFC 6979)'],
+    ['signature2',  'the second signature bytes (RFC 6979)'],
+    ['message',     'the complete signed message'],
+    ['thumbprint',  'the RFC 9679 key thumbprint'],
+    ['thumbprint2', 'the second key thumbprint'],
+];
+
+for (const testCase of vectors['cose-sign']) {
+
+    const key   = `cose-sign:${testCase.id}`;
+    const klass = testCase.class ?? 'normative';
+
+    for (const [check, what] of COSE_AGREEMENTS) {
+
+        const a = checkOf(csharp, key, check);
+        const b = checkOf(ts,     key, check);
+
+        // Only the two-party shapes record a second signature.
+        if (a === undefined && b === undefined)
+            continue;
+
+        judge(testCase.id, `agree ${check}`, 'csharp↔typescript', klass,
+              a?.status === 'ok' && b?.status === 'ok' && a.hex === b.hex,
+              `${what}: csharp ${describe(a)}, typescript ${describe(b)}`);
+
+    }
+
+    // The cross-signing itself: each implementation verifying what the other
+    // one signed. This is the claim that a signed metrological record made by
+    // one of them is checkable by the other.
+    for (const [impl, own, otherName, otherCross] of [
+             ['csharp', csharp, 'typescript', tsCross],
+             ['typescript', ts, 'csharp', csharpCross]]) {
+
+        const message = checkOf(own, key, 'message');
+
+        if (message?.status !== 'ok') {
+            judge(testCase.id, `cross-verify ${impl}→${otherName}`, otherName, klass, false,
+                  `${impl} produced no message to verify: ${describe(message)}`);
+            continue;
+        }
+
+        const verified = checkOf(otherCross, `cose-verify:xcose-${testCase.id}`, 'verify');
+
+        judge(testCase.id, `cross-verify ${impl}→${otherName}`, otherName, klass,
+              verified?.status === 'ok' && verified.verified === true,
+              `${otherName} verifying the message signed by ${impl}: ${describe(verified)}`);
+
+    }
+
+}
+
 // --- cross-implementation agreement on every shared check ---
 
 const divergences = [];
@@ -400,7 +496,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -437,6 +533,38 @@ if (divergences.length > 0) {
     }
     lines.push('');
 }
+
+// --- COSE cross-signing ---
+
+const coseVerdicts = verdicts.filter(v => vectors['cose-sign'].some(each => each.id === v.caseId));
+
+lines.push('## COSE cross-signing');
+lines.push('');
+lines.push('Each case is signed by both implementations and then handed to the other one to');
+lines.push('verify. Signing is deterministic ([RFC 6979](https://www.rfc-editor.org/rfc/rfc6979))');
+lines.push('on both sides, which is the only mode in which two implementations can be compared');
+lines.push('byte for byte at all.');
+lines.push('');
+lines.push('| Case | Shape | Algorithm | Bytes agree | C#→TS | TS→C# |');
+lines.push('|---|---|---|---|---|---|');
+
+for (const testCase of vectors['cose-sign']) {
+
+    const own       = coseVerdicts.filter(v => v.caseId === testCase.id);
+    const agreed    = own.filter(v => v.check.startsWith('agree'));
+    const toTS      = own.find(v => v.check === 'cross-verify csharp→typescript');
+    const toCSharp  = own.find(v => v.check === 'cross-verify typescript→csharp');
+    const mark      = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    const algorithm = testCase.algorithm2 !== undefined
+                          ? `${testCase.algorithm} + ${testCase.algorithm2}`
+                          : testCase.algorithm;
+
+    lines.push(`| ${testCase.id} | ${testCase.shape} | ${algorithm} | ` +
+               `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCSharp)} |`);
+
+}
+
+lines.push('');
 
 lines.push('## Survey observations');
 lines.push('');

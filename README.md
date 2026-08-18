@@ -18,6 +18,13 @@ metrological value travels as one string in the metrological text format
 written by one implementation converts back to the same canonical bytes by
 the other.
 
+The second focus is **COSE cross-signing** ([RFC 9052](https://www.rfc-editor.org/rfc/rfc9052)):
+each implementation signs, and the other one verifies. That is the sharpest
+test of an encoder there is — a reading encodes to a pure function of its
+value, unit, prefix and uncertainty, so two implementations disagreeing about
+one byte produce signatures that fail at the other, and nothing in either
+implementation's own test suite would show it.
+
 ## Layout
 
 | Path | Content |
@@ -25,6 +32,8 @@ the other.
 | `libs/specification` | the specification (git submodule) — including `MetrologicalCBOR/test-vectors/`, the normative vector annex this suite executes |
 | `libs/Styx` | the C# implementation (git submodule) |
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
+| `cose/` | [Vanaheimr COSE](cose/README.md) — the TypeScript COSE implementation, the second party the cross-signing tests need |
+| `vectors/` | the COSE cross-signing vectors, which belong here rather than in the specification's annex: COSE is how a metrological value is signed, not what one is |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |
@@ -43,11 +52,12 @@ npm test
 (equivalently `./run-conformance.sh` or `node compare/run.mjs`). The driver
 
 1. runs the C# and the TypeScript runner over the specification's
-   [test-vectors annex](libs/specification/MetrologicalCBOR/test-vectors/) —
-   each records what its implementation does with **default settings**,
-   without judging;
+   [test-vectors annex](libs/specification/MetrologicalCBOR/test-vectors/) and
+   over [`vectors/`](vectors/) — each records what its implementation does with
+   **default settings**, without judging;
 2. **cross-feeds**: every JSON document and every canonical text produced by
-   one implementation is handed to the other to convert back;
+   one implementation is handed to the other to convert back, and every COSE
+   message signed by one is handed to the other to verify;
 3. judges everything against the vector expectations — `normative` mismatches
    fail, `survey` observations are collected — and against the other
    implementation;
@@ -55,6 +65,20 @@ npm test
 
 `node compare/run.mjs --skip-run` re-judges existing recordings without
 re-running the implementations.
+
+The COSE package has golden vectors of its own — RFC 9052, RFC 9338, RFC 6979
+and the specification's worked signed record — which are worth running first,
+since an implementation that cannot verify a published example has nothing to
+say about whether it agrees with the C# one:
+
+```
+cd cose && npm install && npm test
+```
+
+The one departure from "default settings" is that both sides sign
+**deterministically** (RFC 6979) for the COSE suite. It is the only mode in
+which two implementations can be compared byte for byte; randomized signing is
+exercised by the cross-verification instead.
 
 ## Continuous integration
 

@@ -1,0 +1,158 @@
+{
+    "suite": "cose-sign",
+    "description": "COSE cross-signing conformance (RFC 9052 / 9053 / 9338 / 9679). Every case is signed by both implementations and then handed to the other one to verify. Signing is deterministic (RFC 6979) on both sides, because that is the only mode in which two implementations can be compared byte for byte; the randomized mode is exercised by the cross-verification instead. The keys are the example keys of RFC 9052 and of the specification's worked example, and they secure nothing.",
+    "cases": [
+        {
+            "id": "sign1-es256-p256",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The plain case: ECDSA with the curve taken from the key, algorithm in the protected bucket, key identifier in the unprotected one.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-es384-p384",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "A 96-byte signature, and SHA-384.",
+            "algorithm": "ES384",
+            "curve": "P-384",
+            "keyD": "6952487A0A16EACE6E9A69EFD062D7671D68D23FF68722326348827C3A94E2A1743A1DF8901B948412CCA26CA4372CED",
+            "keyIdentifier": "3232",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-es512-p521",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "P-521: a 66-byte group order, a 132-byte signature and a private key whose leading octet is zero. The case a big-integer serialization gets wrong.",
+            "algorithm": "ES512",
+            "curve": "P-521",
+            "keyD": "00085138DDABF5CA975F5860F91A08E91D6D5F9A76AD4018766A476680B55CD339E8AB6C72B5FACDB2A2A50AC25BD086647DD3E2E6E99E84CA2C3609FDF177FEB26D",
+            "keyIdentifier": "62696C626F",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-esp256-fully-specified",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The fully-specified algorithm of RFC 9864, which names its own curve rather than leaving it to the key.",
+            "algorithm": "ESP256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-esb256-brainpool",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The meter's algorithm in the worked example: brainpoolP256r1, registered for COSE by ISO/IEC 18013-5.",
+            "algorithm": "ESB256",
+            "curve": "brainpoolP256r1",
+            "keyD": "08F001BB03BEF4FBD1C59F10B50555CD37D2B53421331DBFA98815A581326FB3",
+            "keyIdentifier": "C6738177A6E6D04B",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-es256k-secp256k1",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "secp256k1, whose signatures are the ones most often normalized to the low-S form by libraries that should not.",
+            "algorithm": "ES256K",
+            "curve": "secp256k1",
+            "keyD": "C9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-untagged",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The CBOR tag is not covered by the signature, so the untagged message must carry the very same signature bytes as the tagged one.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "tagged": false
+        },
+        {
+            "id": "sign1-detached",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "A detached payload: the message carries nil, and the verifier has to be handed the payload separately.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "detached": true
+        },
+        {
+            "id": "sign1-external-aad",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "Externally supplied additional authenticated data, which is signed without travelling in the message.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "externalAad": "11AA22BB33CC44DD55006699"
+        },
+        {
+            "id": "sign1-application-algorithm",
+            "class": "normative",
+            "shape": "sign1-app-algorithm",
+            "description": "The leanest signed message: an empty protected bucket, the algorithm taken from the profile rather than from the message. The empty bucket must be h'' and never h'A0'.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "keyIdentifier": "4F4E4267CBA43440",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-metrological-reading",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The point of the whole exercise: the payload is a tag-44252 metrological value — (1234.567 ±12.3) kWh, k=2, p=0.95, dist=normal — signed by the meter's key. If the two CBOR codecs disagreed about one byte of this reading, neither signature would verify at the other implementation.",
+            "algorithm": "ESB256",
+            "curve": "brainpoolP256r1",
+            "keyD": "08F001BB03BEF4FBD1C59F10B50555CD37D2B53421331DBFA98815A581326FB3",
+            "keyIdentifier": "C6738177A6E6D04B",
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401"
+        },
+        {
+            "id": "sign-two-signers",
+            "class": "normative",
+            "shape": "sign",
+            "description": "COSE_Sign (tag 98) with two independent signers on two different curves. Its Sig_structure has five elements rather than four, with each signature's own protected bucket between the body and the external data.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "keyIdentifier": "3131",
+            "algorithm2": "ES512",
+            "curve2": "P-521",
+            "keyD2": "00085138DDABF5CA975F5860F91A08E91D6D5F9A76AD4018766A476680B55CD339E8AB6C72B5FACDB2A2A50AC25BD086647DD3E2E6E99E84CA2C3609FDF177FEB26D",
+            "keyIdentifier2": "62696C626F",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "countersign-rfc9338",
+            "class": "normative",
+            "shape": "countersign",
+            "description": "A COSE_Sign1 countersigned per RFC 9338: a signature of a signature, in the unprotected bucket, over a six-element structure whose last element is an array holding the body signature.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "875E51ECF18073E8B970E6DCC5A115433456E13DF966034A5A782945D2B684D3",
+            "keyIdentifier": "4F4E4267CBA43440",
+            "algorithm2": "ES384",
+            "curve2": "P-384",
+            "keyD2": "6952487A0A16EACE6E9A69EFD062D7671D68D23FF68722326348827C3A94E2A1743A1DF8901B948412CCA26CA4372CED",
+            "keyIdentifier2": "6B1F337BA0EC88BB",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        }
+    ]
+}
