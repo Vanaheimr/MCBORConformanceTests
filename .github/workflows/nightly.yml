@@ -1,0 +1,93 @@
+name: Nightly
+
+# The counterpart to ci.yml. That workflow gates every push against the
+# submodule states this repository pins; this one advances all three
+# submodules to their latest master and runs the same suite — because neither
+# reference implementation pins the other, an upstream change that breaks
+# conformance or cross-implementation interop would otherwise surface only on
+# the next manual run here. Red on this workflow and green on ci.yml means
+# the fix belongs upstream (or in the vectors), and the pins are bumped once
+# it is green again.
+#
+# Two things worth knowing about scheduled workflows: they only ever run on
+# the default branch, and GitHub disables them after 60 days without any
+# repository activity. If this stops reporting, that is the first thing to
+# check.
+on:
+  schedule:
+    # 04:17 UTC. Not on the hour: GitHub's scheduler is busiest then and
+    # delays runs by tens of minutes.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  latest-submodules:
+    # The same two-leg matrix as ci.yml: windows-latest, and Debian 13 in a
+    # bare debian:13 container — see ci.yml for why it is exactly these two.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            leg: windows-latest
+          - os: ubuntu-latest
+            container: debian:13
+            leg: debian-13-container
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+
+      # Same reasoning as ci.yml: git must exist before the checkout, or the
+      # REST fallback silently cannot fetch the submodules this is all about.
+      - name: Install prerequisites (Debian container)
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 libstdc++6 tzdata
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      # What makes this the drift detector: every submodule moves from the
+      # pinned commit to its current master before the suite runs. Nothing is
+      # committed — the point is the verdict, not a bump.
+      - name: Advance every submodule to its latest master
+        shell: bash
+        run: |
+          git submodule foreach 'git fetch origin master && git checkout FETCH_HEAD'
+          git submodule status
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install the TypeScript runner's toolchain
+        working-directory: runners/typescript
+        run: npm ci
+
+      - name: Run the conformance suite
+        timeout-minutes: 30
+        run: node compare/run.mjs
+
+      # The verdict table and any normative failures on the Actions front
+      # page — the right amount to read every morning.
+      - name: Publish the summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: awk '/^## Cross-implementation divergences/{exit} {print}' results/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # !cancelled() rather than success(): a red night is when these files
+      # matter most, and the driver writes results/ before it exits non-zero.
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-latest-${{ matrix.leg }}
+          path: results/

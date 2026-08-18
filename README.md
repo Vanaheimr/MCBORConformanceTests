@@ -1,6 +1,7 @@
 # Metrological CBOR conformance tests
 
-[![Conformance](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml)
+[![CI](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/ci.yml)
+[![Nightly](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/nightly.yml/badge.svg)](https://github.com/Vanaheimr/MCBORConformanceTests/actions/workflows/nightly.yml)
 
 Cross-implementation conformance testing for **Metrological CBOR**
 (CBOR tag 44252): the C# reference implementation ([Vanaheimr
@@ -57,12 +58,14 @@ re-running the implementations.
 
 ## Continuous integration
 
-Every push runs the suite against the **pinned** submodule states on Linux
-and Windows. A nightly job additionally advances all three submodules to
-their latest `master` and runs again — red there and green on the pinned job
-means an upstream change broke conformance or interoperability, and the fix
-belongs upstream before the pins are bumped. Either way,
-`results/report.md` is uploaded as a build artifact.
+The same two-leg matrix as the Styx and Hermod gates — windows-latest and
+Debian 13 in a bare `debian:13` container. `ci.yml` gates every push against
+the **pinned** submodule states; `nightly.yml` advances all three submodules
+to their latest `master` and runs the same suite, so an upstream change that
+breaks conformance or cross-implementation interop surfaces the next morning
+— red there and green on CI means the fix belongs upstream before the pins
+are bumped. Both publish the verdict to the run's summary page and upload
+`results/` as an artifact, red runs most of all.
 
 ## Reading the results
 
