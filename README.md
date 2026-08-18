@@ -69,3 +69,7 @@ repository; this project adds it there (see the submodule working tree) so
 that both implementations and this suite can cite one normative source.
 The open conversion questions surfaced by this suite are listed in
 [FINDINGS.md](FINDINGS.md) §4.
+
+## License
+
+[Apache License 2.0](LICENSE), matching both reference implementations.
