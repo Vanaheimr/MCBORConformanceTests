@@ -310,3 +310,60 @@ inside CBOR's one-byte length form, `81 58 40`. An ML-DSA-87 body signature is
 4627 bytes and crosses into the two-byte form, `81 59 1213`. Both
 implementations emit exactly that, and the two countersignature cases now sit on
 either side of that boundary on purpose.
+
+## 9. X.509 certificate chains (added 2026-08-19)
+
+Styx validated certificate chains and COSE.TS carried them without looking:
+both READMEs said so, and a `crit` demanding `x5chain` was consequently
+refused on the TypeScript side. That asymmetry is now gone. `x5chain` and
+`x5t` are read, walked to a trust anchor and bound to the key that signed on
+both sides, and fourteen cases check that the two reach the same verdict —
+first each on its own message, then each on the message the other produced.
+
+**The library question decided the design.** The obvious TypeScript X.509
+libraries verify certificate signatures through WebCrypto, which supports
+neither the brainpool curves nor ML-DSA. A meter certificate on
+brainpoolP256r1 — the one this whole project turns on — is exactly the
+certificate they cannot check, so adopting one would have moved the asymmetry
+rather than removed it. The DER is therefore read in
+`libs/COSE.TS/src/asn1.ts` and `src/x509.ts`, and verification goes through
+the same path as every other signature the package verifies: whatever COSE can
+verify, a certificate can be signed with. The precedent is brainpoolP320r1,
+written out by hand for the same reason.
+
+**The certificates are minted by neither party.** `tools/CertificateCorpus`
+issues them with Bouncy Castle: fifteen certificates, fixed scalars, fixed
+serial numbers, fixed validity periods and a seeded random, so re-running the
+generator changes nothing and the corpus can be diffed rather than believed. A
+DER parser checked against certificates its own package produced would agree
+with itself about any misreading whatsoever, which is the one thing a corpus
+must not allow.
+
+Three things this surfaced:
+
+- **A named curve is not the same as its parameters.** The first corpus was
+  rejected wholesale by the TypeScript parser, and the parser was right: Bouncy
+  Castle, handed plain `ECDomainParameters`, writes the curve out
+  *explicitly* — p, a, b, G, n and h, some 200 octets — where every real
+  certificate carries an object identifier. `ECNamedDomainParameters` is what
+  produces the shape RFC 5480 asks for. The failure was in the generator and
+  looked exactly like a failure in the parser.
+- **The chain changes curve halfway down**, on purpose: the root is on P-256
+  and the manufacturer authority beneath it on brainpoolP256r1. An
+  implementation taking the curve from the certificate being checked rather
+  than from the key doing the checking passes every same-curve test and fails
+  this one.
+- **A valid chain is not an answer.** One case signs with the meter's key and
+  attaches a chain certifying somebody else. The chain validates — the test
+  asserts that separately — and the message is still refused, because the key
+  it ends in is not the key that signed. An implementation reporting the
+  chain's subject as the signer here would name the wrong meter with every
+  certificate in order.
+
+What is deliberately not checked, on both sides and identically, so that a pass
+means the same thing: revocation, name constraints, certificate policies, and
+path length beyond the CA flag. `x5bag` and `x5u` remain unimplemented in
+both — a bag is an unordered heap with no path to follow, and a URI is a fetch.
+
+The suite now stands at **429 (C#) / 393 (TypeScript) normative passes, 138
+cross-implementation agreements, zero failures**.

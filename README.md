@@ -33,6 +33,15 @@ key the meter was manufactured with and countersigned post-quantum by the
 gateway that received it. That is what a fleet emits while it is being
 migrated, and neither half of it can be tested by one implementation alone.
 
+The same argument runs a second time for **X.509 certificate chains**
+([RFC 9360](https://www.rfc-editor.org/rfc/rfc9360)), where the message carries
+the chain and the recipient holds only an anchor: each implementation signs a
+reading with a certified key and then validates the *other* one's message,
+which is where two DER parsers meet. The certificates come from a corpus minted
+by Bouncy Castle rather than by either party being tested — a parser checked
+against certificates its own package produced would agree with itself about any
+misreading.
+
 ## Layout
 
 | Path | Content |
@@ -41,7 +50,8 @@ migrated, and neither half of it can be tested by one implementation alone.
 | `libs/Styx` | the C# implementation (git submodule) |
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
 | `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
-| `vectors/` | the COSE cross-signing vectors, which belong here rather than in the specification's annex: COSE is how a metrological value is signed, not what one is |
+| `vectors/` | the COSE cross-signing and certificate-chain vectors, which belong here rather than in the specification's annex: COSE is how a metrological value is signed, not what one is |
+| `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — fifteen certificates, deterministically, so it can be regenerated and diffed rather than believed |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |

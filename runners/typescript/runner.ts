@@ -14,7 +14,7 @@
  */
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join }                                               from 'node:path';
+import { dirname, join }                                      from 'node:path';
 
 import {
     decodeMetrologicalValue,
@@ -30,12 +30,19 @@ import {
 
 import {
     algorithmByName,
+    cbor,
+    CoseCertificateChain,
+    CoseCertificateHash,
+    CoseHeaders,
     CoseKey,
     CoseSign,
     CoseSign1,
     curveByName,
+    HeaderLabel,
+    label,
+    X509Certificate,
 } from '../../libs/COSE.TS/src/index.ts';
-import type { CoseSignature, Verification } from '../../libs/COSE.TS/src/index.ts';
+import type { CborEntry, CoseSignature, Verification } from '../../libs/COSE.TS/src/index.ts';
 
 
 type Check = Record<string, unknown>;
@@ -103,6 +110,61 @@ interface VectorCase {
     detached?:         boolean;
     tagged?:           boolean;
     message?:          string;
+
+    // cose-x509 / cose-x509-validate
+    signer?:           string;
+    chain?:            string[];
+    trustAnchors?:     string[];
+    thumbprintOf?:     string;
+    critical?:         boolean;
+    expected?:         string;
+}
+
+
+/**
+ * The certificate corpus, minted by Bouncy Castle and read back here.
+ *
+ * It is loaded from beside the vector file rather than compiled in, because
+ * the cross-feed suites are written to a directory of their own and have to
+ * find the very same certificates there.
+ */
+interface Corpus {
+    validateAt:   string;
+    certificates: Record<string, string>;
+    privateKeys:  Record<string, { algorithm: string; curve?: string; keyD: string }>;
+}
+
+let corpus: Corpus | null = null;
+
+function corpusOrThrow(): Corpus {
+
+    if (corpus === null)
+        throw new Error('No certificate corpus was found beside the vector file!');
+
+    return corpus;
+
+}
+
+function certificateOf(name: string): X509Certificate {
+
+    const encoded = corpusOrThrow().certificates[name];
+
+    if (encoded === undefined)
+        throw new Error(`The certificate corpus holds no certificate '${name}'!`);
+
+    return X509Certificate.parse(hexToBytes(encoded));
+
+}
+
+function corpusKeyOf(name: string): CoseKey {
+
+    const entry = corpusOrThrow().privateKeys[name];
+
+    if (entry === undefined)
+        throw new Error(`The certificate corpus holds no private key for '${name}'!`);
+
+    return keyOf(entry.curve, entry.keyD, entry.algorithm);
+
 }
 
 function runValues(testCase: VectorCase, checks: Record<string, Check>): void {
@@ -301,6 +363,77 @@ function runCoseSign(testCase: VectorCase, checks: Record<string, Check>): void 
 }
 
 
+/**
+ * Sign a message carrying a certificate chain, and record what the other
+ * implementation has to agree with: the message, the end-entity certificate's
+ * thumbprint and subject, and the verdict on the chain.
+ *
+ * The chain goes into the *protected* bucket. That is not a formality: an
+ * unprotected one can be swapped for another without disturbing the signature,
+ * and a verifier that then reported the new subject as the signer would have
+ * been told who signed by somebody who did not.
+ */
+function runCoseX509(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    const at       = new Date(corpusOrThrow().validateAt);
+    const key      = corpusKeyOf(testCase.signer!);
+    const chain    = (testCase.chain ?? []).map(certificateOf);
+    const anchors  = (testCase.trustAnchors ?? []).map(certificateOf);
+    const payload  = hexToBytes(testCase.payload!);
+
+    const parameters: CborEntry[] = [
+        [label(HeaderLabel.algorithm), cbor.int(key.algorithm!.id)],
+    ];
+
+    if (testCase.critical === true)
+        parameters.push([label(HeaderLabel.critical), cbor.array([label(HeaderLabel.x5Chain)])]);
+
+    parameters.push([label(HeaderLabel.x5Chain), new CoseCertificateChain(chain).toCbor()]);
+
+    if (testCase.thumbprintOf !== undefined)
+        parameters.push([label(HeaderLabel.x5T),
+                         CoseCertificateHash.from(certificateOf(testCase.thumbprintOf)).toCbor()]);
+
+    const message = CoseSign1.signWithHeaders(payload, key, new CoseHeaders(parameters));
+
+    checks['message']    = capture(() => okHex (bytesToHex(message.toBytes())));
+    checks['thumbprint'] = capture(() => okHex (bytesToHex(chain[0]!.thumbprint())));
+    checks['subject']    = capture(() => okText(chain[0]!.subject.toString()));
+
+    checks['validate']   = capture(() => {
+
+        const result = CoseSign1.parse(message.toBytes())
+                           .verifyWithCertificateChain(anchors, { at });
+
+        return result.verified
+                   ? { status: 'ok', verified: true, text: result.signer.subject.toString() }
+                   : { status: 'ok', verified: false, reason: result.reason };
+
+    });
+
+}
+
+
+/** Validate a chained message the *other* implementation produced. */
+function runCoseX509Validate(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    checks['validate'] = capture(() => {
+
+        const at      = new Date(corpusOrThrow().validateAt);
+        const anchors = (testCase.trustAnchors ?? []).map(certificateOf);
+
+        const result  = CoseSign1.parse(hexToBytes(testCase.message!))
+                            .verifyWithCertificateChain(anchors, { at });
+
+        return result.verified
+                   ? { status: 'ok', verified: true, text: result.signer.subject.toString() }
+                   : { status: 'ok', verified: false, reason: result.reason };
+
+    });
+
+}
+
+
 /** A verification, recorded rather than judged. */
 function verification(result: Verification): Check {
     return result.verified
@@ -407,6 +540,10 @@ for (const vectorFile of vectorFiles) {
     if (root.suite === undefined || root.cases === undefined)
         continue;
 
+    if (root.suite.startsWith('cose-x509')) {
+        corpus = JSON.parse(readFileSync(join(dirname(vectorFile), 'cose-x509-corpus.json'), 'utf8')) as Corpus;
+    }
+
     for (const testCase of root.cases) {
 
         const checks: Record<string, Check> = {};
@@ -420,6 +557,8 @@ for (const vectorFile of vectorFiles) {
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
                 case 'cose-sign':      runCoseSign     (testCase, checks); break;
                 case 'cose-verify':    runCoseVerify   (testCase, checks); break;
+                case 'cose-x509':      runCoseX509     (testCase, checks); break;
+                case 'cose-x509-validate': runCoseX509Validate(testCase, checks); break;
             }
         }
         catch (cause) {

@@ -14,7 +14,7 @@
  */
 
 import { execFileSync }                                       from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve }                             from 'node:path';
 import { fileURLToPath }                                      from 'node:url';
 
@@ -79,8 +79,8 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
     const suite = JSON.parse(readFileSync(join(vectorsDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
-{
-    const suite = JSON.parse(readFileSync(join(coseDir, 'cose-sign.json'), 'utf8'));
+for (const name of ['cose-sign.json', 'cose-x509.json']) {
+    const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
 
@@ -89,6 +89,7 @@ function crossVectorsFrom(sourceResults) {
     const jsonCases = [];
     const textCases = [];
     const coseCases = [];
+    const x509Cases = [];
 
     for (const testCase of vectors['documents']) {
         const recorded = sourceResults.results[`documents:${testCase.id}`];
@@ -121,10 +122,21 @@ function crossVectorsFrom(sourceResults) {
             coseCases.push({ ...testCase, id: `xcose-${testCase.id}`, message: recorded.message.hex });
     }
 
+    // Every chained message one implementation produced, for the other one to
+    // walk to an anchor. This is where two DER parsers meet: the chain travels
+    // inside the message, so the receiving side has to read certificates it did
+    // not itself encode.
+    for (const testCase of vectors['cose-x509']) {
+        const recorded = sourceResults.results[`cose-x509:${testCase.id}`];
+        if (recorded?.message?.status === 'ok')
+            x509Cases.push({ ...testCase, id: `xx509-${testCase.id}`, message: recorded.message.hex });
+    }
+
     return [
-        { suite: 'json-to-cbor', description: 'cross-feed', cases: jsonCases },
-        { suite: 'parse-texts',  description: 'cross-feed', cases: textCases },
-        { suite: 'cose-verify',  description: 'cross-feed', cases: coseCases },
+        { suite: 'json-to-cbor',       description: 'cross-feed', cases: jsonCases },
+        { suite: 'parse-texts',        description: 'cross-feed', cases: textCases },
+        { suite: 'cose-verify',        description: 'cross-feed', cases: coseCases },
+        { suite: 'cose-x509-validate', description: 'cross-feed', cases: x509Cases },
     ];
 }
 
@@ -134,17 +146,24 @@ const crossForCSharp = join(resultsDir, 'cross-from-typescript');
 if (!skipRun) {
 
     for (const [prefix, source] of [[crossForTS, csharp], [crossForCSharp, ts]]) {
-        const [jsonSuite, textSuite, coseSuite] = crossVectorsFrom(source);
+        const [jsonSuite, textSuite, coseSuite, x509Suite] = crossVectorsFrom(source);
         writeFileSync(`${prefix}-json.json`, JSON.stringify(jsonSuite, null, 2));
         writeFileSync(`${prefix}-text.json`, JSON.stringify(textSuite, null, 2));
         writeFileSync(`${prefix}-cose.json`, JSON.stringify(coseSuite, null, 2));
+        writeFileSync(`${prefix}-x509.json`, JSON.stringify(x509Suite, null, 2));
     }
 
+    // The chained cases name their certificates rather than carrying them, so
+    // the corpus has to travel to wherever the cross-feed files are read from.
+    copyFileSync(join(coseDir, 'cose-x509-corpus.json'), join(resultsDir, 'cose-x509-corpus.json'));
+
     runCSharp(join(resultsDir, 'csharp-cross.json'),
-              `${crossForCSharp}-json.json`, `${crossForCSharp}-text.json`, `${crossForCSharp}-cose.json`);
+              `${crossForCSharp}-json.json`, `${crossForCSharp}-text.json`,
+              `${crossForCSharp}-cose.json`, `${crossForCSharp}-x509.json`);
 
     runTypeScript(join(resultsDir, 'typescript-cross.json'),
-                  `${crossForTS}-json.json`, `${crossForTS}-text.json`, `${crossForTS}-cose.json`);
+                  `${crossForTS}-json.json`, `${crossForTS}-text.json`,
+                  `${crossForTS}-cose.json`, `${crossForTS}-x509.json`);
 
 }
 
@@ -441,6 +460,74 @@ for (const testCase of vectors['cose-sign']) {
 
 }
 
+// --- suite: cose-x509, the certificate chains ---
+
+/**
+ * What both implementations have to say the same thing about.
+ *
+ * `message` is the serialization claim and `thumbprint` the reading one: a
+ * thumbprint is the hash of the DER encoding, so two implementations that
+ * agree on it agree about where the certificate begins and ends. The subject
+ * is surveyed rather than judged — that two X.509 name renderers print the
+ * same string is a nicety, not an interoperability property.
+ */
+const X509_AGREEMENTS = [
+    ['message',    'the complete signed message'],
+    ['thumbprint', 'the thumbprint of the end-entity certificate'],
+];
+
+for (const testCase of vectors['cose-x509']) {
+
+    const key    = `cose-x509:${testCase.id}`;
+    const klass  = testCase.class ?? 'normative';
+    const accept = testCase.expected === 'accept';
+
+    for (const [check, what] of X509_AGREEMENTS) {
+
+        const mine  = checkOf(csharp, key, check);
+        const yours = checkOf(ts,     key, check);
+
+        judge(testCase.id, `agree on ${what}`, 'csharp↔typescript', klass,
+              mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+              `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+    }
+
+    // Both must reach the verdict the vector states, on their own message...
+    for (const [impl, results] of impls) {
+
+        const validate = checkOf(results, key, 'validate');
+
+        judge(testCase.id, `validate (${testCase.expected})`, impl, klass,
+              validate?.status === 'ok' && validate.verified === accept,
+              describe(validate));
+
+    }
+
+    // ...and on the other implementation's, which is the whole point.
+    for (const [impl, cross] of [['csharp', csharpCross], ['typescript', tsCross]]) {
+
+        const otherName = impl === 'csharp' ? 'typescript' : 'csharp';
+        const validate  = checkOf(cross, `cose-x509-validate:xx509-${testCase.id}`, 'validate');
+
+        judge(testCase.id, `cross-validate ${otherName}→${impl}`, impl, klass,
+              validate?.status === 'ok' && validate.verified === accept,
+              describe(validate));
+
+    }
+
+    // The subject as each side renders it, recorded and not judged.
+    for (const [impl, results] of impls) {
+
+        const subject = checkOf(results, key, 'subject');
+
+        judge(testCase.id, 'the subject of the end-entity certificate', impl, 'survey',
+              true, describe(subject));
+
+    }
+
+}
+
 // --- cross-implementation agreement on every shared check ---
 
 const divergences = [];
@@ -496,7 +583,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-x509 (${vectors['cose-x509'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -562,6 +649,37 @@ for (const testCase of vectors['cose-sign']) {
 
     lines.push(`| ${testCase.id} | ${testCase.shape} | ${algorithm} | ` +
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCSharp)} |`);
+
+}
+
+lines.push('');
+
+// --- COSE certificate chains ---
+
+lines.push('## X.509 certificate chains');
+lines.push('');
+lines.push('Each case signs a meter reading, puts a certificate chain in the protected header');
+lines.push('bucket, and asks both implementations to trace it to a trust anchor — first on');
+lines.push('their own message, then on the message the other one produced. The');
+lines.push('certificates come from a corpus minted by Bouncy Castle rather than by either');
+lines.push('party being tested, because a DER parser checked against certificates its own');
+lines.push('package produced would agree with itself about any misreading.');
+lines.push('');
+lines.push('| Case | Expected | Bytes agree | C# | TS | C#→TS | TS→C# |');
+lines.push('|---|---|---|---|---|---|---|');
+
+for (const testCase of vectors['cose-x509']) {
+
+    const own      = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
+    const agreed   = own.filter(v => v.check.startsWith('agree'));
+    const mark     = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    const validate = impl => own.find(v => v.impl === impl && v.check.startsWith('validate'));
+    const cross    = to   => own.find(v => v.check === `cross-validate ${to === 'csharp' ? 'typescript' : 'csharp'}→${to}`);
+
+    lines.push(`| ${testCase.id} | ${testCase.expected} | ` +
+               `${agreed.filter(v => v.pass).length}/${agreed.length} | ` +
+               `${mark(validate('csharp'))} | ${mark(validate('typescript'))} | ` +
+               `${mark(cross('typescript'))} | ${mark(cross('csharp'))} |`);
 
 }
 

@@ -1,0 +1,149 @@
+{
+    "suite": "cose-x509",
+    "description": "X.509 certificate chains in COSE (RFC 9360). Each case signs a tag-44252 meter reading with a private key from the corpus, places a certificate chain in the protected header bucket, and then asks the implementation whether the message can be traced to a trust anchor. Both implementations do all of it, and each is then handed the other's message to validate — which is the only way to find out whether two DER parsers read the same certificate the same way. The corpus in cose-x509-corpus.json is minted by Bouncy Castle (tools/CertificateCorpus) and is deliberately not written by either party being tested: a parser checked against certificates its own package produced would agree with itself about any misreading. Every certificate is checked at the corpus's fixed validateAt, because a validity period tested against 'now' is a test that passes until it does not. The keys secure nothing.",
+    "cases": [
+        {
+            "id": "chain-to-trusted-root",
+            "class": "normative",
+            "description": "The case the whole feature exists for: a meter signs its reading with the brainpoolP256r1 key it was manufactured with, the message carries the meter certificate and the manufacturer's authority, and the recipient holds only the root. Note that the root is on P-256 and the authority beneath it on brainpoolP256r1 — the chain changes curve halfway down, which is what an implementation taking the curve from the certificate being checked rather than from the key checking it gets wrong.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA"],
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "chain-including-the-anchor",
+            "class": "normative",
+            "description": "The same chain with the root appended. RFC 9360 does not require the anchor to travel — the recipient has it already — but a sender that sends it anyway must not be penalised for it.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA", "metrologyRoot"],
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "single-certificate-signed-with-eddsa",
+            "class": "normative",
+            "description": "One certificate, which RFC 9360 spells as a bare byte string rather than an array of one — the array form starts at two. The certificate is also signed with Ed25519 rather than ECDSA, so what is being verified here is an EdDSA signature over a tbsCertificate, which is a different code path from an EdDSA signature over a Sig_structure.",
+            "signer": "edwardsMeter",
+            "chain": ["edwardsMeter"],
+            "trustAnchors": ["edwardsRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "certificate-signed-with-ml-dsa",
+            "class": "normative",
+            "description": "A certificate signed with ML-DSA-65, which is where a certificate stops being small: 5458 octets of it, most of them the 3309-byte signature and the 1952-byte key. This is also the case no WebCrypto-based X.509 library can check at all, which is why the parsing and the verification here are this package's own.",
+            "signer": "pqMeter",
+            "chain": ["pqMeter"],
+            "trustAnchors": ["pqRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "thumbprint-names-the-certificate",
+            "class": "normative",
+            "description": "The chain plus an x5t naming its end-entity certificate. A thumbprint is a name and never a reason to trust: it says which certificate the sender meant, so that a recipient who already holds it can find it.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA"],
+            "thumbprintOf": "meter",
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "critical-x5chain",
+            "class": "normative",
+            "description": "A sender demanding, through crit, that the chain actually be processed. The demand must be honoured by a verification that walks the chain and refused by one that does not — whoever verifies with a bare public key has looked at no certificate and must not claim otherwise.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA"],
+            "critical": true,
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "unknown-root",
+            "class": "normative",
+            "description": "A chain that is internally perfect and leads somewhere the recipient has never heard of. This is the ordinary failure and the one that must not be confused with a broken signature.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA"],
+            "trustAnchors": ["otherRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        },
+        {
+            "id": "expired-certificate",
+            "class": "normative",
+            "description": "An end-entity certificate whose validity ended in 2021, checked at the corpus's fixed instant in 2026.",
+            "signer": "expiredMeter",
+            "chain": ["expiredMeter", "manufacturerCA"],
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        },
+        {
+            "id": "not-yet-valid-certificate",
+            "class": "normative",
+            "description": "The other end of the same check, which implementations forget far more often than expiry: a certificate whose validity has not begun.",
+            "signer": "notYetValidMeter",
+            "chain": ["notYetValidMeter", "manufacturerCA"],
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        },
+        {
+            "id": "issuer-that-is-not-a-certification-authority",
+            "class": "normative",
+            "description": "A certificate issued by something whose basic constraints say it is not an authority. Every signature in this chain is valid; the chain is still not one, because a leaf certificate that can mint further certificates makes its issuer's policy meaningless.",
+            "signer": "meterUnderNonCA",
+            "chain": ["meterUnderNonCA", "notACA"],
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        },
+        {
+            "id": "end-entity-that-may-not-sign",
+            "class": "normative",
+            "description": "A certificate whose key usage permits key encipherment and not digital signatures, used to sign. The chain is impeccable and the certified key says it is not for this.",
+            "signer": "encipherOnlyMeter",
+            "chain": ["encipherOnlyMeter", "manufacturerCA"],
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        },
+        {
+            "id": "broken-chain",
+            "class": "normative",
+            "description": "Two certificates from two different hierarchies, put one after the other. The link between them does not hold, whichever anchor is offered.",
+            "signer": "meter",
+            "chain": ["meter", "otherIntermediate"],
+            "trustAnchors": ["otherRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        },
+        {
+            "id": "chain-certifying-another-key",
+            "class": "normative",
+            "description": "The failure a chain check alone never catches, and the reason validating a chain and verifying a signature must never be two separate answers: the chain is valid, leads to the trusted root, and certifies a key that did not sign this message. An implementation that reported the chain's subject as the signer here would be naming the wrong meter, with every certificate in order.",
+            "signer": "meter",
+            "chain": ["strangerMeter", "manufacturerCA"],
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        },
+        {
+            "id": "thumbprint-names-another-certificate",
+            "class": "normative",
+            "description": "An x5t naming a certificate other than the one that travelled. One of the two statements is wrong and there is no way to tell which, so the message is refused rather than resolved in favour of either.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA"],
+            "thumbprintOf": "manufacturerCA",
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "reject"
+        }
+    ]
+}

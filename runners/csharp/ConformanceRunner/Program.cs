@@ -15,6 +15,7 @@ using System.Text.Json.Nodes;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Math;
+using Org.BouncyCastle.X509;
 
 using org.GraphDefined.Vanaheimr.Illias;
 
@@ -37,6 +38,12 @@ foreach (var argument in args.Skip(1))
 
 var results = new JsonObject();
 
+// The certificate corpus, minted by Bouncy Castle and read back by both
+// implementations. It is loaded from beside the vector file rather than
+// compiled in, because the cross-feed suites live in a directory of their own
+// and have to find the very same certificates there.
+JsonObject? corpus = null;
+
 foreach (var vectorFile in vectorFiles)
 {
 
@@ -46,6 +53,15 @@ foreach (var vectorFile in vectorFiles)
         continue;
 
     var suite = root["suite"]!.GetValue<String>();
+
+    if (suite.StartsWith("cose-x509"))
+        corpus = JsonNode.Parse(
+                     File.ReadAllText(
+                         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(vectorFile))!,
+                                      "cose-x509-corpus.json"),
+                         Encoding.UTF8
+                     )
+                 )!.AsObject();
 
     foreach (var caseNode in root["cases"]!.AsArray())
     {
@@ -65,6 +81,16 @@ foreach (var vectorFile in vectorFiles)
                 case "parse-texts":    RunParseTexts   (testCase, checks); break;
                 case "cose-sign":      RunCoseSign     (testCase, checks); break;
                 case "cose-verify":    RunCoseVerify   (testCase, checks); break;
+
+                case "cose-x509":
+                    RunCoseX509(testCase, checks,
+                                corpus ?? throw new Exception("No certificate corpus was found beside the vector file!"));
+                    break;
+
+                case "cose-x509-validate":
+                    RunCoseX509Validate(testCase, checks,
+                                        corpus ?? throw new Exception("No certificate corpus was found beside the vector file!"));
+                    break;
             }
         }
         catch (Exception e)
@@ -446,6 +472,146 @@ static void RunCoseVerify(JsonObject TestCase, JsonObject Checks)
         }
 
     });
+
+}
+
+
+// --------------------------------------------------- X.509 [RFC 9360] --
+
+static X509Certificate CertificateOf(JsonObject Corpus, String Name)
+{
+
+    var encoded = Corpus["certificates"]?[Name]?.GetValue<String>()
+                      ?? throw new Exception($"The certificate corpus holds no certificate '{Name}'!");
+
+    return new X509CertificateParser().ReadCertificate(Convert.FromHexString(encoded));
+
+}
+
+
+static (AsymmetricKeyParameter PrivateKey, COSEAlgorithm Algorithm) CorpusKeyOf(JsonObject Corpus, String Name)
+{
+
+    var entry = Corpus["privateKeys"]?[Name]?.AsObject()
+                    ?? throw new Exception($"The certificate corpus holds no private key for '{Name}'!");
+
+    // The same shape the cose-sign vectors use, so that one helper reads both.
+    var wrapped = new JsonObject {
+                      ["algorithm"] = entry["algorithm"]!.GetValue<String>(),
+                      ["keyD"]      = entry["keyD"]!.GetValue<String>()
+                  };
+
+    if (entry["curve"] is not null)
+        wrapped["curve"] = entry["curve"]!.GetValue<String>();
+
+    var key = CoseKeyOf(wrapped, false);
+
+    return (key.PrivateKey, key.Algorithm);
+
+}
+
+
+static DateTimeOffset ValidateAt(JsonObject Corpus)
+
+    => DateTimeOffset.Parse(Corpus["validateAt"]!.GetValue<String>(),
+                            null,
+                            System.Globalization.DateTimeStyles.AdjustToUniversal |
+                            System.Globalization.DateTimeStyles.AssumeUniversal);
+
+
+/// <summary>
+/// Sign a message carrying a certificate chain, and record what the other
+/// implementation has to agree with: the message, the end-entity
+/// certificate's thumbprint and subject, and the verdict on the chain.
+///
+/// The chain goes into the PROTECTED bucket, which is not a formality: an
+/// unprotected one can be swapped for another without disturbing the
+/// signature, and a verifier that then reported the new subject as the signer
+/// would have been told who signed by somebody who did not.
+/// </summary>
+static void RunCoseX509(JsonObject TestCase, JsonObject Checks, JsonObject Corpus)
+{
+
+    var at        = ValidateAt(Corpus);
+    var signer    = CorpusKeyOf(Corpus, TestCase["signer"]!.GetValue<String>());
+    var payload   = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
+
+    var chain     = new COSECertificateChain(
+                        TestCase["chain"]!.AsArray().
+                            Select(each => CertificateOf(Corpus, each!.GetValue<String>()))
+                    );
+
+    var anchors   = TestCase["trustAnchors"]!.AsArray().
+                        Select(each => CertificateOf(Corpus, each!.GetValue<String>())).
+                        ToArray();
+
+    var parameters = new List<(CBORValue, CBORValue)> {
+                         (COSEHeaderLabel.Algorithm, signer.Algorithm.ToCBOR())
+                     };
+
+    if (TestCase["critical"]?.GetValue<Boolean>() == true)
+        parameters.Add((COSEHeaderLabel.Critical, CBORValue.FromArray(COSEHeaderLabel.X5Chain)));
+
+    parameters.Add((COSEHeaderLabel.X5Chain, chain.ToCBOR()));
+
+    if (TestCase["thumbprintOf"] is not null)
+        parameters.Add((COSEHeaderLabel.X5T,
+                        COSECertificateHash.From(CertificateOf(Corpus, TestCase["thumbprintOf"]!.GetValue<String>())).ToCBOR()));
+
+    var message = COSESign1.Sign(payload,
+                                 signer.PrivateKey,
+                                 new COSEHeaders([.. parameters]),
+                                 null, null, false, true, null, null, true);
+
+    Checks["message"]    = Capture(() => OkHex (Convert.ToHexString(message.ToByteArray())));
+    Checks["thumbprint"] = Capture(() => OkHex (Convert.ToHexString(COSECertificateHash.From(chain.EndEntity).Value)));
+    Checks["subject"]    = Capture(() => OkText(chain.EndEntity.SubjectDN.ToString()));
+
+    Checks["validate"]   = Capture(() => ValidateChain(message.ToByteArray(), anchors, at));
+
+}
+
+
+/// <summary>
+/// Validate a chained message the OTHER implementation produced.
+/// </summary>
+static void RunCoseX509Validate(JsonObject TestCase, JsonObject Checks, JsonObject Corpus)
+{
+
+    Checks["validate"] = Capture(() => {
+
+        var anchors = TestCase["trustAnchors"]!.AsArray().
+                          Select(each => CertificateOf(Corpus, each!.GetValue<String>())).
+                          ToArray();
+
+        return ValidateChain(Convert.FromHexString(TestCase["message"]!.GetValue<String>()),
+                             anchors,
+                             ValidateAt(Corpus));
+
+    });
+
+}
+
+
+static JsonObject ValidateChain(Byte[] Message, X509Certificate[] TrustAnchors, DateTimeOffset At)
+{
+
+    if (!COSESign1.TryParse(Message, out var parsed, out var parseError))
+        return Error($"The COSE_Sign1 message could not be read: {parseError}");
+
+    return parsed.VerifyWithCertificateChain(TrustAnchors,
+                                             out var signer,
+                                             out var errorResponse,
+                                             null,
+                                             null,
+                                             null,
+                                             At)
+
+               ? new JsonObject { ["status"] = "ok", ["verified"] = true,
+                                  ["text"] = signer.SubjectDN.ToString() }
+
+               : new JsonObject { ["status"] = "ok", ["verified"] = false,
+                                  ["reason"] = errorResponse ?? "" };
 
 }
 
