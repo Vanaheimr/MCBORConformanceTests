@@ -78,6 +78,58 @@
             "payload": "546869732069732074686520636F6E74656E742E"
         },
         {
+            "id": "sign1-ed25519",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "EdDSA on Ed25519 (RFC 8032, RFC 9864): a pure scheme, which signs the Sig_structure itself rather than a digest of it, on a key of key type OKP where the public key is the whole of x and there is no y. Deterministic by construction — the nonce comes from the key and the message — so the byte comparison needs no arrangement at all. The private key is the one of RFC 8032 Section 7.1, TEST 1.",
+            "algorithm": "Ed25519",
+            "curve": "Ed25519",
+            "keyD": "9D61B19DEFFD5A60BA844AF492EC2CC44449C5697B326919703BAC031CAE7F60",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-ed448",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "EdDSA on Ed448, whose keys are 57 bytes and not 56 — RFC 8032 appends a sign bit to the 456-bit encoding — and whose signature is 114 bytes. The private key is the 'Blank' vector of RFC 8032 Section 7.4.",
+            "algorithm": "Ed448",
+            "curve": "Ed448",
+            "keyD": "6C82A562CB808D10D632BE89C8513EBF6C929F34DDFA8C9F63C9960EF6E348A3528C8A3FCC2F044E39A3FC5B94492F8F032E7549A20098F95B",
+            "keyIdentifier": "3232",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-mldsa44",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "ML-DSA-44 (FIPS 204, RFC 9964): the post-quantum scheme, on a key of key type AKP whose labels -1 and -2 are the public and the private key rather than the curve and the x coordinate. The private key is the 32-byte seed, as RFC 9964 requires, and both sides sign in the deterministic variant of FIPS 204 — the one where the per-signature randomness is 32 zero bytes — because the RFC leaves the choice open and it is the choice that decides whether bytes can be compared.",
+            "algorithm": "ML-DSA-44",
+            "keyD": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+            "keyIdentifier": "4444",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-mldsa65",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "ML-DSA-65: a 1952-byte public key and a 3309-byte signature.",
+            "algorithm": "ML-DSA-65",
+            "keyD": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+            "keyIdentifier": "6565",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-mldsa87-metrological-reading",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The strongest parameter set over a tag-44252 reading — (1234.567 ±12.3) kWh, k=2, p=0.95, dist=normal — which is where the two halves of this project meet. A 4627-byte signature over 31 bytes of measurement is what post-quantum costs, and it is the argument for carrying it in CBOR: in JSON the signature would travel as base64 and grow by a further third, on the largest field in the message.",
+            "algorithm": "ML-DSA-87",
+            "keyD": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+            "keyIdentifier": "8787",
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401"
+        },
+        {
             "id": "sign1-untagged",
             "class": "normative",
             "shape": "sign1",

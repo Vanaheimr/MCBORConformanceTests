@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Math;
 
@@ -186,38 +187,71 @@ static void RunParseTexts(JsonObject TestCase, JsonObject Checks)
 /// private scalar, so a signer and a verifier can never disagree about which
 /// public key belongs to which private one.
 /// </summary>
-static (ECPrivateKeyParameters PrivateKey,
-        ECPublicKeyParameters  PublicKey,
+static (AsymmetricKeyParameter PrivateKey,
+        AsymmetricKeyParameter PublicKey,
         COSEAlgorithm          Algorithm,
         Byte[]?                KeyIdentifier,
         COSEKey                Key) CoseKeyOf(JsonObject TestCase, Boolean Secondary)
 {
 
     var suffix         = Secondary ? "2" : "";
-    var curveName      = TestCase[$"curve{suffix}"]!.GetValue<String>();
     var algorithmName  = TestCase[$"algorithm{suffix}"]!.GetValue<String>();
     var d              = TestCase[$"keyD{suffix}"]!.GetValue<String>();
-
-    if (!COSECurve.TryParse(curveName, out var curve))
-        throw new Exception($"Unknown COSE curve '{curveName}'!");
 
     if (!COSEAlgorithm.TryParse(algorithmName, out var algorithm))
         throw new Exception($"Unknown COSE algorithm '{algorithmName}'!");
 
-    var domainParameters  = curve.DomainParameters
-                                ?? throw new Exception($"The COSE curve '{curveName}' has no domain parameters!");
+    var keyIdentifier  = TestCase[$"keyIdentifier{suffix}"] is null
+                             ? null
+                             : Convert.FromHexString(TestCase[$"keyIdentifier{suffix}"]!.GetValue<String>());
 
-    var privateKey        = new ECPrivateKeyParameters(new BigInteger(d, 16), domainParameters);
+    AsymmetricKeyParameter privateKey;
 
-    var keyIdentifier     = TestCase[$"keyIdentifier{suffix}"] is null
-                                ? null
-                                : Convert.FromHexString(TestCase[$"keyIdentifier{suffix}"]!.GetValue<String>());
+    if (algorithm.Family == COSEAlgorithmFamily.MLDSA)
+    {
+        // An algorithm key pair has no curve to name, and its private key is
+        // the 32-byte seed rather than the expanded secret key [RFC 9964].
+        privateKey = MLDsaPrivateKeyParameters.FromSeed(
+                         algorithm.MLDsaParameterSet!,
+                         Convert.FromHexString(d)
+                     );
+    }
+
+    else
+    {
+
+        var curveName = TestCase[$"curve{suffix}"]?.GetValue<String>()
+                            ?? throw new Exception($"The COSE algorithm '{algorithmName}' needs a curve!");
+
+        if (!COSECurve.TryParse(curveName, out var curve))
+            throw new Exception($"Unknown COSE curve '{curveName}'!");
+
+        privateKey = algorithm.Family switch {
+
+            // EdDSA keys are fixed-width octet strings rather than scalars.
+            COSEAlgorithmFamily.EdDSA when curve == COSECurve.Ed448
+                => new Ed448PrivateKeyParameters  (Convert.FromHexString(d), 0),
+
+            COSEAlgorithmFamily.EdDSA
+                => new Ed25519PrivateKeyParameters(Convert.FromHexString(d), 0),
+
+            _   => new ECPrivateKeyParameters(
+                       new BigInteger(d, 16),
+                       curve.DomainParameters
+                           ?? throw new Exception($"The COSE curve '{curveName}' has no domain parameters!")
+                   )
+
+        };
+
+    }
+
+    var key = COSEKey.From(privateKey, keyIdentifier, algorithm);
 
     return (privateKey,
-            Crypto.CalculatePublicKey(privateKey),
+            key.ToPublicCOSEKey().ToPublicKey(),
             algorithm,
             keyIdentifier,
-            COSEKey.From(privateKey, keyIdentifier, algorithm));
+            key);
 
 }
 

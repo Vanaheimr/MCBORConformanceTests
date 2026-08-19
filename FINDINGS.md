@@ -151,12 +151,13 @@ TypeScript package with its own dependency (`@noble/curves`), leaving the mCBOR
 library's dependency tree empty exactly as Styx keeps `Illias/COSE` beside
 `Illias/CBOR` rather than inside it.
 
-**Result: 14 cases, 62 byte-level agreements, 28 cross-verifications, zero
+**Result: 19 cases, 82 byte-level agreements, 38 cross-verifications, zero
 failures.** Both implementations produce *identical bytes* for the
 Sig_structure, the signature, the complete message and the RFC 9679 key
 thumbprint, and each verifies everything the other signed — across `ES256`,
 `ES384`, `ES512`, `ESP256`, `ESB256` (brainpoolP256r1), `ESB320`
-(brainpoolP320r1), `ES256K` (secp256k1), tagged and untagged messages, detached
+(brainpoolP320r1), `ES256K` (secp256k1), `Ed25519`, `Ed448` and all three
+ML-DSA parameter sets, tagged and untagged messages, detached
 payloads, external additional authenticated data, the empty-protected-bucket
 application-algorithm form, `COSE_Sign` with two signers on two curves, and
 RFC 9338 version 2 countersignatures. One case signs a tag-44252 reading
@@ -201,3 +202,64 @@ against RFC 9052 C.2.1/C.1.1/C.1.2, RFC 9338 A.2.1, RFC 6979 A.2.5 and the
 specification's own 713-byte worked signed record — whose station signature,
 both meter signatures and operator countersignature it verifies, and three of
 whose four signatures it reproduces byte for byte.
+
+## 7. EdDSA and post-quantum signatures (added 2026-08-19)
+
+Both implementations now sign with **EdDSA** (Ed25519 = −19, Ed448 = −53,
+RFC 9864) and with **ML-DSA** (−48/−49/−50, RFC 9964 over FIPS 204), and every
+one of them cross-signs byte for byte.
+
+The change that made both possible is one change. ECDSA signs a *digest* of the
+Sig_structure, chosen by the algorithm; EdDSA and ML-DSA are **pure** and sign
+the Sig_structure itself. Both implementations assumed the ECDSA shape
+throughout — TypeScript threw on a null hash, Styx threw "does not define a
+separate message digest" — so both gained an algorithm *family* and a signing
+path that hands the structure over whole. Getting that backwards is the failure
+with no symptom: a signature over the digest verifies perfectly against an
+implementation making the same mistake, and against nothing else.
+
+Two new key types came with them, and one of the two is a genuine trap:
+
+- **OKP** for EdDSA, where the public key is the whole of `x` and there is no
+  `y`. Styx's COSEKey was explicitly EC2-only ("Only COSE keys of key type EC2
+  are supported"); it now reads all three.
+- **AKP** for ML-DSA [RFC 9964] — and there the labels shift underfoot. On an
+  EC2 or OKP key, `−1` is the curve and `−2` the x coordinate; on an AKP key
+  they are the public and the private key. A parser that switches on the label
+  alone reads a 1312-byte ML-DSA public key as a curve identifier and reports
+  nothing wrong at all. Both implementations therefore establish the key type
+  in a pass of its own before reading anything else, and both have a test that
+  fails if that ordering is lost.
+
+Two further RFC 9964 particulars are pinned by tests on both sides: `priv` is
+the **32-byte seed** rather than the expanded secret key — which keeps a
+private ML-DSA-87 key at 32 bytes instead of 4896 — and the thumbprint covers
+**`alg`**, unlike every other key type, because an ML-DSA public key does not
+say which parameter set produced it and two strengths must not be able to share
+an identity.
+
+**On determinism**, the two families sit at opposite ends. EdDSA is
+deterministic by construction: RFC 8032 derives the nonce from the key and the
+message and offers no alternative, so the published vectors are not merely
+verifiable but *recomputable* — both implementations reproduce RFC 8032 §7.1
+and §7.4 byte for byte, which is a stronger check than any ECDSA vector allows.
+ML-DSA is randomized by default and RFC 9964 declines to choose; FIPS 204 also
+defines a deterministic variant in which the per-signature randomness is 32
+zero bytes. That variant is what both sides use here — `MLDsaSigner(…, true)`
+in Bouncy Castle, `extraEntropy: false` in `@noble/post-quantum` — and the open
+question of whether those two mean the same thing is now answered empirically:
+**they produce identical bytes**.
+
+The Styx COSE signing API was widened rather than overloaded, since nothing
+outside this project uses it yet: `ECPrivateKeyParameters` and
+`ECPublicKeyParameters` became `AsymmetricKeyParameter` across `COSESign1`,
+`COSESign`, `COSEAlgorithm` and `COSEKey`. Not one call site needed changing —
+an elliptic curve key *is* an `AsymmetricKeyParameter` — and the certificate
+chain check dropped its EC-only gate, because whether a certified key can
+verify is the algorithm's question rather than the chain's.
+
+One methodological note, because it cost real time: the RFC 8032 vectors
+fetched through a summarising web tool came back **corrupted** — one signature
+had 129 hex characters, an odd number, and one public key had a duplicated
+octet. Long hex constants must be taken from the raw document and verified
+mechanically, which is how the ones in both test suites were finally obtained.

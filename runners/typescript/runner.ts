@@ -173,22 +173,35 @@ function runParseTexts(testCase: VectorCase, checks: Record<string, Check>): voi
  * private scalar, so a verifier and a signer can never disagree about which
  * public key belongs to which private one.
  */
-function keyOf(curveName: string, dHex: string, algorithmName: string, keyIdentifier?: string): CoseKey {
-
-    const curve = curveByName(curveName);
-
-    if (curve === null)
-        throw new Error(`unknown curve '${curveName}'`);
+function keyOf(curveName: string | undefined, dHex: string,
+               algorithmName: string, keyIdentifier?: string): CoseKey {
 
     const algorithm = algorithmByName(algorithmName);
 
     if (algorithm === null)
         throw new Error(`unknown algorithm '${algorithmName}'`);
 
-    return CoseKey.fromPrivateScalar(curve, hexToBytes(dHex), {
+    const parts = {
         algorithm,
         keyIdentifier: keyIdentifier !== undefined ? hexToBytes(keyIdentifier) : null,
-    });
+    };
+
+    // An algorithm key pair has no curve to name: its parameter set comes
+    // from the algorithm, and its private key is the seed.
+    if (algorithm.family === 'mldsa')
+        return CoseKey.fromAkpSeed(algorithm, hexToBytes(dHex), parts);
+
+    if (curveName === undefined)
+        throw new Error(`the algorithm '${algorithmName}' needs a curve`);
+
+    const curve = curveByName(curveName);
+
+    if (curve === null)
+        throw new Error(`unknown curve '${curveName}'`);
+
+    // fromPrivateScalar routes an OKP curve onward by itself, so EdDSA needs
+    // no case of its own here.
+    return CoseKey.fromPrivateScalar(curve, hexToBytes(dHex), parts);
 
 }
 
@@ -196,10 +209,10 @@ const optionalBytes = (hex?: string): Uint8Array | null =>
     hex !== undefined ? hexToBytes(hex) : null;
 
 const primaryKey   = (testCase: VectorCase): CoseKey =>
-    keyOf(testCase.curve!, testCase.keyD!, testCase.algorithm!, testCase.keyIdentifier);
+    keyOf(testCase.curve, testCase.keyD!, testCase.algorithm!, testCase.keyIdentifier);
 
 const secondaryKey = (testCase: VectorCase): CoseKey =>
-    keyOf(testCase.curve2!, testCase.keyD2!, testCase.algorithm2!, testCase.keyIdentifier2);
+    keyOf(testCase.curve2, testCase.keyD2!, testCase.algorithm2!, testCase.keyIdentifier2);
 
 
 /**
