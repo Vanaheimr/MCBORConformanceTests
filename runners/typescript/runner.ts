@@ -35,6 +35,7 @@ import {
     CoseCertificateHash,
     CoseHeaders,
     CoseKey,
+    CoseMac0,
     CoseSign,
     CoseSign1,
     curveByName,
@@ -110,6 +111,9 @@ interface VectorCase {
     detached?:         boolean;
     tagged?:           boolean;
     message?:          string;
+
+    // cose-mac0 / cose-mac0-verify
+    key?:              string;
 
     // cose-x509 / cose-x509-validate
     signer?:           string;
@@ -434,6 +438,74 @@ function runCoseX509Validate(testCase: VectorCase, checks: Record<string, Check>
 }
 
 
+/**
+ * Authenticate one case, recording what the other implementation has to agree
+ * with: the MAC_structure, the tag, the whole message and the key thumbprint.
+ *
+ * Nothing has to be arranged for the bytes to be comparable. A MAC is
+ * deterministic by construction — there is no nonce to draw and nothing to
+ * derive — so a tag that differs means the two implementations disagree about
+ * the structure, the truncation or the primitive, and about nothing else.
+ */
+function runCoseMac0(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    const algorithm = algorithmByName(testCase.algorithm!);
+
+    if (algorithm === null)
+        throw new Error(`Unknown algorithm '${String(testCase.algorithm)}'`);
+
+    const key = CoseKey.fromSymmetricKey(hexToBytes(testCase.key!), {
+                    algorithm,
+                    keyIdentifier: testCase.keyIdentifier !== undefined
+                                       ? hexToBytes(testCase.keyIdentifier)
+                                       : null,
+                });
+
+    const payload     = hexToBytes(testCase.payload!);
+    const externalAad = optionalBytes(testCase.externalAad);
+
+    const message = CoseMac0.create(payload, key, {
+                        externalAad,
+                        detachPayload: testCase.detached === true,
+                        tagged:        testCase.tagged !== false,
+                    });
+
+    checks['toBeMaced']  = capture(() => okHex(bytesToHex(
+        CoseMac0.toBeMaced(message.protectedHeaderBytes, payload, externalAad))));
+    checks['tag']        = capture(() => okHex(bytesToHex(message.tag)));
+    checks['message']    = capture(() => okHex(bytesToHex(message.toBytes())));
+
+    // The thumbprint of a symmetric key covers kty and k and nothing else
+    // [RFC 9679, Section 4.4] — notably not the algorithm, unlike an
+    // algorithm key pair.
+    checks['thumbprint'] = capture(() => okHex(bytesToHex(key.thumbprint())));
+
+}
+
+
+/** Verify a COSE_Mac0 message the *other* implementation produced. */
+function runCoseMac0Verify(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    checks['verify'] = capture(() => {
+
+        const algorithm = algorithmByName(testCase.algorithm!);
+
+        if (algorithm === null)
+            throw new Error(`Unknown algorithm '${String(testCase.algorithm)}'`);
+
+        const key      = CoseKey.fromSymmetricKey(hexToBytes(testCase.key!), { algorithm });
+        const detached = testCase.detached === true ? hexToBytes(testCase.payload!) : null;
+
+        return verification(CoseMac0.parse(hexToBytes(testCase.message!)).verify(key, {
+                   externalAad:     optionalBytes(testCase.externalAad),
+                   detachedPayload: detached,
+               }));
+
+    });
+
+}
+
+
 /** A verification, recorded rather than judged. */
 function verification(result: Verification): Check {
     return result.verified
@@ -557,6 +629,8 @@ for (const vectorFile of vectorFiles) {
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
                 case 'cose-sign':      runCoseSign     (testCase, checks); break;
                 case 'cose-verify':    runCoseVerify   (testCase, checks); break;
+                case 'cose-mac0':      runCoseMac0     (testCase, checks); break;
+                case 'cose-mac0-verify': runCoseMac0Verify(testCase, checks); break;
                 case 'cose-x509':      runCoseX509     (testCase, checks); break;
                 case 'cose-x509-validate': runCoseX509Validate(testCase, checks); break;
             }

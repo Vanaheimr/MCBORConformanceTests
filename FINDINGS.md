@@ -367,3 +367,86 @@ both — a bag is an unordered heap with no path to follow, and a URI is a fetch
 
 The suite now stands at **429 (C#) / 393 (TypeScript) normative passes, 138
 cross-implementation agreements, zero failures**.
+
+## 10. Message authentication (added 2026-08-19)
+
+Both implementations now carry `COSE_Mac0` [RFC 9052 §6.2] with the four HMAC
+algorithms of RFC 9053 §3.1, and ten cases check that they authenticate alike.
+This is the plainest cross-check in the suite: a MAC is deterministic by
+construction, so nothing had to be arranged for the bytes to be comparable —
+where an ECDSA comparison needs RFC 6979 and an ML-DSA one needs the
+zero-randomness variant of FIPS 204, a tag is simply a function of the key and
+the message.
+
+**Why it is here at all, given that the record is signed.** A MAC and a
+signature answer different questions, and the difference is not one of strength.
+A signature says *the holder of that private key produced this*, to anybody who
+cares to check. A tag says *someone holding the shared key produced this*, and
+says it only to someone who holds that key too — because verifying one requires
+the very key that creates one. Between two parties that is still useful: each
+knows the other made it, having not made it themselves. Towards a third party it
+is worth nothing, and a party who later denies having sent a reading cannot be
+contradicted with a tag.
+
+So the metrological record stays signed: the customer, the operator and the
+regulator all have to be able to check it, and none of them may be able to
+manufacture one. What a MAC is *for* is the link beneath — two ends that already
+share a secret and want cheap tamper detection. The suite prices that out on the
+same reading it signs elsewhere: **59 bytes** under an eight-byte tag, against
+118 for the smallest signed form and 4675 post-quantum. COSE nests, so the
+honest arrangement is both.
+
+**Why HMAC and not AES-CBC-MAC.** RFC 9053 §3.2 registers the latter too, and it
+is deliberately absent from both implementations. Raw CBC-MAC is secure only for
+messages of a *fixed* length: given the tag `T` of a one-block message `M`, the
+two-block message `M ‖ (T ⊕ M)` carries the very same tag — a forgery built
+without the key. §3.2.1 says so itself and names what rescues it inside COSE,
+*"a specific encoding structure that includes lengths"*. Its safety there is a
+property of the `MAC_structure` rather than of the primitive, and HMAC needs no
+such argument.
+
+That section also settles a contradiction between the two RFCs, which cost some
+reading: RFC 9052 Appendix C.6.1 describes algorithm 15 as *"AES-CMAC"*, while
+RFC 9053 §3.2 states outright that AES-CBC-MAC **is not** AES-CMAC [RFC 4493] —
+a different construction, which fixes exactly the length problem above. The
+identifier is CBC-MAC; the prose of the other RFC is wrong.
+
+**Three things the vectors pin that a single implementation would not have.**
+
+- **Truncation is on the output.** `HMAC 256/64` is the leftmost eight bytes of
+  the full HMAC-SHA-256, never a shortened key. An implementation doing it the
+  other way verifies its own tags perfectly, which is why this needs two
+  parties to catch — and it is what the falsification below actually broke.
+- **A short key must be accepted.** RFC 9053 says a key SHOULD be as wide as
+  the hash output, and SHOULD is not MUST: RFC 2104 accepts any width, and the
+  published vectors of RFC 4231 depend on a four-byte key. A case exists so
+  that neither side quietly tightens that into a refusal.
+- **A key longer than the block size must be folded.** The 131-byte case
+  crosses SHA-256's 64-byte boundary, where the primitive has to hash the key
+  down first. It is the one step a hand-written HMAC gets wrong, and it is
+  invisible below the boundary.
+
+**No published vector pins both halves.** RFC 9052's only `COSE_Mac0` example,
+Appendix C.6.1, uses AES-CBC-MAC. Both implementations therefore pin the
+*structure* against it anyway — its 37 bytes are parsed, checked field by field,
+re-encoded identically, and the `MAC_structure` built from its inputs asserted —
+and the *primitive* against RFC 4231. The gap between the two is exactly what
+the cross-implementation agreement closes.
+
+**Falsified before being believed.** Reversing the truncation direction in the
+TypeScript implementation alone — keeping the rightmost bytes instead of the
+leftmost, a change that leaves it verifying its own messages perfectly — turns
+the suite red on precisely the two truncated cases, in both directions, and
+nowhere else. The full-width cases are unaffected, which is the correct
+behaviour and the check that the harness is measuring what it claims.
+
+Key type **Symmetric** (4) came with it, and label `−1` now means a third thing:
+the curve on an EC2 or OKP key, the public key on an algorithm key pair, the
+shared secret here. Both implementations already established the key type in a
+pass of its own, so nothing had to change for that. `ToPublicCOSEKey()` /
+`publicKey()` now throw on a symmetric key rather than returning it unchanged —
+RFC 9053 §7.3 says the structure has no public form, and stripping the private
+fields would hand a caller the secret under a name promising the opposite.
+
+The suite now stands at **439 (C#) / 403 (TypeScript) normative passes, 178
+cross-implementation agreements, zero failures**.

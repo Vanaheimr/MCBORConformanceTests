@@ -33,6 +33,14 @@ key the meter was manufactured with and countersigned post-quantum by the
 gateway that received it. That is what a fleet emits while it is being
 migrated, and neither half of it can be tested by one implementation alone.
 
+A third strand is **message authentication** ([RFC 9052 §6.2](https://www.rfc-editor.org/rfc/rfc9052#section-6.2)):
+`COSE_Mac0` with HMAC, which needs no arrangement at all to be compared — a MAC
+is deterministic by construction, so the tag bytes either match or the two
+implementations disagree about something real. It is included for what it makes
+visible rather than for what it protects: a tag proves nothing to anyone who
+cannot also produce it, so the metrological record stays signed and the MAC
+belongs on the link beneath it, at eight bytes against sixty-four.
+
 The same argument runs a second time for **X.509 certificate chains**
 ([RFC 9360](https://www.rfc-editor.org/rfc/rfc9360)), where the message carries
 the chain and the recipient holds only an anchor: each implementation signs a
@@ -50,7 +58,7 @@ misreading.
 | `libs/Styx` | the C# implementation (git submodule) |
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
 | `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
-| `vectors/` | the COSE cross-signing and certificate-chain vectors, which belong here rather than in the specification's annex: COSE is how a metrological value is signed, not what one is |
+| `vectors/` | the COSE cross-signing, message-authentication and certificate-chain vectors, which belong here rather than in the specification's annex: COSE is how a metrological value is signed, not what one is |
 | `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — fifteen certificates, deterministically, so it can be regenerated and diffed rather than believed |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |

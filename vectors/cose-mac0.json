@@ -1,0 +1,107 @@
+{
+    "suite": "cose-mac0",
+    "description": "COSE_Mac0 with HMAC (RFC 9052 Section 6.2, RFC 9053 Section 3.1). Each case is authenticated by both implementations and then handed to the other one to verify. Unlike a signature this needs no arrangement at all to be comparable: a MAC is deterministic by construction, so the tag bytes either match or the two implementations disagree about something. Note what a passing case here does NOT establish — a tag says 'someone holding the shared key produced this', and only to someone holding that key. That is why the metrological record itself is signed and why the one case below carrying a reading is a demonstration of cost rather than a recommendation. The keys secure nothing.",
+    "cases": [
+        {
+            "id": "mac0-hmac256-256",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "The plain case: HMAC with SHA-256 and the full 32-byte tag, algorithm in the protected bucket, key identifier in the unprotected one. Structurally this is COSE_Sign1 with CBOR tag 17 instead of 18 and a MAC_structure whose context string reads \"MAC0\" where the Sig_structure reads \"Signature1\".",
+            "algorithm": "HMAC 256/256",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac0-hmac256-64",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "The truncated one, and the reason a MAC exists at all: eight bytes of authentication, where the smallest signature in this suite is sixty-four and the largest is 4627. RFC 9053 keeps 'the leftmost tag-length bits' of the full HMAC — truncation applies to the output and never to the key, and an implementation truncating the key instead would interoperate with nothing. Note that this tag is NOT a prefix of the case above's, although both are HMAC-SHA-256 over the same payload with the same key: the protected buckets name different algorithms, so the two MAC_structures differ in one byte and the two HMACs share nothing. The prefix relation holds within one MAC_structure, which is where each implementation's own test suite checks it.",
+            "algorithm": "HMAC 256/64",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac0-hmac384-384",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "HMAC with SHA-384, whose block size is 128 bytes rather than 64 — a different padding regime inside the primitive, invisible from the outside and worth exercising.",
+            "algorithm": "HMAC 384/384",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C4271883F0C488D0A2E3B6C5D4E1F9A8B7C6D5E",
+            "keyIdentifier": "3232",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac0-hmac512-512",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "HMAC with SHA-512 and a 64-byte key, which is the width RFC 9053 says a key SHOULD have: as wide as the hash output.",
+            "algorithm": "HMAC 512/512",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C4271883F0C488D0A2E3B6C5D4E1F9A8B7C6D5E4F3A2B1C0D9E8F7A6B5C4D3E2F1A0B9C",
+            "keyIdentifier": "3535",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac0-short-key",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "A four-byte key — 'Jefe', the key of RFC 4231 Test Case 2 — with HMAC 256/256. RFC 9053 says a key SHOULD be as wide as the hash output, and SHOULD is not MUST: RFC 2104 accepts any width and the published vectors depend on it. This case exists so that neither implementation quietly tightens that into a refusal, which would make the canonical HMAC vectors unreproducible and would protect nobody who was not already choosing their own key length.",
+            "algorithm": "HMAC 256/256",
+            "key": "4A656665",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac0-long-key",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "A 131-byte key with HMAC 256/256, longer than the 64-byte block size of SHA-256, which the primitive has to hash down before using [RFC 2104]. That fold is the one step a hand-written HMAC gets wrong, and it is invisible until a key crosses the block boundary.",
+            "algorithm": "HMAC 256/256",
+            "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac0-untagged",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "CBOR tag 17 is not covered by the authentication tag, so the untagged message must carry the very same tag bytes as the tagged one — exactly as tag 18 is not covered by a signature.",
+            "algorithm": "HMAC 256/256",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "tagged": false
+        },
+        {
+            "id": "mac0-detached",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "A detached payload: the message carries nil and the verifier has to be handed the payload separately. The MAC_structure holds the full payload regardless of how it travels, so the tag is the same as the attached case's.",
+            "algorithm": "HMAC 256/256",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "detached": true
+        },
+        {
+            "id": "mac0-external-aad",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "Externally supplied additional authenticated data, which is covered by the tag without travelling in the message.",
+            "algorithm": "HMAC 256/256",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "externalAad": "11AA22BB33CC44DD55006699"
+        },
+        {
+            "id": "mac0-metrological-reading",
+            "class": "normative",
+            "shape": "mac0",
+            "description": "A tag-44252 reading — (1234.567 ±12.3) kWh, k=2, p=0.95, dist=normal — under an eight-byte tag, which is what the same reading costs when the two ends of a link already share a secret: 59 bytes of message against 118 for the smallest signed form and 4675 post-quantum. It is also exactly what must NOT be used as the record. Whoever verifies this tag could have produced it, so it proves nothing to a customer, an operator or a regulator, and a party who later denies having sent the reading cannot be contradicted with it. The honest arrangement is both: this over the link, a signature underneath for the archive.",
+            "algorithm": "HMAC 256/64",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "keyIdentifier": "C6738177A6E6D04B",
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401"
+        }
+    ]
+}

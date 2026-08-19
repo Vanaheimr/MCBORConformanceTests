@@ -79,7 +79,7 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
     const suite = JSON.parse(readFileSync(join(vectorsDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
-for (const name of ['cose-sign.json', 'cose-x509.json']) {
+for (const name of ['cose-sign.json', 'cose-mac0.json', 'cose-x509.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
@@ -89,6 +89,7 @@ function crossVectorsFrom(sourceResults) {
     const jsonCases = [];
     const textCases = [];
     const coseCases = [];
+    const mac0Cases = [];
     const x509Cases = [];
 
     for (const testCase of vectors['documents']) {
@@ -122,6 +123,15 @@ function crossVectorsFrom(sourceResults) {
             coseCases.push({ ...testCase, id: `xcose-${testCase.id}`, message: recorded.message.hex });
     }
 
+    // Every authenticated message one implementation produced, for the other
+    // one to check. A MAC needs no arrangement to be comparable, so this is
+    // the plainest cross-feed in the suite.
+    for (const testCase of vectors['cose-mac0']) {
+        const recorded = sourceResults.results[`cose-mac0:${testCase.id}`];
+        if (recorded?.message?.status === 'ok')
+            mac0Cases.push({ ...testCase, id: `xmac0-${testCase.id}`, message: recorded.message.hex });
+    }
+
     // Every chained message one implementation produced, for the other one to
     // walk to an anchor. This is where two DER parsers meet: the chain travels
     // inside the message, so the receiving side has to read certificates it did
@@ -136,6 +146,7 @@ function crossVectorsFrom(sourceResults) {
         { suite: 'json-to-cbor',       description: 'cross-feed', cases: jsonCases },
         { suite: 'parse-texts',        description: 'cross-feed', cases: textCases },
         { suite: 'cose-verify',        description: 'cross-feed', cases: coseCases },
+        { suite: 'cose-mac0-verify',   description: 'cross-feed', cases: mac0Cases },
         { suite: 'cose-x509-validate', description: 'cross-feed', cases: x509Cases },
     ];
 }
@@ -146,10 +157,11 @@ const crossForCSharp = join(resultsDir, 'cross-from-typescript');
 if (!skipRun) {
 
     for (const [prefix, source] of [[crossForTS, csharp], [crossForCSharp, ts]]) {
-        const [jsonSuite, textSuite, coseSuite, x509Suite] = crossVectorsFrom(source);
+        const [jsonSuite, textSuite, coseSuite, mac0Suite, x509Suite] = crossVectorsFrom(source);
         writeFileSync(`${prefix}-json.json`, JSON.stringify(jsonSuite, null, 2));
         writeFileSync(`${prefix}-text.json`, JSON.stringify(textSuite, null, 2));
         writeFileSync(`${prefix}-cose.json`, JSON.stringify(coseSuite, null, 2));
+        writeFileSync(`${prefix}-mac0.json`, JSON.stringify(mac0Suite, null, 2));
         writeFileSync(`${prefix}-x509.json`, JSON.stringify(x509Suite, null, 2));
     }
 
@@ -159,11 +171,13 @@ if (!skipRun) {
 
     runCSharp(join(resultsDir, 'csharp-cross.json'),
               `${crossForCSharp}-json.json`, `${crossForCSharp}-text.json`,
-              `${crossForCSharp}-cose.json`, `${crossForCSharp}-x509.json`);
+              `${crossForCSharp}-cose.json`, `${crossForCSharp}-mac0.json`,
+              `${crossForCSharp}-x509.json`);
 
     runTypeScript(join(resultsDir, 'typescript-cross.json'),
                   `${crossForTS}-json.json`, `${crossForTS}-text.json`,
-                  `${crossForTS}-cose.json`, `${crossForTS}-x509.json`);
+                  `${crossForTS}-cose.json`, `${crossForTS}-mac0.json`,
+                  `${crossForTS}-x509.json`);
 
 }
 
@@ -460,6 +474,62 @@ for (const testCase of vectors['cose-sign']) {
 
 }
 
+// --- suite: cose-mac0, the authenticated messages ---
+
+/**
+ * What both implementations have to say the same thing about.
+ *
+ * All four are byte comparisons, and none of them needed arranging: a MAC has
+ * no nonce, so a differing tag means a genuine disagreement about the
+ * MAC_structure, the truncation or the primitive.
+ */
+const MAC0_AGREEMENTS = [
+    ['toBeMaced',  'the MAC_structure'],
+    ['tag',        'the authentication tag'],
+    ['message',    'the complete message'],
+    ['thumbprint', 'the RFC 9679 thumbprint of the symmetric key'],
+];
+
+for (const testCase of vectors['cose-mac0']) {
+
+    const key   = `cose-mac0:${testCase.id}`;
+    const klass = testCase.class ?? 'normative';
+
+    for (const [check, what] of MAC0_AGREEMENTS) {
+
+        const mine  = checkOf(csharp, key, check);
+        const yours = checkOf(ts,     key, check);
+
+        judge(testCase.id, `agree on ${what}`, 'csharp↔typescript', klass,
+              mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+              `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+    }
+
+    // ...and each has to accept what the other authenticated.
+    for (const [impl, own, otherName, otherCross] of [
+             ['csharp', csharp, 'typescript', tsCross],
+             ['typescript', ts, 'csharp', csharpCross]]) {
+
+        const message = checkOf(own, key, 'message');
+
+        if (message?.status !== 'ok') {
+            judge(testCase.id, `cross-verify ${impl}→${otherName}`, otherName, klass, false,
+                  `${impl} produced no message to verify: ${describe(message)}`);
+            continue;
+        }
+
+        const verified = checkOf(otherCross, `cose-mac0-verify:xmac0-${testCase.id}`, 'verify');
+
+        judge(testCase.id, `cross-verify ${impl}→${otherName}`, otherName, klass,
+              verified?.status === 'ok' && verified.verified === true,
+              `${otherName} verifying the message authenticated by ${impl}: ${describe(verified)}`);
+
+    }
+
+}
+
+
 // --- suite: cose-x509, the certificate chains ---
 
 /**
@@ -583,7 +653,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-x509 (${vectors['cose-x509'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-x509 (${vectors['cose-x509'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -648,6 +718,39 @@ for (const testCase of vectors['cose-sign']) {
                           : testCase.algorithm;
 
     lines.push(`| ${testCase.id} | ${testCase.shape} | ${algorithm} | ` +
+               `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCSharp)} |`);
+
+}
+
+lines.push('');
+
+// --- COSE_Mac0 ---
+
+lines.push('## Message authentication (COSE_Mac0)');
+lines.push('');
+lines.push('HMAC over the same structures the signatures use — [RFC 9052](https://www.rfc-editor.org/rfc/rfc9052)');
+lines.push('Section 6.2, tag 17, and a MAC_structure differing from the Sig_structure in one');
+lines.push('string. Nothing had to be arranged for these bytes to be comparable: a MAC is');
+lines.push('deterministic by construction, so a differing tag is a genuine disagreement.');
+lines.push('');
+lines.push('A passing row says the two implementations authenticate alike. It does *not* say');
+lines.push('a tag is evidence: whoever can verify one can produce one, which is why the');
+lines.push('metrological record is signed and a MAC belongs on the link beneath it.');
+lines.push('');
+lines.push('| Case | Algorithm | Tag | Bytes agree | C#→TS | TS→C# |');
+lines.push('|---|---|---|---|---|---|');
+
+for (const testCase of vectors['cose-mac0']) {
+
+    const own      = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
+    const agreed   = own.filter(v => v.check.startsWith('agree'));
+    const toTS     = own.find(v => v.check === 'cross-verify csharp→typescript');
+    const toCSharp = own.find(v => v.check === 'cross-verify typescript→csharp');
+    const mark     = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    const tag      = csharp.results[`cose-mac0:${testCase.id}`]?.tag?.hex;
+
+    lines.push(`| ${testCase.id} | ${testCase.algorithm} | ` +
+               `${tag === undefined ? '—' : `${String(tag.length / 2)} bytes`} | ` +
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCSharp)} |`);
 
 }

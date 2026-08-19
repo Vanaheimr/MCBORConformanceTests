@@ -82,6 +82,9 @@ foreach (var vectorFile in vectorFiles)
                 case "cose-sign":      RunCoseSign     (testCase, checks); break;
                 case "cose-verify":    RunCoseVerify   (testCase, checks); break;
 
+                case "cose-mac0":        RunCoseMac0      (testCase, checks); break;
+                case "cose-mac0-verify": RunCoseMac0Verify(testCase, checks); break;
+
                 case "cose-x509":
                     RunCoseX509(testCase, checks,
                                 corpus ?? throw new Exception("No certificate corpus was found beside the vector file!"));
@@ -470,6 +473,92 @@ static void RunCoseVerify(JsonObject TestCase, JsonObject Checks)
                 return Error($"Unknown COSE shape '{shape}'!");
 
         }
+
+    });
+
+}
+
+
+// ------------------------------------------- COSE_Mac0 [RFC 9052 6.2] --
+
+static COSEKey Mac0KeyOf(JsonObject TestCase)
+{
+
+    var algorithmName = TestCase["algorithm"]!.GetValue<String>();
+
+    if (!COSEAlgorithm.TryParse(algorithmName, out var algorithm))
+        throw new Exception($"Unknown COSE algorithm '{algorithmName}'!");
+
+    return COSEKey.FromSymmetricKey(
+               Convert.FromHexString(TestCase["key"]!.GetValue<String>()),
+               TestCase["keyIdentifier"] is null
+                   ? null
+                   : Convert.FromHexString(TestCase["keyIdentifier"]!.GetValue<String>()),
+               algorithm
+           );
+
+}
+
+
+/// <summary>
+/// Authenticate one case, recording what the other implementation has to
+/// agree with: the MAC_structure, the tag, the whole message and the key
+/// thumbprint.
+///
+/// Nothing has to be arranged for the bytes to be comparable. A MAC is
+/// deterministic by construction - there is no nonce to draw and nothing to
+/// derive - so a tag that differs means the two implementations disagree
+/// about the structure, the truncation or the primitive, and nothing else.
+/// </summary>
+static void RunCoseMac0(JsonObject TestCase, JsonObject Checks)
+{
+
+    var key          = Mac0KeyOf(TestCase);
+    var payload      = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
+    var externalAAD  = TestCase["externalAad"] is null
+                           ? null
+                           : Convert.FromHexString(TestCase["externalAad"]!.GetValue<String>());
+    var detached     = TestCase["detached"]?.GetValue<Boolean>() ?? false;
+    var tagged       = TestCase["tagged"]?.GetValue<Boolean>()   ?? true;
+
+    var message      = COSEMac0.Create(payload, key, externalAAD, detached, tagged);
+
+    Checks["toBeMaced"]  = Capture(() => OkHex(Convert.ToHexString(
+                               COSEMac0.ToBeMACed(message.ProtectedHeaderBytes, payload, externalAAD))));
+    Checks["tag"]        = Capture(() => OkHex(Convert.ToHexString(message.Tag)));
+    Checks["message"]    = Capture(() => OkHex(Convert.ToHexString(message.ToByteArray())));
+
+    // The thumbprint of a symmetric key covers kty and k and nothing else
+    // [RFC 9679, Section 4.4] - notably not the algorithm, unlike an
+    // algorithm key pair.
+    Checks["thumbprint"] = Capture(() => OkHex(Convert.ToHexString(key.Thumbprint())));
+
+}
+
+
+/// <summary>
+/// Verify a COSE_Mac0 message the OTHER implementation produced.
+/// </summary>
+static void RunCoseMac0Verify(JsonObject TestCase, JsonObject Checks)
+{
+
+    Checks["verify"] = Capture(() => {
+
+        var key          = Mac0KeyOf(TestCase);
+        var externalAAD  = TestCase["externalAad"] is null
+                               ? null
+                               : Convert.FromHexString(TestCase["externalAad"]!.GetValue<String>());
+
+        var detached     = (TestCase["detached"]?.GetValue<Boolean>() ?? false)
+                               ? Convert.FromHexString(TestCase["payload"]!.GetValue<String>())
+                               : null;
+
+        if (!COSEMac0.TryParse(Convert.FromHexString(TestCase["message"]!.GetValue<String>()),
+                               out var parsed, out var parseError))
+            return Error($"The COSE_Mac0 message could not be read: {parseError}");
+
+        return Verified(parsed.Verify(key, out var errorResponse, externalAAD, detached),
+                        errorResponse);
 
     });
 
