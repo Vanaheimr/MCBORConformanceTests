@@ -1,6 +1,6 @@
 # Conformance findings
 
-**Date:** 2026-08-18 · produced by this suite against
+**Date:** 2026-08-19 · produced by this suite against
 Vanaheimr Styx (C#, submodule `libs/Styx`) and MetrologicalCBOR.TS 0.9.1
 (submodule `libs/MetrologicalCBOR.TS`), judged against the specification in
 `libs/specification/MetrologicalCBOR/` (tag specification `README.md` and
@@ -151,7 +151,7 @@ TypeScript package with its own dependency (`@noble/curves`), leaving the mCBOR
 library's dependency tree empty exactly as Styx keeps `Illias/COSE` beside
 `Illias/CBOR` rather than inside it.
 
-**Result: 19 cases, 82 byte-level agreements, 38 cross-verifications, zero
+**Result: 23 cases, 110 byte-level agreements, 46 cross-verifications, zero
 failures.** Both implementations produce *identical bytes* for the
 Sig_structure, the signature, the complete message and the RFC 9679 key
 thumbprint, and each verifies everything the other signed — across `ES256`,
@@ -159,12 +159,14 @@ thumbprint, and each verifies everything the other signed — across `ES256`,
 (brainpoolP320r1), `ES256K` (secp256k1), `Ed25519`, `Ed448` and all three
 ML-DSA parameter sets, tagged and untagged messages, detached
 payloads, external additional authenticated data, the empty-protected-bucket
-application-algorithm form, `COSE_Sign` with two signers on two curves, and
-RFC 9338 version 2 countersignatures. One case signs a tag-44252 reading
-directly, which is the claim the whole suite exists to make.
+application-algorithm form, `COSE_Sign` with two signers, and RFC 9338 version 2
+countersignatures — the last two both with the signers drawn from one family
+and from two (§8). One case signs a tag-44252 reading directly, which is the
+claim the whole suite exists to make.
 
 Byte-for-byte comparison is possible at all only because both sides sign
-**deterministically** (RFC 6979) for this suite. That is the one place where
+**deterministically** for this suite — RFC 6979 for ECDSA, and see §7 for what
+the same word means in the other two families. That is the one place where
 the runners depart from "the implementation's default settings" — Styx's
 default is a randomized nonce — and it is recorded in the vector file. The
 randomized mode is still exercised, by the cross-verification, which accepts
@@ -263,3 +265,48 @@ fetched through a summarising web tool came back **corrupted** — one signature
 had 129 hex characters, an odd number, and one public key had a duplicated
 octet. Long hex constants must be taken from the raw document and verified
 mechanically, which is how the ones in both test suites were finally obtained.
+
+## 8. Mixed-family messages (added 2026-08-19)
+
+EdDSA and ML-DSA arrived in the `COSE_Sign1` shape only, which is the shape
+that exercises the least: one signer, one Sig_structure, one signature. The two
+shapes that carry a second signer — `COSE_Sign` and the RFC 9338
+countersignature — were still tested with ECDSA on both sides, so nothing in
+the suite had ever put a classical and a post-quantum signature in the same
+message. That is the one arrangement the transition guarantees, and four cases
+now cover it.
+
+- **`sign-hybrid-classical-and-postquantum`** — `ES256` and `ML-DSA-65` as the
+  two signers of one `COSE_Sign`. A verifier that knows only ECDSA and a
+  verifier that already requires ML-DSA are then satisfied by the same bytes,
+  which is how a fleet is migrated without a flag day.
+- **`sign-two-pure-schemes`** — `Ed25519` and `ML-DSA-44`: two pure schemes side
+  by side, and two key types whose label `−1` means different things within one
+  message.
+- **`countersign-postquantum-over-classical`** — a meter signs its tag-44252
+  reading with the brainpoolP256r1 key it was manufactured with, and the
+  gateway countersigns with `ML-DSA-87`. The meter cannot be replaced; the
+  archive can be protected against an adversary the meter's own signature is
+  not. The whole message is 4760 bytes, for a 31-byte reading.
+- **`countersign-classical-over-postquantum`** — the reverse, which tests a
+  structure rather than a scenario.
+
+All four agree byte for byte across the Sig_structures, both signatures, the
+complete message and both thumbprints, and cross-verify in both directions.
+
+Two things are worth recording.
+
+**Neither runner needed a line of change.** Both had already been widened to
+choose a key by algorithm family rather than by shape, so a second signer of a
+different family was simply a second key. Going further — three or more signers
+— was considered and left out: `COSE_Sign` iterates its signature array, and a
+third entry would exercise no path in either implementation that the second
+does not.
+
+**The last case is the one worth having written.** RFC 9338's version-2
+structure ends in `other_fields`, an array holding the body signature, and every
+countersignature in this suite until now put 64 or 96 bytes there — comfortably
+inside CBOR's one-byte length form, `81 58 40`. An ML-DSA-87 body signature is
+4627 bytes and crosses into the two-byte form, `81 59 1213`. Both
+implementations emit exactly that, and the two countersignature cases now sit on
+either side of that boundary on purpose.

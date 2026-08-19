@@ -27,6 +27,11 @@ implementation's own test suite would show it. It runs over ECDSA on seven
 curves, EdDSA on Ed25519 and Ed448, and the three ML-DSA parameter sets of
 RFC 9964 — where a 4627-byte signature over a thirty-byte reading is exactly
 why a signed measurement belongs in CBOR rather than in base64 within JSON.
+Classical and post-quantum signatures also meet inside single messages: a
+hybrid `COSE_Sign` carrying one of each, and a meter reading signed with the
+key the meter was manufactured with and countersigned post-quantum by the
+gateway that received it. That is what a fleet emits while it is being
+migrated, and neither half of it can be tested by one implementation alone.
 
 ## Layout
 

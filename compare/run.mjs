@@ -389,8 +389,8 @@ for (const testCase of vectors['json-to-cbor']) {
 const COSE_AGREEMENTS = [
     ['toBeSigned',  'the structure that was signed'],
     ['toBeSigned2', 'the structure the second party signed'],
-    ['signature',   'the signature bytes (RFC 6979)'],
-    ['signature2',  'the second signature bytes (RFC 6979)'],
+    ['signature',   'the signature bytes'],
+    ['signature2',  'the second signature bytes'],
     ['message',     'the complete signed message'],
     ['thumbprint',  'the RFC 9679 key thumbprint'],
     ['thumbprint2', 'the second key thumbprint'],
@@ -541,9 +541,10 @@ const coseVerdicts = verdicts.filter(v => vectors['cose-sign'].some(each => each
 lines.push('## COSE cross-signing');
 lines.push('');
 lines.push('Each case is signed by both implementations and then handed to the other one to');
-lines.push('verify. Signing is deterministic ([RFC 6979](https://www.rfc-editor.org/rfc/rfc6979))');
-lines.push('on both sides, which is the only mode in which two implementations can be compared');
-lines.push('byte for byte at all.');
+lines.push('verify. Both sides sign deterministically, which is the only mode in which two');
+lines.push('implementations can be compared byte for byte at all — [RFC 6979](https://www.rfc-editor.org/rfc/rfc6979)');
+lines.push('for ECDSA, nothing at all to arrange for EdDSA, and the zero-randomness variant of');
+lines.push('FIPS 204 for ML-DSA.');
 lines.push('');
 lines.push('| Case | Shape | Algorithm | Bytes agree | C#→TS | TS→C# |');
 lines.push('|---|---|---|---|---|---|');
