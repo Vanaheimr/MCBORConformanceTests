@@ -1,7 +1,7 @@
 name: Nightly
 
 # The counterpart to ci.yml. That workflow gates every push against the
-# submodule states this repository pins; this one advances all three
+# submodule states this repository pins; this one advances all four
 # submodules to their latest master and runs the same suite — because neither
 # reference implementation pins the other, an upstream change that breaks
 # conformance or cross-implementation interop would otherwise surface only on
@@ -82,16 +82,16 @@ jobs:
         working-directory: runners/typescript
         run: npm ci
 
-      # The COSE package and its own golden vectors. Unlike the two
-      # implementations under test it is not a submodule, so it does not
-      # advance overnight — but the specification's worked signed record does
-      # live in one, and a change there has to keep verifying.
+      # The COSE package and its own golden vectors. It is a submodule like the
+      # rest, so it advances overnight too — and it verifies the
+      # specification's worked signed record, which lives in another one of
+      # them. Either moving has to keep that record verifying.
       - name: Install the COSE package
-        working-directory: cose
+        working-directory: libs/COSE.TS
         run: npm ci
 
       - name: Test the COSE implementation against the published vectors
-        working-directory: cose
+        working-directory: libs/COSE.TS
         run: npm test
 
       - name: Run the conformance suite

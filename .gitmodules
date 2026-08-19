@@ -7,3 +7,6 @@
 [submodule "libs/MetrologicalCBOR.TS"]
 	path = libs/MetrologicalCBOR.TS
 	url = https://github.com/Vanaheimr/MetrologicalCBOR.TS
+[submodule "libs/COSE.TS"]
+	path = libs/COSE.TS
+	url = https://github.com/Vanaheimr/COSE.TS

@@ -34,8 +34,8 @@ import {
     CoseSign,
     CoseSign1,
     curveByName,
-} from '../../cose/src/index.ts';
-import type { CoseSignature, Verification } from '../../cose/src/index.ts';
+} from '../../libs/COSE.TS/src/index.ts';
+import type { CoseSignature, Verification } from '../../libs/COSE.TS/src/index.ts';
 
 
 type Check = Record<string, unknown>;

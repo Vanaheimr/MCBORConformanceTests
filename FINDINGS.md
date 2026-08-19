@@ -146,7 +146,7 @@ Styx has carried a full COSE implementation (`Styx/Illias/COSE`) since before
 this project; MetrologicalCBOR.TS deliberately has none and never will — a data
 format that also carried a crypto stack would be unusable as the leaf of
 somebody else's schema. There was therefore nothing to cross-sign against. This
-project adds the missing half as [`cose/`](cose/README.md), a separate
+project adds the missing half as [`libs/COSE.TS`](libs/COSE.TS/README.md), a separate
 TypeScript package with its own dependency (`@noble/curves`), leaving the mCBOR
 library's dependency tree empty exactly as Styx keeps `Illias/COSE` beside
 `Illias/CBOR` rather than inside it.
@@ -184,7 +184,7 @@ Three things this surfaced that a single implementation could not have:
   than verifying it, and the suite now takes it.
 - **brainpoolP320r1 had to be defined by hand**, because the TypeScript curve
   library ships the other three brainpool curves and not that one. It is now
-  written out in `cose/src/ecdsa.ts` from RFC 5639 §3.4, and the cross-signing
+  written out in `libs/COSE.TS/src/ecdsa.ts` from RFC 5639 §3.4, and the cross-signing
   case is what proves the transcription: a curve with one wrong hex digit in
   `p`, `a`, `b`, `n`, `Gx` or `Gy` works perfectly, signs and verifies against
   itself, and produces different bytes from everybody else. Byte agreement with

@@ -32,7 +32,7 @@ implementation's own test suite would show it.
 | `libs/specification` | the specification (git submodule) — including `MetrologicalCBOR/test-vectors/`, the normative vector annex this suite executes |
 | `libs/Styx` | the C# implementation (git submodule) |
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
-| `cose/` | [Vanaheimr COSE](cose/README.md) — the TypeScript COSE implementation, the second party the cross-signing tests need |
+| `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
 | `vectors/` | the COSE cross-signing vectors, which belong here rather than in the specification's annex: COSE is how a metrological value is signed, not what one is |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
@@ -72,7 +72,7 @@ since an implementation that cannot verify a published example has nothing to
 say about whether it agrees with the C# one:
 
 ```
-cd cose && npm install && npm test
+cd libs/COSE.TS && npm install && npm test
 ```
 
 The one departure from "default settings" is that both sides sign
@@ -84,7 +84,7 @@ exercised by the cross-verification instead.
 
 The same two-leg matrix as the Styx and Hermod gates — windows-latest and
 Debian 13 in a bare `debian:13` container. `ci.yml` gates every push against
-the **pinned** submodule states; `nightly.yml` advances all three submodules
+the **pinned** submodule states; `nightly.yml` advances all four submodules
 to their latest `master` and runs the same suite, so an upstream change that
 breaks conformance or cross-implementation interop surfaces the next morning
 — red there and green on CI means the fix belongs upstream before the pins

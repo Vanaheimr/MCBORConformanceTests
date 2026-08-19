@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   conformance:
-    # The state this repository actually pins: the three submodule commits
+    # The state this repository actually pins: the four submodule commits
     # recorded here — the verdict a clone of this repository reproduces.
     # nightly.yml runs the same suite against the latest upstream masters.
     #
@@ -90,7 +90,7 @@ jobs:
       # reason there is a second COSE implementation to cross-sign against at
       # all — the mCBOR library does no cryptography and never will.
       - name: Install the COSE package
-        working-directory: cose
+        working-directory: libs/COSE.TS
         run: npm ci
 
       # Its own golden vectors first: RFC 9052, RFC 9338, RFC 6979 and the
@@ -98,7 +98,7 @@ jobs:
       # cannot verify a published example has nothing to say about whether it
       # agrees with the C# one, so this failing first is the useful order.
       - name: Test the COSE implementation against the published vectors
-        working-directory: cose
+        working-directory: libs/COSE.TS
         run: npm test
 
       - name: Run the conformance suite

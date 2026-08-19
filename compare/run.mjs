@@ -47,7 +47,7 @@ function runCSharp(outputFile, ...inputs) {
         outputFile, ...inputs], { cwd: root });
 }
 
-const coseDirTS = join(root, 'cose');
+const coseDirTS = join(root, 'libs', 'COSE.TS');
 
 function runTypeScript(outputFile, ...inputs) {
     if (!existsSync(join(tsRunnerDir, 'node_modules', 'tsx')))
