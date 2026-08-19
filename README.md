@@ -23,7 +23,10 @@ each implementation signs, and the other one verifies. That is the sharpest
 test of an encoder there is — a reading encodes to a pure function of its
 value, unit, prefix and uncertainty, so two implementations disagreeing about
 one byte produce signatures that fail at the other, and nothing in either
-implementation's own test suite would show it.
+implementation's own test suite would show it. It runs over ECDSA on seven
+curves, EdDSA on Ed25519 and Ed448, and the three ML-DSA parameter sets of
+RFC 9964 — where a 4627-byte signature over a thirty-byte reading is exactly
+why a signed measurement belongs in CBOR rather than in base64 within JSON.
 
 ## Layout
 
@@ -66,8 +69,8 @@ npm test
 `node compare/run.mjs --skip-run` re-judges existing recordings without
 re-running the implementations.
 
-The COSE package has golden vectors of its own — RFC 9052, RFC 9338, RFC 6979
-and the specification's worked signed record — which are worth running first,
+The COSE package has golden vectors of its own — RFC 9052, RFC 9338, RFC 6979,
+RFC 8032 and the specification's worked signed record — worth running first,
 since an implementation that cannot verify a published example has nothing to
 say about whether it agrees with the C# one:
 
@@ -76,9 +79,13 @@ cd libs/COSE.TS && npm install && npm test
 ```
 
 The one departure from "default settings" is that both sides sign
-**deterministically** (RFC 6979) for the COSE suite. It is the only mode in
-which two implementations can be compared byte for byte; randomized signing is
-exercised by the cross-verification instead.
+**deterministically** for the COSE suite, which is the only mode in which two
+implementations can be compared byte for byte. What that means differs by
+family: RFC 6979 for ECDSA, nothing at all for EdDSA — which has no nonce to
+draw and is deterministic whether or not anybody asks — and the variant of
+FIPS 204 whose per-signature randomness is 32 zero bytes for ML-DSA, where
+RFC 9964 declines to choose. Randomized signing is exercised by the
+cross-verification instead, which accepts either.
 
 ## Continuous integration
 
@@ -96,18 +103,23 @@ are bumped. Both publish the verdict to the run's summary page and upload
 - `results/report.md` — summary, normative failures, cross-implementation
   divergences, survey observations.
 - [FINDINGS.md](FINDINGS.md) — the curated outcome: what interoperates, what
-  fails which specification clause, and the list of points the specification
-  has to decide (each with a proposal).
+  each specification question was decided as, and what the cross-signing work
+  surfaced that no single implementation could have.
 
 ## Specification status
 
 The tag specification lives in `libs/specification/MetrologicalCBOR/README.md`.
 The text-format and CBOR/JSON-conversion specification (`metrological-text.md`)
 was written on the Styx side and was missing from the specification
-repository; this project adds it there (see the submodule working tree) so
-that both implementations and this suite can cite one normative source.
-The open conversion questions surfaced by this suite are listed in
-[FINDINGS.md](FINDINGS.md) §4.
+repository; this project moved it there, so that both implementations and this
+suite cite one normative source. The vectors followed it, as the normative
+annex both implementations now execute in their own suites.
+
+Every conversion question this suite surfaced has since been decided — see
+[FINDINGS.md](FINDINGS.md) §4 for what was decided and why. COSE is
+deliberately *not* part of that specification: it is how a metrological value
+is signed, not what one is, so the algorithms and the cross-signing vectors
+live here instead ([FINDINGS.md](FINDINGS.md) §6 and §7).
 
 ## License
 
