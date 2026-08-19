@@ -34,8 +34,12 @@ import {
     CoseCertificateChain,
     CoseCertificateHash,
     CoseHeaders,
+    CoseEncrypt,
+    CoseEncrypt0,
     CoseKey,
+    CoseMac,
     CoseMac0,
+    CoseRecipient,
     CoseSign,
     CoseSign1,
     curveByName,
@@ -114,6 +118,13 @@ interface VectorCase {
 
     // cose-mac0 / cose-mac0-verify
     key?:              string;
+
+    // cose-encrypt / cose-decrypt
+    iv?:               string;
+    recipients?:       { algorithm: string; key: string; keyIdentifier?: string }[];
+    expectedTag?:      string;
+    expectedWrapped?:  string;
+    detachedCiphertext?: string;
 
     // cose-x509 / cose-x509-validate
     signer?:           string;
@@ -506,6 +517,167 @@ function runCoseMac0Verify(testCase: VectorCase, checks: Record<string, Check>):
 }
 
 
+/** A symmetric key from a vector entry. */
+function symmetricKeyOf(keyHex: string, algorithmName?: string, keyIdentifier?: string): CoseKey {
+
+    const algorithm = algorithmName !== undefined ? algorithmByName(algorithmName) : null;
+
+    if (algorithmName !== undefined && algorithm === null)
+        throw new Error(`Unknown algorithm '${algorithmName}'`);
+
+    return CoseKey.fromSymmetricKey(hexToBytes(keyHex), {
+               algorithm,
+               keyIdentifier: keyIdentifier !== undefined ? hexToBytes(keyIdentifier) : null,
+           });
+
+}
+
+
+/** The recipient structures a case describes. */
+function recipientsOf(testCase: VectorCase, contentKey: Uint8Array): CoseRecipient[] {
+
+    return (testCase.recipients ?? []).map(entry => {
+
+        const key = symmetricKeyOf(entry.key, undefined, entry.keyIdentifier);
+
+        return entry.algorithm === 'direct'
+                   ? CoseRecipient.direct(key)
+                   : CoseRecipient.keyWrap(contentKey, key);
+
+    });
+
+}
+
+
+/**
+ * Encrypt or authenticate one case, recording what the other implementation
+ * has to agree with: the structure that was authenticated, the ciphertext or
+ * tag, and the whole message.
+ *
+ * Everything is deterministic once the content key and the nonce are given,
+ * and the vector gives both — which is the same departure from "default
+ * settings" the signing suite makes, and for the same reason.
+ */
+function runCoseEncrypt(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    const contentKey = symmetricKeyOf(testCase.key!, testCase.algorithm, testCase.keyIdentifier);
+    const payload    = hexToBytes(testCase.payload!);
+    const external   = optionalBytes(testCase.externalAad);
+    const detached   = testCase.detached === true;
+    const tagged     = testCase.tagged !== false;
+
+    switch (testCase.shape) {
+
+        case 'encrypt0': {
+
+            const message = CoseEncrypt0.encrypt(payload, contentKey, {
+                                iv:            hexToBytes(testCase.iv!),
+                                externalAad:   external,
+                                detachPayload: detached,
+                                tagged,
+                            });
+
+            checks['toBeEncrypted'] = capture(() => okHex(bytesToHex(message.toBeEncrypted(external))));
+            checks['ciphertext']    = capture(() => okHex(bytesToHex(
+                message.ciphertext ?? CoseEncrypt0.encrypt(payload, contentKey,
+                    { iv: hexToBytes(testCase.iv!), externalAad: external }).ciphertext!)));
+            checks['message']       = capture(() => okHex(bytesToHex(message.toBytes())));
+
+            break;
+
+        }
+
+        case 'encrypt': {
+
+            const recipients = recipientsOf(testCase, contentKey.privateKeyBytes());
+
+            const message = CoseEncrypt.encrypt(payload, contentKey, recipients, {
+                                iv:            hexToBytes(testCase.iv!),
+                                externalAad:   external,
+                                detachPayload: detached,
+                                tagged,
+                            });
+
+            checks['toBeEncrypted'] = capture(() => okHex(bytesToHex(message.toBeEncrypted(external))));
+            checks['ciphertext']    = capture(() => okHex(bytesToHex(message.ciphertext!)));
+            checks['message']       = capture(() => okHex(bytesToHex(message.toBytes())));
+            checks['recipient0']    = capture(() => okHex(bytesToHex(recipients[0]!.ciphertext)));
+
+            break;
+
+        }
+
+        case 'mac': {
+
+            const recipients = recipientsOf(testCase, contentKey.privateKeyBytes());
+
+            const message = CoseMac.create(payload, contentKey, recipients, {
+                                externalAad:   external,
+                                detachPayload: detached,
+                                tagged,
+                            });
+
+            checks['toBeEncrypted'] = capture(() => okHex(bytesToHex(
+                CoseMac.toBeMaced(message.protectedHeaderBytes, payload, external))));
+            checks['ciphertext']    = capture(() => okHex(bytesToHex(message.tag)));
+            checks['message']       = capture(() => okHex(bytesToHex(message.toBytes())));
+            checks['recipient0']    = capture(() => okHex(bytesToHex(recipients[0]!.ciphertext)));
+
+            break;
+
+        }
+
+        default:
+            checks['message'] = error(`unknown COSE shape '${String(testCase.shape)}'`);
+
+    }
+
+}
+
+
+/** Open a message the *other* implementation produced. */
+function runCoseDecrypt(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    checks['open'] = capture(() => {
+
+        const external = optionalBytes(testCase.externalAad);
+        const bytes    = hexToBytes(testCase.message!);
+        const payload  = hexToBytes(testCase.payload!);
+
+        // Whoever opens the message holds a recipient key, or — for the bare
+        // form — the content key itself.
+        const key = testCase.recipients !== undefined && testCase.recipients.length > 0
+                        ? symmetricKeyOf(testCase.recipients[0]!.key)
+                        : symmetricKeyOf(testCase.key!, testCase.algorithm);
+
+        if (testCase.shape === 'mac')
+            return verification(CoseMac.parse(bytes).verify(key, { externalAad: external }));
+
+        const detached = testCase.detached === true
+                             ? hexToBytes(testCase.detachedCiphertext!)
+                             : null;
+
+        const result = testCase.shape === 'encrypt0'
+                           ? CoseEncrypt0.parse(bytes).decrypt(symmetricKeyOf(testCase.key!, testCase.algorithm),
+                                                               { externalAad: external, detachedCiphertext: detached })
+                           : CoseEncrypt.parse(bytes).decrypt(key,
+                                                              { externalAad: external, detachedCiphertext: detached });
+
+        if (!result.decrypted)
+            return { status: 'ok', verified: false, reason: result.reason };
+
+        // Decrypting is only half of it: the plaintext has to be the payload
+        // the vector names, or the two implementations agree about nothing.
+        return bytesToHex(result.plaintext) === bytesToHex(payload)
+                   ? { status: 'ok', verified: true }
+                   : { status: 'ok', verified: false,
+                       reason: `decrypted to ${bytesToHex(result.plaintext)} rather than to the expected payload` };
+
+    });
+
+}
+
+
 /** A verification, recorded rather than judged. */
 function verification(result: Verification): Check {
     return result.verified
@@ -629,6 +801,8 @@ for (const vectorFile of vectorFiles) {
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
                 case 'cose-sign':      runCoseSign     (testCase, checks); break;
                 case 'cose-verify':    runCoseVerify   (testCase, checks); break;
+                case 'cose-encrypt':   runCoseEncrypt  (testCase, checks); break;
+                case 'cose-decrypt':   runCoseDecrypt  (testCase, checks); break;
                 case 'cose-mac0':      runCoseMac0     (testCase, checks); break;
                 case 'cose-mac0-verify': runCoseMac0Verify(testCase, checks); break;
                 case 'cose-x509':      runCoseX509     (testCase, checks); break;

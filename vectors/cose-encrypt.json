@@ -1,0 +1,158 @@
+{
+    "suite": "cose-encrypt",
+    "description": "Encrypted and enveloped COSE structures: COSE_Encrypt0 (tag 16), COSE_Encrypt (tag 96) and COSE_Mac (tag 97), with AES-GCM, AES key wrap and the direct recipient algorithm. Each case is produced by both implementations and then handed to the other one to open. Everything here is deterministic once the content key and the nonce are given, and the vectors give both — a generated nonce would make the bytes incomparable, and a generated content key would too. That is the same departure from 'default settings' the signing suite makes, for the same reason. Note what a passing case does NOT establish: an encrypted or MACed message says nothing about who sent it. RFC 9052 Section 8.3 calls it 'either no or very limited data origination', and with more than one recipient there is none at all, because they all hold the same content key. The metrological record is signed for exactly that reason; the case carrying a reading here is a demonstration of cost. Every key is printed in this file and secures nothing.",
+    "cases": [
+        {
+            "id": "encrypt0-a128gcm",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "The plain case: AES-GCM with a 128-bit key, algorithm in the protected bucket, nonce in the unprotected one. The Enc_structure it authenticates has THREE elements and no payload — the payload is what gets encrypted, not what gets authenticated alongside — and the 16-byte tag is appended to the ciphertext rather than given a field of its own. Both are places an implementation can be internally consistent and interoperate with nothing.",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "encrypt0-a192gcm",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "The same with a 192-bit key. A128GCM and A192GCM are one cipher and two registered identifiers, so a key of the wrong width is not a different strength but a different algorithm.",
+            "algorithm": "A192GCM",
+            "key": "0F1E2D3C4B5A69788796A5B4C3D2E1F01F2E3D4C5B6A7988",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "encrypt0-a256gcm",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "And with a 256-bit key.",
+            "algorithm": "A256GCM",
+            "key": "0F1E2D3C4B5A69788796A5B4C3D2E1F01F2E3D4C5B6A798897A6B5C4D3E2F100",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "encrypt0-external-aad",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "Externally supplied additional authenticated data, which is covered by the AEAD tag without travelling in the message. It goes into the third element of the Enc_structure, so a recipient who does not supply the same bytes cannot decrypt at all — the message does not merely fail an integrity check afterwards.",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "externalAad": "11AA22BB33CC44DD55006699"
+        },
+        {
+            "id": "encrypt0-detached",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "A detached ciphertext: the message carries nil and the recipient has to be handed the ciphertext separately. The bytes are the same either way, because the Enc_structure never mentions the payload.",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "detached": true
+        },
+        {
+            "id": "encrypt0-untagged",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "CBOR tag 16 is not covered by the AEAD tag, so the untagged message must carry the very same ciphertext as the tagged one.",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "tagged": false
+        },
+        {
+            "id": "encrypt0-metrological-reading",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "A tag-44252 reading encrypted rather than signed, which is the arrangement to think twice about. The recipient learns that whoever holds the key wrote it, and cannot show that to anybody else; a customer cannot check the reading without being able to forge one. What encryption genuinely buys here is confidentiality of consumption data on the wire, and the honest arrangement is a signed reading inside an encrypted envelope rather than an encrypted one instead.",
+            "algorithm": "A256GCM",
+            "key": "0F1E2D3C4B5A69788796A5B4C3D2E1F01F2E3D4C5B6A798897A6B5C4D3E2F100",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401"
+        },
+        {
+            "id": "encrypt-direct-recipient",
+            "class": "normative",
+            "shape": "encrypt",
+            "description": "COSE_Encrypt with one direct recipient, which is COSE_Encrypt0 with ceremony: the recipient structure carries an empty protected bucket, an empty ciphertext and a key identifier, and nothing else. The one visible difference in the body is the context string of the Enc_structure — 'Encrypt' rather than 'Encrypt0' — which is why the two messages have different ciphertexts for the same key, nonce and payload.",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "recipients": [
+                { "algorithm": "direct", "key": "849B57219DAE48DE646D07DBB533566E", "keyIdentifier": "6F75722D736563726574" }
+            ],
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "encrypt-key-wrap",
+            "class": "normative",
+            "shape": "encrypt",
+            "description": "The content key delivered by AES key wrap under a 256-bit key-encryption key. Note that the algorithm follows the width of the KEY-ENCRYPTION key and not of the key being wrapped: A256KW wraps a 128-bit content key perfectly well, and this case does exactly that. AES key wrap is also deterministic — no nonce, no salt — which is safe only because what it wraps is a uniformly random key rather than a message.",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "recipients": [
+                { "algorithm": "A256KW", "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188", "keyIdentifier": "3031386330616535" }
+            ],
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "encrypt-two-recipients",
+            "class": "normative",
+            "shape": "encrypt",
+            "description": "One content key, two recipients, two different key widths. This is what a recipient list is for — and what it costs: both parties hold the same content key afterwards, so the AEAD's integrity guarantee stops distinguishing them. Either of them can produce a message the other will accept as coming from the sender.",
+            "algorithm": "A256GCM",
+            "key": "0F1E2D3C4B5A69788796A5B4C3D2E1F01F2E3D4C5B6A798897A6B5C4D3E2F100",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "recipients": [
+                { "algorithm": "A256KW", "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188", "keyIdentifier": "616C696365" },
+                { "algorithm": "A128KW", "key": "849B57219DAE48DE646D07DBB533566E", "keyIdentifier": "626F62" }
+            ],
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac-direct-recipient",
+            "class": "normative",
+            "shape": "mac",
+            "description": "COSE_Mac with one direct recipient, which is COSE_Mac0 with ceremony — and the reason COSE_Mac0 exists at all. The MAC_structure differs from a COSE_Mac0's in exactly one string: 'MAC' where the other says 'MAC0'. The tags therefore differ for the same key and payload, which is a check that both implementations use the right one.",
+            "algorithm": "HMAC 256/256",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "recipients": [
+                { "algorithm": "direct", "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188", "keyIdentifier": "6F75722D736563726574" }
+            ],
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "mac-key-wrap-rfc9052-c541",
+            "class": "normative",
+            "shape": "mac",
+            "description": "The shape of RFC 9052 Appendix C.5.4's second recipient: HMAC 256/256 over a content key wrapped with A256KW. The RFC prints the wrapped key and the resulting tag, and both implementations reproduce them — which pins the key wrap, the recipient structure, the 'MAC' context and HMAC in one chain. The content key here is the one the RFC's wrapped bytes unwrap to.",
+            "algorithm": "HMAC 256/256",
+            "key": "2B7459201E5046E33FDB514C5E14A1B01D9893F8936335F821FCB1AFF450B226",
+            "recipients": [
+                { "algorithm": "A256KW", "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188", "keyIdentifier": "3031386330616535" }
+            ],
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "expectedTag": "BF48235E809B5C42E995F2B7D5FA13620E7ED834E337F6AA43DF161E49E9323E",
+            "expectedWrapped": "0B2C7CFCE04E98276342D6476A7723C090DFDD15F9A518E7736549E998370695E6D6A83B4AE507BB"
+        },
+        {
+            "id": "mac-two-recipients",
+            "class": "normative",
+            "shape": "mac",
+            "description": "One content key, two recipients — and the point at which a tag stops meaning anything about origin. A COSE_Mac0 between two parties at least tells each of them that the other made it, on the grounds that they did not make it themselves. This tells nobody that, and RFC 9052 Section 8.2 says so: a MAC 'cannot be used to prove the identity of the sender to a third party'.",
+            "algorithm": "HMAC 256/64",
+            "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188",
+            "recipients": [
+                { "algorithm": "A256KW", "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188", "keyIdentifier": "616C696365" },
+                { "algorithm": "A128KW", "key": "849B57219DAE48DE646D07DBB533566E", "keyIdentifier": "626F62" }
+            ],
+            "payload": "546869732069732074686520636F6E74656E742E"
+        }
+    ]
+}

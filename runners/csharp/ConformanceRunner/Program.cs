@@ -82,6 +82,8 @@ foreach (var vectorFile in vectorFiles)
                 case "cose-sign":      RunCoseSign     (testCase, checks); break;
                 case "cose-verify":    RunCoseVerify   (testCase, checks); break;
 
+                case "cose-encrypt":     RunCoseEncrypt   (testCase, checks); break;
+                case "cose-decrypt":     RunCoseDecrypt   (testCase, checks); break;
                 case "cose-mac0":        RunCoseMac0      (testCase, checks); break;
                 case "cose-mac0-verify": RunCoseMac0Verify(testCase, checks); break;
 
@@ -473,6 +475,219 @@ static void RunCoseVerify(JsonObject TestCase, JsonObject Checks)
                 return Error($"Unknown COSE shape '{shape}'!");
 
         }
+
+    });
+
+}
+
+
+// ----------------------------- Encrypted and enveloped [RFC 9052 5, 6] --
+
+static COSEKey SymmetricKeyOf(String KeyHex, String? AlgorithmName = null, String? KeyIdentifier = null)
+{
+
+    COSEAlgorithm? algorithm = null;
+
+    if (AlgorithmName is not null)
+    {
+
+        if (!COSEAlgorithm.TryParse(AlgorithmName, out var parsed))
+            throw new Exception($"Unknown COSE algorithm '{AlgorithmName}'!");
+
+        algorithm = parsed;
+
+    }
+
+    return COSEKey.FromSymmetricKey(
+               Convert.FromHexString(KeyHex),
+               KeyIdentifier is not null ? Convert.FromHexString(KeyIdentifier) : null,
+               algorithm
+           );
+
+}
+
+
+static List<COSERecipient> RecipientsOf(JsonObject TestCase, Byte[] ContentKey)
+{
+
+    var recipients = new List<COSERecipient>();
+
+    if (TestCase["recipients"] is null)
+        return recipients;
+
+    foreach (var entry in TestCase["recipients"]!.AsArray())
+    {
+
+        var recipient  = entry!.AsObject();
+        var algorithm  = recipient["algorithm"]!.GetValue<String>();
+
+        var key = SymmetricKeyOf(recipient["key"]!.GetValue<String>(),
+                                 null,
+                                 recipient["keyIdentifier"]?.GetValue<String>());
+
+        recipients.Add(algorithm == "direct"
+                           ? COSERecipient.Direct(key)
+                           : COSERecipient.KeyWrap(ContentKey, key));
+
+    }
+
+    return recipients;
+
+}
+
+
+/// <summary>
+/// Encrypt or authenticate one case, recording what the other implementation
+/// has to agree with: the structure that was authenticated, the ciphertext or
+/// tag, and the whole message.
+///
+/// Everything is deterministic once the content key and the nonce are given,
+/// and the vector gives both - which is the same departure from "default
+/// settings" the signing suite makes, and for the same reason.
+/// </summary>
+static void RunCoseEncrypt(JsonObject TestCase, JsonObject Checks)
+{
+
+    var shape        = TestCase["shape"]!.GetValue<String>();
+    var contentKey   = SymmetricKeyOf(TestCase["key"]!.GetValue<String>(),
+                                      TestCase["algorithm"]!.GetValue<String>(),
+                                      TestCase["keyIdentifier"]?.GetValue<String>());
+
+    var payload      = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
+    var externalAAD  = TestCase["externalAad"] is null
+                           ? null
+                           : Convert.FromHexString(TestCase["externalAad"]!.GetValue<String>());
+    var detached     = TestCase["detached"]?.GetValue<Boolean>() ?? false;
+    var tagged       = TestCase["tagged"]?.GetValue<Boolean>()   ?? true;
+
+    switch (shape)
+    {
+
+        case "encrypt0":
+        {
+
+            var iv       = Convert.FromHexString(TestCase["iv"]!.GetValue<String>());
+            var message  = COSEEncrypt0.Encrypt(payload, contentKey, iv, externalAAD, detached, tagged);
+
+            Checks["toBeEncrypted"] = Capture(() => OkHex(Convert.ToHexString(message.ToBeEncrypted(externalAAD))));
+            Checks["ciphertext"]    = Capture(() => OkHex(Convert.ToHexString(
+                                          message.Ciphertext
+                                              ?? COSEEncrypt0.Encrypt(payload, contentKey, iv, externalAAD).Ciphertext!)));
+            Checks["message"]       = Capture(() => OkHex(Convert.ToHexString(message.ToByteArray())));
+
+            break;
+
+        }
+
+        case "encrypt":
+        {
+
+            var iv          = Convert.FromHexString(TestCase["iv"]!.GetValue<String>());
+            var recipients  = RecipientsOf(TestCase, contentKey.K!);
+            var message     = COSEEncrypt.Encrypt(payload, contentKey, recipients, iv, externalAAD, detached, tagged);
+
+            Checks["toBeEncrypted"] = Capture(() => OkHex(Convert.ToHexString(message.ToBeEncrypted(externalAAD))));
+            Checks["ciphertext"]    = Capture(() => OkHex(Convert.ToHexString(message.Ciphertext!)));
+            Checks["message"]       = Capture(() => OkHex(Convert.ToHexString(message.ToByteArray())));
+            Checks["recipient0"]    = Capture(() => OkHex(Convert.ToHexString(recipients[0].Ciphertext)));
+
+            break;
+
+        }
+
+        case "mac":
+        {
+
+            var recipients  = RecipientsOf(TestCase, contentKey.K!);
+            var message     = COSEMac.Create(payload, contentKey, recipients, externalAAD, detached, tagged);
+
+            Checks["toBeEncrypted"] = Capture(() => OkHex(Convert.ToHexString(
+                                          COSEMac.ToBeMACed(message.ProtectedHeaderBytes, payload, externalAAD))));
+            Checks["ciphertext"]    = Capture(() => OkHex(Convert.ToHexString(message.Tag)));
+            Checks["message"]       = Capture(() => OkHex(Convert.ToHexString(message.ToByteArray())));
+            Checks["recipient0"]    = Capture(() => OkHex(Convert.ToHexString(recipients[0].Ciphertext)));
+
+            break;
+
+        }
+
+        default:
+            Checks["message"] = Error($"Unknown COSE shape '{shape}'!");
+            break;
+
+    }
+
+}
+
+
+/// <summary>
+/// Open a message the OTHER implementation produced.
+/// </summary>
+static void RunCoseDecrypt(JsonObject TestCase, JsonObject Checks)
+{
+
+    Checks["open"] = Capture(() => {
+
+        var shape        = TestCase["shape"]!.GetValue<String>();
+        var bytes        = Convert.FromHexString(TestCase["message"]!.GetValue<String>());
+        var payload      = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
+        var externalAAD  = TestCase["externalAad"] is null
+                               ? null
+                               : Convert.FromHexString(TestCase["externalAad"]!.GetValue<String>());
+
+        var detachedCiphertext = (TestCase["detached"]?.GetValue<Boolean>() ?? false)
+                                     ? Convert.FromHexString(TestCase["detachedCiphertext"]!.GetValue<String>())
+                                     : null;
+
+        // Whoever opens the message holds a recipient key, or - for the bare
+        // form - the content key itself.
+        var recipientKey = TestCase["recipients"] is not null && TestCase["recipients"]!.AsArray().Count > 0
+                               ? SymmetricKeyOf(TestCase["recipients"]![0]!["key"]!.GetValue<String>())
+                               : SymmetricKeyOf(TestCase["key"]!.GetValue<String>(), TestCase["algorithm"]!.GetValue<String>());
+
+        if (shape == "mac")
+        {
+
+            if (!COSEMac.TryParse(bytes, out var mac, out var macParseError))
+                return Error($"The COSE_Mac message could not be read: {macParseError}");
+
+            return Verified(mac.Verify(recipientKey, out var macError, externalAAD), macError);
+
+        }
+
+        Byte[]? plaintext;
+        String? errorResponse;
+
+        if (shape == "encrypt0")
+        {
+
+            if (!COSEEncrypt0.TryParse(bytes, out var encrypt0, out var parseError))
+                return Error($"The COSE_Encrypt0 message could not be read: {parseError}");
+
+            var key = SymmetricKeyOf(TestCase["key"]!.GetValue<String>(), TestCase["algorithm"]!.GetValue<String>());
+
+            encrypt0.Decrypt(key, out plaintext, out errorResponse, externalAAD, detachedCiphertext);
+
+        }
+
+        else
+        {
+
+            if (!COSEEncrypt.TryParse(bytes, out var encrypt, out var parseError))
+                return Error($"The COSE_Encrypt message could not be read: {parseError}");
+
+            encrypt.Decrypt(recipientKey, out plaintext, out errorResponse, externalAAD, detachedCiphertext);
+
+        }
+
+        if (plaintext is null)
+            return Verified(false, errorResponse);
+
+        // Decrypting is only half of it: the plaintext has to be the payload
+        // the vector names, or the two implementations agree about nothing.
+        return plaintext.SequenceEqual(payload)
+                   ? Verified(true, null)
+                   : Verified(false, $"decrypted to {Convert.ToHexString(plaintext)} rather than to the expected payload");
 
     });
 

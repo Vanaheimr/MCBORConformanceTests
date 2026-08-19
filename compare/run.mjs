@@ -79,7 +79,7 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
     const suite = JSON.parse(readFileSync(join(vectorsDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
-for (const name of ['cose-sign.json', 'cose-mac0.json', 'cose-x509.json']) {
+for (const name of ['cose-sign.json', 'cose-mac0.json', 'cose-encrypt.json', 'cose-x509.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
@@ -90,6 +90,7 @@ function crossVectorsFrom(sourceResults) {
     const textCases = [];
     const coseCases = [];
     const mac0Cases = [];
+    const encCases  = [];
     const x509Cases = [];
 
     for (const testCase of vectors['documents']) {
@@ -132,6 +133,18 @@ function crossVectorsFrom(sourceResults) {
             mac0Cases.push({ ...testCase, id: `xmac0-${testCase.id}`, message: recorded.message.hex });
     }
 
+    // Every encrypted or enveloped message one implementation produced, for
+    // the other one to open. A detached ciphertext travels alongside, since
+    // the message deliberately does not carry it.
+    for (const testCase of vectors['cose-encrypt']) {
+        const recorded = sourceResults.results[`cose-encrypt:${testCase.id}`];
+        if (recorded?.message?.status === 'ok')
+            encCases.push({ ...testCase,
+                            id: `xenc-${testCase.id}`,
+                            message: recorded.message.hex,
+                            detachedCiphertext: recorded.ciphertext?.hex });
+    }
+
     // Every chained message one implementation produced, for the other one to
     // walk to an anchor. This is where two DER parsers meet: the chain travels
     // inside the message, so the receiving side has to read certificates it did
@@ -147,6 +160,7 @@ function crossVectorsFrom(sourceResults) {
         { suite: 'parse-texts',        description: 'cross-feed', cases: textCases },
         { suite: 'cose-verify',        description: 'cross-feed', cases: coseCases },
         { suite: 'cose-mac0-verify',   description: 'cross-feed', cases: mac0Cases },
+        { suite: 'cose-decrypt',       description: 'cross-feed', cases: encCases },
         { suite: 'cose-x509-validate', description: 'cross-feed', cases: x509Cases },
     ];
 }
@@ -157,11 +171,12 @@ const crossForCSharp = join(resultsDir, 'cross-from-typescript');
 if (!skipRun) {
 
     for (const [prefix, source] of [[crossForTS, csharp], [crossForCSharp, ts]]) {
-        const [jsonSuite, textSuite, coseSuite, mac0Suite, x509Suite] = crossVectorsFrom(source);
+        const [jsonSuite, textSuite, coseSuite, mac0Suite, encSuite, x509Suite] = crossVectorsFrom(source);
         writeFileSync(`${prefix}-json.json`, JSON.stringify(jsonSuite, null, 2));
         writeFileSync(`${prefix}-text.json`, JSON.stringify(textSuite, null, 2));
         writeFileSync(`${prefix}-cose.json`, JSON.stringify(coseSuite, null, 2));
         writeFileSync(`${prefix}-mac0.json`, JSON.stringify(mac0Suite, null, 2));
+        writeFileSync(`${prefix}-enc.json`,  JSON.stringify(encSuite,  null, 2));
         writeFileSync(`${prefix}-x509.json`, JSON.stringify(x509Suite, null, 2));
     }
 
@@ -172,12 +187,12 @@ if (!skipRun) {
     runCSharp(join(resultsDir, 'csharp-cross.json'),
               `${crossForCSharp}-json.json`, `${crossForCSharp}-text.json`,
               `${crossForCSharp}-cose.json`, `${crossForCSharp}-mac0.json`,
-              `${crossForCSharp}-x509.json`);
+              `${crossForCSharp}-enc.json`,  `${crossForCSharp}-x509.json`);
 
     runTypeScript(join(resultsDir, 'typescript-cross.json'),
                   `${crossForTS}-json.json`, `${crossForTS}-text.json`,
                   `${crossForTS}-cose.json`, `${crossForTS}-mac0.json`,
-                  `${crossForTS}-x509.json`);
+                  `${crossForTS}-enc.json`,  `${crossForTS}-x509.json`);
 
 }
 
@@ -530,6 +545,86 @@ for (const testCase of vectors['cose-mac0']) {
 }
 
 
+// --- suite: cose-encrypt, the encrypted and enveloped structures ---
+
+/**
+ * What both implementations have to say the same thing about.
+ *
+ * `toBeEncrypted` is the structure claim — the Enc_structure for the encrypted
+ * shapes, the MAC_structure for the enveloped MAC — and it is the one worth
+ * checking separately: a message that comes out right by way of a wrong
+ * additional-data structure stops coming out right the moment anything about
+ * it changes.
+ */
+const ENCRYPT_AGREEMENTS = [
+    ['toBeEncrypted', 'the structure that was authenticated'],
+    ['ciphertext',    'the ciphertext or authentication tag'],
+    ['message',       'the complete message'],
+    ['recipient0',    'the first recipient structure'],
+];
+
+for (const testCase of vectors['cose-encrypt']) {
+
+    const key   = `cose-encrypt:${testCase.id}`;
+    const klass = testCase.class ?? 'normative';
+
+    for (const [check, what] of ENCRYPT_AGREEMENTS) {
+
+        const mine  = checkOf(csharp, key, check);
+        const yours = checkOf(ts,     key, check);
+
+        // Not every shape records every check: only the enveloped ones have a
+        // recipient structure.
+        if (mine === undefined && yours === undefined)
+            continue;
+
+        judge(testCase.id, `agree on ${what}`, 'csharp↔typescript', klass,
+              mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+              `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+    }
+
+    // The values RFC 9052 Appendix C.5.4 prints, where a case names them.
+    if (testCase.expectedTag !== undefined) {
+        for (const [impl, results] of impls) {
+            const tag = checkOf(results, key, 'ciphertext');
+            judge(testCase.id, 'the tag published by RFC 9052 C.5.4', impl, klass,
+                  tag?.status === 'ok' && tag.hex === testCase.expectedTag, describe(tag));
+        }
+    }
+
+    if (testCase.expectedWrapped !== undefined) {
+        for (const [impl, results] of impls) {
+            const wrapped = checkOf(results, key, 'recipient0');
+            judge(testCase.id, 'the wrapped key published by RFC 9052 C.5.4', impl, klass,
+                  wrapped?.status === 'ok' && wrapped.hex === testCase.expectedWrapped, describe(wrapped));
+        }
+    }
+
+    // ...and each has to open what the other produced.
+    for (const [impl, own, otherName, otherCross] of [
+             ['csharp', csharp, 'typescript', tsCross],
+             ['typescript', ts, 'csharp', csharpCross]]) {
+
+        const message = checkOf(own, key, 'message');
+
+        if (message?.status !== 'ok') {
+            judge(testCase.id, `cross-open ${impl}→${otherName}`, otherName, klass, false,
+                  `${impl} produced no message to open: ${describe(message)}`);
+            continue;
+        }
+
+        const opened = checkOf(otherCross, `cose-decrypt:xenc-${testCase.id}`, 'open');
+
+        judge(testCase.id, `cross-open ${impl}→${otherName}`, otherName, klass,
+              opened?.status === 'ok' && opened.verified === true,
+              `${otherName} opening the message produced by ${impl}: ${describe(opened)}`);
+
+    }
+
+}
+
+
 // --- suite: cose-x509, the certificate chains ---
 
 /**
@@ -653,7 +748,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-x509 (${vectors['cose-x509'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -752,6 +847,39 @@ for (const testCase of vectors['cose-mac0']) {
     lines.push(`| ${testCase.id} | ${testCase.algorithm} | ` +
                `${tag === undefined ? '—' : `${String(tag.length / 2)} bytes`} | ` +
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCSharp)} |`);
+
+}
+
+lines.push('');
+
+// --- COSE_Encrypt / COSE_Mac ---
+
+lines.push('## Encrypted and enveloped structures');
+lines.push('');
+lines.push('`COSE_Encrypt0` (tag 16), `COSE_Encrypt` (tag 96) and `COSE_Mac` (tag 97), with');
+lines.push('AES-GCM, AES key wrap and the `direct` recipient algorithm. Each is produced by');
+lines.push('both implementations and then handed to the other one to open.');
+lines.push('');
+lines.push('A passing row says the two agree. It does *not* say the message proves who sent');
+lines.push('it: with several recipients they all hold the same content key, so any of them');
+lines.push('could have produced it. That is why the metrological record is signed, and why a');
+lines.push('signed payload inside an encrypted envelope is how one gets both.');
+lines.push('');
+lines.push('| Case | Shape | Algorithm | Recipients | Bytes agree | C#→TS | TS→C# |');
+lines.push('|---|---|---|---|---|---|---|');
+
+for (const testCase of vectors['cose-encrypt']) {
+
+    const own     = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
+    const agreed  = own.filter(v => v.check.startsWith('agree'));
+    const toTS    = own.find(v => v.check === 'cross-open csharp→typescript');
+    const toCS    = own.find(v => v.check === 'cross-open typescript→csharp');
+    const mark    = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+
+    const recipients = (testCase.recipients ?? []).map(each => each.algorithm).join(' + ') || '—';
+
+    lines.push(`| ${testCase.id} | ${testCase.shape} | ${testCase.algorithm} | ${recipients} | ` +
+               `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCS)} |`);
 
 }
 

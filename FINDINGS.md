@@ -450,3 +450,77 @@ fields would hand a caller the secret under a name promising the opposite.
 
 The suite now stands at **439 (C#) / 403 (TypeScript) normative passes, 178
 cross-implementation agreements, zero failures**.
+
+## 11. Recipient structures and encryption (added 2026-08-19)
+
+`COSE_Mac` (tag 97), `COSE_Encrypt0` (tag 16) and `COSE_Encrypt` (tag 96) are
+now implemented on both sides, with AES-GCM in all three key widths, AES key
+wrap and the `direct` recipient algorithm. Thirteen cases check that the two
+implementations produce the same bytes and can open each other's messages.
+
+**What a recipient structure is for.** `COSE_Mac0` and `COSE_Encrypt0` assume
+both parties already hold the key. The enveloped forms solve the distribution
+problem *inside the message*: one content key protects the body, and one
+recipient structure per party delivers that key by a route only that party can
+walk. `direct` transports nothing — the recipient's key *is* the content key —
+which makes a one-`direct`-recipient `COSE_Mac` a `COSE_Mac0` with ceremony,
+and is precisely why the bare forms exist. AES key wrap carries the content key
+encrypted under a key-encryption key.
+
+**What it costs, which is the part worth writing down.** Every recipient holds
+the same content key afterwards, so with more than one of them the tag stops
+distinguishing them at all: any recipient can produce a message the others will
+accept as coming from the sender. A `COSE_Mac0` between two parties at least
+tells each of them that the other made it, on the grounds that they did not
+make it themselves; a `COSE_Mac` to three parties tells nobody that. RFC 9052
+§8.2 is blunt — a MAC *"cannot be used to prove the identity of the sender to a
+third party"* — and §8.3 says the same of content encryption: *"either no or
+very limited data origination"*. Two vector cases carry two recipients each,
+and their descriptions say this out loud, because a passing row in the report
+must not be read as more than it is.
+
+**Three things about the encrypted structures that catch people out**, all of
+them checked separately rather than only through the final bytes:
+
+- **The `Enc_structure` has three elements, not four.** It is
+  `[context, protected, external_aad]` — no payload. The payload is what gets
+  *encrypted*; the `Enc_structure` is what gets *authenticated* alongside, as
+  the AEAD's additional data. The suite compares it as its own check, because a
+  message that comes out right by way of a wrong AAD stops coming out right the
+  moment anything changes — which is exactly what the falsification below did.
+- **The authentication tag is not a field.** AES-GCM's 16 bytes are appended to
+  the ciphertext inside the same byte string.
+- **The nonce is public and must never repeat.** Both implementations refuse to
+  invent one: it is a required argument with no default, because a nonce reused
+  under one key breaks GCM outright — two messages under one nonce leak the XOR
+  of their plaintexts *and* the authentication subkey — and neither library can
+  know which nonces a caller has spent. The vectors supply it, which is also
+  what makes these bytes comparable at all.
+
+**The strongest vectors this project has consumed so far.** RFC 9052 Appendix
+C.5.4 is a `COSE_Mac` whose second recipient wraps the content key under a
+published 256-bit key. Unwrapping it with A256KW, building the `MAC_structure`
+with the `"MAC"` context and recomputing the tag reproduces the RFC's published
+value byte for byte — one chain covering key wrap, the recipient structure, the
+context string and HMAC at once, and both implementations reproduce the
+published wrapped key as well. The COSE working group's AES-GCM examples add
+whole messages *together with their intermediates* (the `Enc_structure` as hex,
+the content key, the nonce), and all of those are checked rather than only the
+output.
+
+**Falsified.** Changing `COSE_Encrypt`'s context string from `"Encrypt"` to
+`"Encrypt0"` in the TypeScript implementation alone — a mistake that leaves it
+perfectly self-consistent — turns the suite red on exactly the three enveloped
+encryption cases, nine agreement checks and both cross-open directions, and
+nowhere else. The `recipient0` check keeps passing, which is correct: the
+recipient structure does not depend on the body's context.
+
+**Deliberately not implemented, identically on both sides**, so that a pass
+means the same thing: ECDH key agreement and the HKDF-based key derivations,
+which need `COSE_KDF_Context` [RFC 9053 §5.2] — a structure of its own carrying
+PartyU and PartyV information, and one whose fields, got subtly wrong, derive a
+key that agrees only with an implementation making the same mistake. Also
+AES-CBC-MAC (see §10), AES-CCM and ChaCha20/Poly1305.
+
+The suite now stands at **454 (C#) / 418 (TypeScript) normative passes, 223
+cross-implementation agreements, zero failures**.
