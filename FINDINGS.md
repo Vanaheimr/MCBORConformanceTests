@@ -1005,14 +1005,22 @@ million further executions could not reproduce. It was written down as *"the
 property is not a function of its input, cause unknown"*.
 
 It is closed. The property **is** a function of its input. What is not is the
-platform beneath it: on Node 26.3.0, `JSON.parse` sometimes returns an object
-key one character short where the key had to be escaped — a key written `"\""`
-comes back as a lone backslash, `"*\""` as `*\`. The key holds the **raw**
-characters, cut to the length it would have had **unescaped**.
+platform beneath it. V8 caches an object's property keys against the keys of
+the object it parsed before, and a key ending in an **escaped backslash**
+poisons that cache:
 
-The detail lives where the fix does not: MetrologicalCBOR.TS `WORKPLAN.md`, WP8,
-and `scripts/v8-json-key-repro.mjs`, which shows it in a hundred lines of plain
-JavaScript with nothing of that library in it. Three things belong here instead.
+```js
+JSON.parse('{"h":[],"\\\\":0}');                  // poison
+Object.keys(JSON.parse('{"h":1,"\\"":2}'))[1];    // '"' comes back as '\'
+```
+
+It was **already reported** — [nodejs/node#63785](https://github.com/nodejs/node/issues/63785),
+open since 2026-06-07, forwarded to V8 the next day as
+[issue 521080746](https://issues.chromium.org/issues/521080746) — which is
+worth knowing before anyone files anything. This project is the third
+independent sighting; what it added upstream is the narrowing, and the rest of
+the detail lives where the fix does not: MetrologicalCBOR.TS `WORKPLAN.md`, WP8,
+and `scripts/v8-json-key-repro.mjs`. Three things belong here instead.
 
 ### Why a conformance suite has a stake in this
 
@@ -1036,13 +1044,18 @@ two days, on the wrong suspect, in a library that was correct.
 
 - **The keys never need escaping.** Vector files and result files are keyed by
   field names and case identifiers — `id`, `expect`, `hex`, `json-tags:tag-37`.
-  The fault only reaches a key that carries an escape, and none of these do.
-  Values do carry escapes, in quantity, and no corruption of a value has been
-  observed — but "not observed" is weaker than "cannot happen", and that is the
-  honest state of it.
-- **The processes are short.** The fault needs a long-lived process that has
-  parsed a great many freshly built texts; it appears after roughly a million.
-  A runner reads a few dozen files and exits.
+  The fault only reaches a key whose **last** character comes from an escape,
+  and it only fires at all once some earlier object has left a key ending in
+  `\\` in the cache. Neither happens here.
+- **Values are not affected.** That is measured on the reduced trigger rather
+  than assumed: the same escape that corrupts a key is read correctly in a
+  value. Our files carry escapes in quantity, all of them in values.
+
+The earlier reading of this — *"the processes here are short, and the fault
+needs a long-lived one"* — was wrong, and is left here because the error is
+instructive. Process length was never a requirement; it was a proxy for how
+long a fuzzer takes to stumble on a poisoning key followed by a matching one.
+Given the two lines above, a cold process shows it immediately.
 
 ### What actually made it findable
 
@@ -1071,3 +1084,19 @@ search came back empty.
 The same campaign against the tree as it stood when the fault first appeared
 reproduces it with the identical signature, so nothing committed since
 introduced it, and nothing committed since would have fixed it.
+
+### And one description written here was wrong
+
+Worth recording, because the shape of the error is the kind this suite exists to
+avoid. Every corruption observed looked like *the raw characters of the key, cut
+to the length it would have had unescaped*: `\"` gave `\`, `*\"` gave `*\`. It
+fits every case seen, it sounds mechanical, and it is a coincidence — the
+poisoning key and the key it replaces differ only in the final escaped
+character, so a substitution is indistinguishable from a truncation until you
+try a key with something *after* the escape. `"ab\"cd"` reads back intact, which
+refutes it in one line, and nobody thought to write that line until the reduced
+trigger made the mechanism obvious.
+
+A description that fits every observation is not thereby the mechanism. Finding
+the case that would tell two explanations apart is the work; collecting more
+cases that fit both is not.
