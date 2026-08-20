@@ -1,0 +1,126 @@
+{
+  "suite": "cbor-robustness",
+  "description": "The CBOR layer beneath the metrological one, exercised directly. Everything else in this project reaches the reader through a metrological entry point, so the reader is only ever asked about bytes that were already going to be a reading; these cases ask it about bytes that are not. A text string that is not UTF-8, and a document nested past any sensible bound, have to be refused by the reader itself rather than by anything above it. Both libraries validate strictly by default — C# through CBORUTF8Validation.Strict, TypeScript through a TextDecoder in fatal mode — and until now nothing checked that they draw the line in the same place. Read with each library’s DEFAULT reader options rather than a strict preset, because what is being compared is what a caller who asked for nothing in particular gets.",
+  "cases": [
+    {
+      "id": "utf8-lone-continuation",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "a text string MUST be valid UTF-8 (RFC 8949 §3.1)",
+      "description": "0x80 is a continuation byte with no lead byte in front of it. The shortest possible invalid string, and the one a decoder that only checks lengths will let through.",
+      "hex": "6180"
+    },
+    {
+      "id": "utf8-truncated-two-byte",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "a text string MUST be valid UTF-8 (RFC 8949 §3.1)",
+      "description": "0xC3 announces a two-byte sequence and the string ends. Truncation inside a character, which is what a naive concatenation of two chunks produces.",
+      "hex": "61C3"
+    },
+    {
+      "id": "utf8-truncated-four-byte",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "a text string MUST be valid UTF-8 (RFC 8949 §3.1)",
+      "description": "Three bytes of a four-byte character. The CBOR length is honest about the three bytes, which is why a length check alone cannot catch it.",
+      "hex": "63F09F98"
+    },
+    {
+      "id": "utf8-overlong-solidus",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "a text string MUST be valid UTF-8 (RFC 8949 §3.1); overlong forms are not UTF-8",
+      "description": "U+002F \"/\" written in two bytes instead of one. Decoders that accept overlong forms have been the mechanism of path-traversal filter bypasses for twenty years: the filter sees no slash, the consumer sees one.",
+      "hex": "62C0AF"
+    },
+    {
+      "id": "utf8-surrogate-d800",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "a text string MUST be valid UTF-8 (RFC 8949 §3.1); surrogate code points are not encodable",
+      "description": "U+D800, a lone surrogate half. It is a legal UTF-16 code unit and not a legal UTF-8 character, so a library that converts by way of its host string type can leak one through without noticing.",
+      "hex": "63EDA080"
+    },
+    {
+      "id": "utf8-byte-fe",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "a text string MUST be valid UTF-8 (RFC 8949 §3.1)",
+      "description": "0xFE occurs nowhere in UTF-8, at any position.",
+      "hex": "61FE"
+    },
+    {
+      "id": "utf8-byte-ff",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "a text string MUST be valid UTF-8 (RFC 8949 §3.1)",
+      "description": "0xFF, likewise. Together with the previous case this is the byte-order-mark pair, which is what a UTF-16 document mistakenly labelled as CBOR text starts with.",
+      "hex": "61FF"
+    },
+    {
+      "id": "utf8-valid-two-byte",
+      "class": "normative",
+      "expect": "accept",
+      "description": "\"ä\" - the control that says the rejections above are about validity rather than about anything non-ASCII.",
+      "hex": "62C3A4"
+    },
+    {
+      "id": "utf8-valid-four-byte",
+      "class": "normative",
+      "expect": "accept",
+      "description": "U+1F600, a character outside the basic multilingual plane. A library working through UTF-16 internally holds this as a surrogate *pair*, which must come back out as four bytes and not as two three-byte sequences.",
+      "hex": "64F09F9880"
+    },
+    {
+      "id": "utf8-valid-empty",
+      "class": "normative",
+      "expect": "accept",
+      "description": "The empty text string. Nothing to validate, and the place an over-eager validator falls over.",
+      "hex": "60"
+    },
+    {
+      "id": "depth-1",
+      "class": "normative",
+      "expect": "accept",
+      "description": "One array around one integer. The floor: whatever the depth count means, this is inside it.",
+      "hex": "8100"
+    },
+    {
+      "id": "depth-32",
+      "class": "normative",
+      "expect": "accept",
+      "description": "Half the default bound. Deeper than any real document and still comfortably admissible, so a disagreement here would be about the counting rule rather than about the limit.",
+      "hex": "818181818181818181818181818181818181818181818181818181818181818100"
+    },
+    {
+      "id": "depth-200",
+      "class": "normative",
+      "expect": "reject",
+      "reason": "beyond any reasonable nesting bound; a decoder MUST NOT recurse without limit",
+      "description": "Far past the bound on both sides. A decoder that accepts this recurses on attacker-controlled input, which is a stack overflow rather than a parse error - and a stack overflow is not catchable in either runtime.",
+      "hex": "818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818100"
+    },
+    {
+      "id": "depth-63",
+      "class": "survey",
+      "expect": "accept",
+      "description": "One inside the default bound. Recorded rather than judged: where exactly the count starts is undocumented on both sides.",
+      "hex": "81818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818100"
+    },
+    {
+      "id": "depth-64",
+      "class": "survey",
+      "expect": "accept",
+      "description": "The default bound itself. Whether it is the last accepted depth or the first rejected one is the whole question this case exists to record.",
+      "hex": "8181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818100"
+    },
+    {
+      "id": "depth-65",
+      "class": "survey",
+      "expect": "reject",
+      "description": "One past the default bound. Together with the two above, these three say precisely where each library stops - which is what a maintainer needs before changing the number.",
+      "hex": "818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818100"
+    }
+  ]
+}

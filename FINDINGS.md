@@ -648,3 +648,125 @@ Not the effort; it is not much code. Two other things:
 
 Until both hold, the honest position is the one both READMEs already state:
 not implemented, on both sides, for the same stated reason.
+
+
+## 13. Symmetry audit of the two implementations (added 2026-08-19)
+
+The last three documented asymmetries were closed this week, but the feature
+surfaces have grown in both repositories since. This is a systematic
+comparison rather than an impression: the registries were extracted from both
+codebases and diffed mechanically, and the option surfaces were read off the
+declarations rather than off the documentation.
+
+### COSE is symmetric, and now that is a measured statement
+
+| | C# (Styx) | TypeScript (COSE.TS) |
+|---|---|---|
+| algorithms | 32 | 32 — **identical list**, identifiers and names |
+| curves | 12 | 12 — identical |
+| header parameter labels | 13 | 13 — identical (1–7, 11, 12, 32–35) |
+| message types | 6 + recipient | 6 + recipient |
+| understood labels for `crit` | {1, 2, 3, 4} | {1, 2, 3, 4} |
+
+The features match as well — detached payloads, external additional
+authenticated data, `crit`, RFC 9338 countersignatures, `x5chain`/`x5t`,
+several signers, recipients by `direct` and key wrap — and so do the
+deliberate omissions: `COSE_Countersignature0`, `x5bag`, `x5u`, AES-CBC-MAC
+(§10), AES-CCM, ChaCha20/Poly1305, ECDH with the HKDF derivations (§12).
+
+One candidate finding did not survive checking. `CoseEncrypt0` and
+`CoseEncrypt` share a source file in the TypeScript implementation, so a
+naive extraction of its members attributed the headers-taking variant to
+both; it exists on the bare form only, on both sides. Recorded because the
+correction is the interesting part: an audit that reports its first
+impression is worse than no audit.
+
+What remains are idiom differences a C#/TypeScript pair is entitled to:
+`CoseKey.withAlgorithm` exists only in TypeScript, and C# enumerates all
+eight IANA key types where TypeScript exports the four it implements.
+
+### The CBOR side: what "default settings" means differs
+
+The one real asymmetry, and it is about testing rather than about behaviour:
+
+```
+Styx  CBORWriterOptions.Default   → Deterministic = false   (insertion order)
+TS    EncodeOptions               → mapKeys: 'sorted'       (deterministic)
+```
+
+That much is a design choice. What makes it a finding is that **every**
+golden-vector comparison on the C# side passes `CBORWriterOptions.Canonical`
+explicitly — the conformance runner and Styx's own specification-vector tests
+alike — while the TypeScript side gets deterministic encoding by default and
+therefore exercises its normal path. A caller who writes a metrological value
+with Styx's default writer options is on a code path no vector covers.
+
+This is the writer-side counterpart of the reader-side divergence §4.11
+records, and §4.11 names only the reader side. Not established: whether the
+bytes actually differ — that depends on the order in which the encoder builds
+the uncertainty map, which is very likely ascending anyway. The distinction
+worth keeping is between *correct* and *correct by accident*.
+
+C# also exposes two knobs TypeScript does not — `DuplicateKeyPolicy.TakeFirst`
+and `UTF8Validation` — both defaulting to the strict behaviour TypeScript
+hardcodes. Same shape as §4.11: C# configurable towards lenient, TypeScript
+strict and fixed.
+
+### Three gaps the audit found, and the vectors that close them
+
+Of 141 specification vector cases, **none** touched text-string validity or
+nesting depth; `crit` had exactly one case, inside the certificate-chain
+suite, and it exercised only the honoured path. Both implementations claimed
+the same behaviour in all three areas and nothing compared them.
+
+**`vectors/cbor-robustness.json`, 16 cases** — the CBOR layer beneath the
+metrological one, read with each library's *default* reader options. Seven
+invalid UTF-8 strings that must be refused (a lone continuation byte, two
+truncations, an overlong solidus, a lone surrogate, 0xFE and 0xFF), three
+valid ones that must be read, and nesting at depths 1, 32 and 200. Where both
+accept, the report compares what they *read*: two decoders can accept one
+string and disagree about what it says.
+
+Three survey cases sit at the bound — depths 63, 64 and 65 — because where a
+depth count starts is documented by neither library. They now record the
+answer: both accept 64 and refuse 65. That agreement was previously an
+assumption; it is now a measurement, and it is what a maintainer needs before
+changing the number.
+
+**`vectors/cose-crit.json`, 7 cases** — every way a `crit` demand can fail,
+with the expected verdict taken from RFC 9052 §3.1 rather than from either
+implementation: a label nobody understands, a label listed but absent from the
+protected bucket (*"this is a fatal error in processing the message"*), a
+mixture where one of two labels is unknown, a `crit` travelling in the
+unprotected bucket where an attacker could strip it, and the empty array the
+RFC forbids outright. Two honoured cases guard the other direction, so that a
+verifier which simply refuses anything carrying `crit` fails too.
+
+Refusing to *build* a forbidden message counts as refusing it, and the report
+says which answer each implementation gave. In the event both build all seven
+and both refuse at verification, byte-identically.
+
+### Falsified, twice, with a prediction the second time
+
+Disabling UTF-8 validation in the TypeScript reader — one `{ fatal: true }` —
+turns exactly the seven UTF-8 rejection rows red on that side, leaves C#
+untouched and moves the divergence count from 3 to 10.
+
+The second was a prediction made before the run: making the TypeScript
+`isUnderstood` accept every integer label should fail exactly two crit cases,
+because the other three rejections are structural rather than vocabulary
+questions. It failed exactly `crit-unknown-label` and `crit-mixed-one-unknown`,
+and the byte-agreement rows stayed green — the messages were still identical,
+only the verdicts differed. A harness that discriminates at that granularity
+is one whose green can be believed.
+
+### Still open
+
+A vector that compares the two libraries' **default** writer options, rather
+than opting both into canonical encoding. It is the one finding above that no
+test covers, and it cannot be closed by adding a case to an existing suite:
+every path there passes `Canonical` on the C# side by construction.
+
+The suite now stands at **474 (C#) / 438 (TypeScript) normative passes, 235
+cross-implementation agreements, zero failures**, with the three by-design
+decoder-profile divergences of §4.11 unchanged.

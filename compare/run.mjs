@@ -79,7 +79,11 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
     const suite = JSON.parse(readFileSync(join(vectorsDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
-for (const name of ['cose-sign.json', 'cose-mac0.json', 'cose-encrypt.json', 'cose-x509.json']) {
+// The suites that live here rather than in the specification's annex, because
+// they are not what a metrological value *is*: COSE is how one is signed, and
+// cbor-robustness is the layer beneath the one the specification describes.
+for (const name of ['cose-sign.json', 'cose-crit.json', 'cose-mac0.json', 'cose-encrypt.json',
+                    'cose-x509.json', 'cbor-robustness.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
@@ -336,6 +340,55 @@ for (const testCase of vectors['values-invalid']) {
 
 }
 
+// --- suite: cbor-robustness, the layer beneath ---
+
+/**
+ * Two questions per case, and the second is the one that is easy to forget.
+ *
+ * Did each library accept or refuse the bytes, as the case demands? And, where
+ * both accepted, did they read the *same* value out of them? "Both accepted it"
+ * is not agreement: two decoders can accept one byte string and disagree about
+ * what it says, which is precisely the failure a UTF-8 case is looking for.
+ *
+ * The survey cases at the nesting bound are recorded rather than judged. Where
+ * exactly a depth count starts is documented by neither library, and an
+ * off-by-one in a resource guard is not a conformance failure - but it is worth
+ * writing down, because it is what a maintainer needs before changing 64.
+ */
+for (const testCase of vectors['cbor-robustness']) {
+
+    const key    = `cbor-robustness:${testCase.id}`;
+    const klass  = testCase.class ?? 'normative';
+    const reject = testCase.expect === 'reject';
+
+    for (const [impl, results] of impls) {
+
+        const recorded = checkOf(results, key, 'decode');
+
+        judge(testCase.id, reject ? 'refuses' : 'reads', impl, klass,
+              reject ? recorded?.status === 'error'
+                     : recorded?.status === 'ok',
+              reject ? `must refuse (${testCase.reason}), got ${describe(recorded)}`
+                     : `must read, got ${describe(recorded)}`);
+
+    }
+
+    // Accepting the same bytes is only half of it: the two have to have read
+    // the same thing out of them.
+    if (!reject) {
+
+        const mine  = checkOf(csharp, key, 'decode');
+        const yours = checkOf(ts,     key, 'decode');
+
+        judge(testCase.id, 'agree on what it says', 'csharp↔typescript', klass,
+              mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+              `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+    }
+
+}
+
+
 // --- suite: documents ---
 
 for (const testCase of vectors['documents']) {
@@ -488,6 +541,60 @@ for (const testCase of vectors['cose-sign']) {
     }
 
 }
+
+// --- suite: cose-crit, the one demand a sender can make of a verifier ---
+
+/**
+ * A crit case passes when the implementation reaches the verdict RFC 9052
+ * Section 3.1 prescribes — and there are two honourable ways to refuse.
+ *
+ * A library may decline to *build* a message the RFC forbids, and a library may
+ * build it and then refuse to verify it. Both are correct; only accepting it is
+ * wrong. The suite therefore treats "the signer refused" as a pass on a reject
+ * case, and records which of the two answers each implementation gave, because
+ * the difference is worth knowing even though neither is a failure.
+ *
+ * Where both built the message the bytes are compared as well: these are
+ * deterministic signatures over a protected bucket the vector fully describes,
+ * so a difference there is a difference about how a crit array is encoded.
+ */
+for (const testCase of vectors['cose-crit']) {
+
+    const key    = `cose-crit:${testCase.id}`;
+    const klass  = testCase.class ?? 'normative';
+    const reject = testCase.expected === 'reject';
+
+    for (const [impl, results] of impls) {
+
+        const built    = checkOf(results, key, 'message');
+        const verified = checkOf(results, key, 'verify');
+
+        if (reject)
+            judge(testCase.id, 'refuses', impl, klass,
+                  built?.status === 'error' ||
+                  (verified?.status === 'ok' && verified.verified === false),
+                  `must refuse (${testCase.reason}); signing: ${describe(built)}, verifying: ${describe(verified)}`);
+
+        else
+            judge(testCase.id, 'honours', impl, klass,
+                  built?.status === 'ok' &&
+                  verified?.status === 'ok' && verified.verified === true,
+                  `must sign and verify; signing: ${describe(built)}, verifying: ${describe(verified)}`);
+
+    }
+
+    // Deterministic signatures over a bucket the vector fully describes: where
+    // both produced a message, the bytes have to be the same ones.
+    const mine  = checkOf(csharp, key, 'message');
+    const yours = checkOf(ts,     key, 'message');
+
+    if (mine?.status === 'ok' && yours?.status === 'ok')
+        judge(testCase.id, 'agree on the message', 'csharp↔typescript', klass,
+              mine.hex !== undefined && mine.hex === yours.hex,
+              `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+}
+
 
 // --- suite: cose-mac0, the authenticated messages ---
 
@@ -748,7 +855,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -785,6 +892,39 @@ if (divergences.length > 0) {
     }
     lines.push('');
 }
+
+// --- CBOR robustness ---
+
+lines.push('## The CBOR layer beneath');
+lines.push('');
+lines.push('Bytes handed straight to each generic CBOR reader, with **each library\'s default');
+lines.push('reader options** rather than a strict preset — what a caller who asked for nothing');
+lines.push('in particular gets. Everything else in this report reaches the reader through a');
+lines.push('metrological entry point, so it is only ever asked about bytes that were already');
+lines.push('going to be a reading.');
+lines.push('');
+lines.push('Where both read the bytes, the report also compares *what they read*: two decoders');
+lines.push('can accept one string and disagree about what it says.');
+lines.push('');
+lines.push('| Case | Expected | C# | TS | Agree |');
+lines.push('|---|---|---|---|---|');
+
+for (const testCase of vectors['cbor-robustness']) {
+
+    const own    = verdicts.filter(v => v.caseId === testCase.id &&
+                                        (v.check === 'refuses' || v.check === 'reads' ||
+                                         v.check === 'agree on what it says'));
+    const cs     = own.find(v => v.impl === 'csharp');
+    const tsv    = own.find(v => v.impl === 'typescript');
+    const agreed = own.find(v => v.impl === 'csharp↔typescript');
+    const mark   = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    const label  = testCase.class === 'survey' ? `${testCase.id} *(survey)*` : testCase.id;
+
+    lines.push(`| ${label} | ${testCase.expect} | ${mark(cs)} | ${mark(tsv)} | ${mark(agreed)} |`);
+
+}
+
+lines.push('');
 
 // --- COSE cross-signing ---
 
@@ -880,6 +1020,43 @@ for (const testCase of vectors['cose-encrypt']) {
 
     lines.push(`| ${testCase.id} | ${testCase.shape} | ${testCase.algorithm} | ${recipients} | ` +
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCS)} |`);
+
+}
+
+lines.push('');
+
+// --- COSE crit ---
+
+lines.push('## What a sender can demand');
+lines.push('');
+lines.push('`crit` (RFC 9052 §3.1) is the one mechanism by which a sender makes a verifier');
+lines.push('refuse a message it would otherwise accept. Every case is signed and then verified');
+lines.push('by both implementations, and the expected verdict comes from the RFC rather than');
+lines.push('from either of them.');
+lines.push('');
+lines.push('Refusing to *build* a message the RFC forbids counts as refusing it: the column');
+lines.push('says which answer each implementation gave, because the difference is worth');
+lines.push('knowing even though neither is wrong.');
+lines.push('');
+lines.push('| Case | Expected | C# | TS | Bytes agree |');
+lines.push('|---|---|---|---|---|');
+
+for (const testCase of vectors['cose-crit']) {
+
+    const own    = verdicts.filter(v => v.caseId === testCase.id &&
+                                        (v.check === 'refuses' || v.check === 'honours'));
+    const cs     = own.find(v => v.impl === 'csharp');
+    const tsv    = own.find(v => v.impl === 'typescript');
+    const agreed = verdicts.find(v => v.caseId === testCase.id && v.check === 'agree on the message');
+    const mark   = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+
+    const how = implName => {
+        const built = checkOf(implName === 'csharp' ? csharp : ts, `cose-crit:${testCase.id}`, 'message');
+        return built?.status === 'error' ? ' *(signer)*' : '';
+    };
+
+    lines.push(`| ${testCase.id} | ${testCase.expected} | ${mark(cs)}${how('csharp')} | ` +
+               `${mark(tsv)}${how('typescript')} | ${mark(agreed)} |`);
 
 }
 

@@ -1,0 +1,130 @@
+{
+  "suite": "cose-crit",
+  "description": "The crit header parameter of RFC 9052 Section 3.1, which is the one mechanism in COSE by which a sender can make a verifier refuse a message it would otherwise accept. Each case is signed by both implementations and then verified by both, and the expected verdict comes from the RFC rather than from either implementation. Until now the suite had exactly one crit case, inside the certificate-chain suite, and it only exercised the honoured path: a demand that is met. What was untested is every way a demand can fail — a label nobody understands, a label that is not in the bucket it must be in, a crit that travels unprotected where an attacker could strip it, and an empty array. A verifier that ignores crit passes every other suite in this project.",
+  "cases": [
+    {
+      "class": "normative",
+      "algorithm": "ES256",
+      "curve": "P-256",
+      "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+      "payload": "546869732069732074686520636F6E74656E742E",
+      "id": "crit-content-type-present",
+      "crit": [
+        3
+      ],
+      "protectedExtra": [
+        [
+          3,
+          0
+        ]
+      ],
+      "expected": "accept",
+      "description": "The plain honoured case: crit names the content type, and the content type is there in the protected bucket. RFC 9052 Section 3.1 says labels 0 to 7 SHOULD be omitted from crit because every implementation understands them — a SHOULD the sender here ignores, which is exactly why it belongs in a test: a verifier must accept a demand it can meet, however redundant the demand was."
+    },
+    {
+      "class": "normative",
+      "algorithm": "ES256",
+      "curve": "P-256",
+      "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+      "payload": "546869732069732074686520636F6E74656E742E",
+      "id": "crit-algorithm-label",
+      "crit": [
+        1
+      ],
+      "expected": "accept",
+      "description": "crit names the algorithm label, which is always present and always understood. The most redundant demand a sender can make, and the one that catches a verifier which treats \"crit is present\" as \"refuse\" rather than actually checking what it lists."
+    },
+    {
+      "class": "normative",
+      "algorithm": "ES256",
+      "curve": "P-256",
+      "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+      "payload": "546869732069732074686520636F6E74656E742E",
+      "id": "crit-unknown-label",
+      "crit": [
+        32767
+      ],
+      "protectedExtra": [
+        [
+          32767,
+          1
+        ]
+      ],
+      "expected": "reject",
+      "reason": "the verifier does not understand label 32767, and crit demands that it does (RFC 9052 §3.1)",
+      "description": "The whole point of crit: a sender says \"refuse this message unless you understand label 32767\". Neither implementation does — both understand exactly labels 1 to 4 — so both must refuse. A verifier that ignores crit verifies this happily and has just accepted a message whose sender told it not to."
+    },
+    {
+      "class": "normative",
+      "algorithm": "ES256",
+      "curve": "P-256",
+      "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+      "payload": "546869732069732074686520636F6E74656E742E",
+      "id": "crit-label-absent",
+      "crit": [
+        3
+      ],
+      "expected": "reject",
+      "reason": "crit lists a label whose header parameter is not in the protected bucket, which RFC 9052 §3.1 calls a fatal error",
+      "description": "crit names the content type and no content type is present. RFC 9052 Section 3.1 is explicit — \"if the crit value list includes a label for which the header parameter is not in the protected-header-parameters bucket, this is a fatal error in processing the message\". Understanding the label is not enough; it has to be there. This is the case a verifier fails when it checks crit entries against its vocabulary and never against the bucket."
+    },
+    {
+      "class": "normative",
+      "algorithm": "ES256",
+      "curve": "P-256",
+      "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+      "payload": "546869732069732074686520636F6E74656E742E",
+      "id": "crit-mixed-one-unknown",
+      "crit": [
+        3,
+        32767
+      ],
+      "protectedExtra": [
+        [
+          3,
+          0
+        ],
+        [
+          32767,
+          1
+        ]
+      ],
+      "expected": "reject",
+      "reason": "one unlisted-as-understood label among several is still fatal (RFC 9052 §3.1)",
+      "description": "Two demands, one of them impossible. A verifier that stops at the first label it recognises accepts this; the array is a conjunction, not a menu."
+    },
+    {
+      "class": "normative",
+      "algorithm": "ES256",
+      "curve": "P-256",
+      "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+      "payload": "546869732069732074686520636F6E74656E742E",
+      "id": "crit-in-unprotected-bucket",
+      "crit": [
+        3
+      ],
+      "protectedExtra": [
+        [
+          3,
+          0
+        ]
+      ],
+      "critUnprotected": true,
+      "expected": "reject",
+      "reason": "crit MUST be placed in the protected header bucket (RFC 9052 §3.1)",
+      "description": "The same demand as the first case, moved to the unprotected bucket. It has to be refused, and the reason is not pedantry: an unprotected bucket is outside the signature, so an attacker can delete the demand in transit. A crit that could travel unprotected would be a crit that means nothing."
+    },
+    {
+      "class": "normative",
+      "algorithm": "ES256",
+      "curve": "P-256",
+      "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+      "payload": "546869732069732074686520636F6E74656E742E",
+      "id": "crit-empty-array",
+      "crit": [],
+      "expected": "reject",
+      "reason": "the crit array MUST have at least one value in it (RFC 9052 §3.1)",
+      "description": "An empty demand. RFC 9052 Section 3.1 forbids it outright. Refusing to *build* the message is as good an answer as refusing to verify it — the suite accepts either, and records which one each implementation gives, because a library that will not produce an invalid message is doing its caller a favour."
+    }
+  ]
+}

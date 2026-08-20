@@ -65,7 +65,7 @@ misreading.
 | `libs/Styx` | the C# implementation (git submodule) |
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
 | `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
-| `vectors/` | the COSE cross-signing, authentication, encryption and certificate-chain vectors, which belong here rather than in the specification's annex: COSE is how a metrological value is signed, not what one is |
+| `vectors/` | the suites that are not what a metrological value *is*, and so do not belong in the specification's annex: COSE cross-signing, authentication, encryption, `crit` and certificate chains — COSE is how a value is signed — plus `cbor-robustness`, the layer beneath the one the specification describes |
 | `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — fifteen certificates, deterministically, so it can be regenerated and diffed rather than believed |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |

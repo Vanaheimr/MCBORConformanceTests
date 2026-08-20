@@ -76,10 +76,12 @@ foreach (var vectorFile in vectorFiles)
             {
                 case "values":         RunValues       (testCase, checks); break;
                 case "values-invalid": RunValuesInvalid(testCase, checks); break;
+                case "cbor-robustness": RunCBORRobustness(testCase, checks); break;
                 case "documents":      RunDocuments    (testCase, checks); break;
                 case "json-to-cbor":   RunJsonToCbor   (testCase, checks); break;
                 case "parse-texts":    RunParseTexts   (testCase, checks); break;
                 case "cose-sign":      RunCoseSign     (testCase, checks); break;
+                case "cose-crit":      RunCOSECrit     (testCase, checks); break;
                 case "cose-verify":    RunCoseVerify   (testCase, checks); break;
 
                 case "cose-encrypt":     RunCoseEncrypt   (testCase, checks); break;
@@ -178,6 +180,40 @@ static void RunValuesInvalid(JsonObject TestCase, JsonObject Checks)
 
     if (TestCase["text"] is not null)
         Checks["parse"] = ParseTextToHex(TestCase["text"]!.GetValue<String>());
+
+}
+
+
+/// <summary>
+/// Hand raw CBOR to the generic reader and record what happened.
+///
+/// Everything else in this file goes through a metrological entry point, which
+/// means the layer beneath - the CBOR reader itself - is only ever exercised on
+/// bytes that were already going to be a reading. These cases exercise it
+/// directly: a text string that is not UTF-8 and a document nested past any
+/// sensible bound are refused by the reader, not by anything above it.
+///
+/// Deliberately parsed with the DEFAULT reader options rather than a strict
+/// preset, because what is being compared is what each library does to a caller
+/// who asked for nothing in particular.
+///
+/// The re-encoded bytes are recorded for the accepted cases as well, so that
+/// "both accepted it" is not mistaken for "both read the same thing". Canonical
+/// writer options are used for that, since the question here is what was read
+/// rather than how it is written back.
+/// </summary>
+static void RunCBORRobustness(JsonObject TestCase, JsonObject Checks)
+{
+
+    Checks["decode"] = Capture(() => {
+
+        var bytes = Convert.FromHexString(TestCase["hex"]!.GetValue<String>());
+
+        return CBORValue.TryParse(bytes, out var cbor, out var errorResponse)
+                   ? OkHex(Convert.ToHexString(cbor.ToByteArray(CBORWriterOptions.Canonical)))
+                   : Error(errorResponse!);
+
+    });
 
 }
 
@@ -298,6 +334,70 @@ static (AsymmetricKeyParameter PrivateKey,
 /// can be compared at all. Randomized signing is exercised by the
 /// cross-verification instead, which accepts either.
 /// </summary>
+/// <summary>
+/// Sign a message whose protected bucket carries a "crit" demand, then verify it.
+///
+/// Both halves matter and for different reasons. Signing has to succeed for the
+/// message to exist at all - except in the one case where the demand itself is
+/// malformed, where refusing to build it is a perfectly good answer and the
+/// suite says so. Verifying is where the demand is either honoured or ignored,
+/// and a verifier that ignores "crit" passes every other suite in this project.
+///
+/// The message is verified with the same key that signed it, so a false verdict
+/// can only come from the crit processing: the signature is over bytes this
+/// implementation produced one line earlier.
+/// </summary>
+static void RunCOSECrit(JsonObject TestCase, JsonObject Checks)
+{
+
+    var payload  = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
+    var primary  = CoseKeyOf(TestCase, false);
+
+    COSESign1? message = null;
+
+    Checks["message"] = Capture(() => {
+
+        var protectedHeader = COSEHeaders.Create(primary.Algorithm, primary.KeyIdentifier);
+
+        if (TestCase["protectedExtra"] is not null)
+        {
+            foreach (var entry in TestCase["protectedExtra"]!.AsArray())
+            {
+                var pair = entry!.AsArray();
+                protectedHeader = protectedHeader.Set(CBORValue.FromInt64(pair[0]!.GetValue<Int64>()),
+                                                      CBORValue.FromInt64(pair[1]!.GetValue<Int64>()));
+            }
+        }
+
+        var critical = CBORValue.FromArray(
+                           (TestCase["crit"]?.AsArray() ?? [])
+                               .Select(each => CBORValue.FromInt64(each!.GetValue<Int64>()))
+                       );
+
+        // Moving the demand to the unprotected bucket is the point of one case:
+        // there it is outside the signature, so anyone in the middle can strip
+        // it, which is why RFC 9052 Section 3.1 requires it to be protected.
+        COSEHeaders? unprotectedHeader = null;
+
+        if (TestCase["critUnprotected"]?.GetValue<Boolean>() == true)
+            unprotectedHeader = COSEHeaders.Create().Set(COSEHeaderLabel.Critical, critical);
+        else
+            protectedHeader = protectedHeader.Set(COSEHeaderLabel.Critical, critical);
+
+        message = COSESign1.Sign(payload, primary.PrivateKey, protectedHeader, unprotectedHeader,
+                                 null, false, true, null, null, true);
+
+        return OkHex(Convert.ToHexString(message.ToByteArray()));
+
+    });
+
+    Checks["verify"] = message is null
+                           ? Error("the message could not be built")
+                           : Capture(() => Verified(message.Verify(primary.Key, out var error), error));
+
+}
+
+
 static void RunCoseSign(JsonObject TestCase, JsonObject Checks)
 {
 

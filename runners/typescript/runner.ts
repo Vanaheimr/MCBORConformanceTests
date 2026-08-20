@@ -23,6 +23,8 @@ import {
     parseMetrologicalValue,
     mcborToJsonText,
     jsonTextToMcbor,
+    decodeHex,
+    encodeToHex,
     bytesToHex,
     hexToBytes,
     type MetrologicalValue,
@@ -115,6 +117,11 @@ interface VectorCase {
     detached?:         boolean;
     tagged?:           boolean;
     message?:          string;
+
+    // cose-crit
+    crit?:             number[];
+    protectedExtra?:   [number, number][];
+    critUnprotected?:  boolean;
 
     // cose-mac0 / cose-mac0-verify
     key?:              string;
@@ -220,6 +227,24 @@ function runValuesInvalid(testCase: VectorCase, checks: Record<string, Check>): 
 
 }
 
+/**
+ * Hand raw CBOR to the generic reader and record what happened.
+ *
+ * Everything else in this file goes through a metrological entry point, which
+ * means the layer beneath - the CBOR reader itself - is only ever exercised on
+ * bytes that were already going to be a reading. These cases exercise it
+ * directly: a text string that is not UTF-8 and a document nested past any
+ * sensible bound are refused by the reader, not by anything above it.
+ *
+ * The re-encoded bytes are recorded for the accepted cases as well, so that
+ * "both accepted it" is not mistaken for "both read the same thing".
+ */
+function runCborRobustness(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    checks['decode'] = capture(() => okHex(encodeToHex(decodeHex(testCase.hex!))));
+
+}
+
 function runDocuments(testCase: VectorCase, checks: Record<string, Check>): void {
 
     let json: string | undefined;
@@ -301,6 +326,58 @@ const secondaryKey = (testCase: VectorCase): CoseKey =>
  * comparable at all — a randomized signature is a different 64 bytes every
  * time and says nothing about whether two implementations agree.
  */
+/**
+ * Sign a message whose protected bucket carries a `crit` demand, then verify it.
+ *
+ * Both halves matter and for different reasons. Signing has to succeed for the
+ * message to exist at all — except in the one case where the demand itself is
+ * malformed, where refusing to build it is a perfectly good answer and the
+ * suite says so. Verifying is where the demand is either honoured or ignored,
+ * and a verifier that ignores `crit` passes every other suite in this project.
+ *
+ * The message is verified with the same key that signed it, so a false verdict
+ * can only come from the crit processing: the signature is over bytes this
+ * implementation produced one line earlier.
+ */
+function runCoseCrit(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    const key     = primaryKey(testCase);
+    const payload = hexToBytes(testCase.payload!);
+
+    let message: CoseSign1 | undefined;
+
+    checks['message'] = capture(() => {
+
+        let protectedHeader = CoseHeaders.create(key.algorithm);
+
+        for (const [extra, value] of testCase.protectedExtra ?? [])
+            protectedHeader = protectedHeader.set(label(extra), cbor.int(value));
+
+        const crit = cbor.array((testCase.crit ?? []).map(each => label(each)));
+
+        // Moving the demand to the unprotected bucket is the point of one case:
+        // there it is outside the signature, so anyone in the middle can strip
+        // it, which is why RFC 9052 Section 3.1 requires it to be protected.
+        let unprotectedHeader: CoseHeaders | null = null;
+
+        if (testCase.critUnprotected === true)
+            unprotectedHeader = new CoseHeaders([[label(HeaderLabel.critical), crit]]);
+        else
+            protectedHeader = protectedHeader.set(label(HeaderLabel.critical), crit);
+
+        message = CoseSign1.signWithHeaders(payload, key, protectedHeader, unprotectedHeader);
+
+        return okHex(bytesToHex(message.toBytes()));
+
+    });
+
+    checks['verify'] = message === undefined
+                           ? { status: 'error', message: 'the message could not be built' }
+                           : capture(() => verification(message!.verify(key)));
+
+}
+
+
 function runCoseSign(testCase: VectorCase, checks: Record<string, Check>): void {
 
     const key         = primaryKey(testCase);
@@ -796,10 +873,12 @@ for (const vectorFile of vectorFiles) {
             switch (root.suite) {
                 case 'values':         runValues       (testCase, checks); break;
                 case 'values-invalid': runValuesInvalid(testCase, checks); break;
+                case 'cbor-robustness': runCborRobustness(testCase, checks); break;
                 case 'documents':      runDocuments    (testCase, checks); break;
                 case 'json-to-cbor':   runJsonToCbor   (testCase, checks); break;
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
                 case 'cose-sign':      runCoseSign     (testCase, checks); break;
+                case 'cose-crit':      runCoseCrit     (testCase, checks); break;
                 case 'cose-verify':    runCoseVerify   (testCase, checks); break;
                 case 'cose-encrypt':   runCoseEncrypt  (testCase, checks); break;
                 case 'cose-decrypt':   runCoseDecrypt  (testCase, checks); break;
