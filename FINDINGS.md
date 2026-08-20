@@ -890,3 +890,98 @@ The suite now stands at **502 (C#) / 466 (TypeScript) normative passes, 249
 cross-implementation agreements, zero failures**, with **four** divergences:
 the three by-design decoder profiles of §4.11, and the astral spelling
 difference above. The unpaired surrogate is no longer among them.
+
+
+## 15. The conversion table, and what it says about RFC 8949 (added 2026-08-20)
+
+§14 closed the escape gap and left the tag rows of the JSON profile open. Closing
+those turned up something larger than a coverage number, from a question that
+sounds like it has an obvious answer: *is there not already a specification for
+converting CBOR to JSON?*
+
+There is. **RFC 8949 §6.1** for CBOR to JSON and **§6.2** for the reverse, and
+`metrological-text.md` §3 names the first of them: *"The base is [RFC 8949]
+Section 6.1, extended by one rule: tag 44252 becomes one JSON string."*
+
+That sentence understates what the table beneath it does.
+
+### Where §3.1 departs from the advice it cites
+
+§6.1 is explicitly **non-normative advice**, and it is written for *lossy
+display*: its opening promise is to deal with what JSON cannot carry "by
+converting them to a single substitute value, such as a JSON null". A
+metrological record needs the opposite. So the table departs, and every
+departure is right:
+
+| Row | RFC 8949 §6.1 advises | `metrological-text.md` §3.1 |
+|---|---|---|
+| bignum (tag 2/3) | base64url **string**, with `~` prefixed for a negative | **number, exactly** |
+| decimal fraction (tag 4) | ignore the tag, represent the content — the array `[exponent, mantissa]` | **number, with its scale** |
+| tag 1 | ignore the tag, represent the content — a **number** | **ISO 8601 instant** |
+| tag 37 | ignore the tag, represent the content — a byte string, hence base64url | **UUID string** |
+| any other tag | **ignore the tag number**, represent the content | **error** |
+| byte string | base64url, unpadded | base64url *(default)*, base64, hex — the default agrees |
+
+The last row of that table is the sharpest: §6.1 would take an unregistered tag,
+throw the number away and hand back the content. A reading that arrived wrapped
+in a tag nobody registered would become a plain number, and nothing downstream
+could tell that anything had been dropped. §3.1 refuses instead, which is the
+same reject-don't-guess stance the tag specification takes everywhere else.
+
+So the base is not "§6.1 extended by one rule". It is §6.1's *shape* — the same
+item-by-item mapping — with five of its rules replaced because they trade
+exactness for displayability, and one row added for tag 44252.
+
+### And §3.2 cites nothing at all
+
+The reverse direction has an RFC 8949 section too, and §3.2 does not mention it.
+§6.2's suggested conversion says numbers with fractional parts *"are represented
+as floating-point values"* through binary64 — precisely what §3.2 forbids in its
+first sentence: *"Numbers never become binary floats."*
+
+That looks like the largest contradiction in the document until the last
+sentence of §6.2, which reads:
+
+> Decimal representation should only be used on the CBOR side if that is
+> specified in a protocol.
+
+**This is that protocol.** §3.2 is not departing from §6.2; it is taking the
+exemption §6.2 provides, and the same is true of the integer range, which §6.2
+explicitly leaves to the protocol to widen. Saying so would make the document
+stronger, not weaker: an implementer who reads §6.2 and finds no acknowledgement
+of it in §3.2 has to guess whether the omission was considered.
+
+### What this is worth doing about
+
+A specification-text change, and therefore the maintainer's call rather than
+this project's: §3 should say that it departs from §6.1, list the rows, and cite
+§6.2 for the reverse direction together with its protocol sentence. Nothing about
+either implementation changes — both already do what the table says. What changes
+is that a third implementer, reading "the base is §6.1" and implementing §6.1
+faithfully, currently produces base64url where we produce a UUID, a bare number
+where we produce a timestamp, and silently drops a tag where we refuse.
+
+### The vectors, and the coverage behind them
+
+`vectors/json-tags.json`, 11 cases — one per row of §3.1 that no vector had
+reached: tags 0, 1, 32, 33, 34, 36, 37 and 55799, a document-level decimal
+fraction with a non-negative exponent (inside a reading §3.1 forbids one, so
+only a document-level tag 4 can reach that branch), and the refusal of an
+unregistered tag. **Six of those rows appeared in no vector at all**, in either
+directory — a normative table with rows nothing verified on either side.
+
+They are one-way conversions, so there is no round trip to hold them to; what
+holds them is that the specification prescribes the text. **All eleven agree
+across the two implementations**, including the four that depart from §6.1.
+
+The library-side gap closed with them, and the distinction is worth keeping
+straight: conformance vectors drive the *runners*, not the library's own tests,
+so the first pass moved nothing. `src/json/text.ts` went from 85.88/69.74 to
+**93.95/86.15** and the library from 97.46/94.71 to **98.73/97.27**, with
+**function coverage reaching 100 %** for the first time. What is left there is
+sixteen error paths and one defensive branch for a bignum a conforming reader
+never hands over.
+
+The suite now stands at **513 (C#) / 477 (TypeScript) normative passes, 259
+cross-implementation agreements, zero failures**, with the same four divergences
+as §14.

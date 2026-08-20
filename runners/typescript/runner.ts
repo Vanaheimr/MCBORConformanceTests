@@ -926,6 +926,9 @@ for (const vectorFile of vectorFiles) {
                 case 'documents':      runDocuments    (testCase, checks); break;
                 case 'json-to-cbor':   runJsonToCbor   (testCase, checks); break;
                 case 'json-escapes':   runJsonEscapes  (testCase, checks); break;
+                // One-way tag conversions: the same two checks a document
+                // needs, judged against the text the specification prescribes.
+                case 'json-tags':      runDocuments    (testCase, checks); break;
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
                 case 'cose-sign':      runCoseSign     (testCase, checks); break;
                 case 'cose-crit':      runCoseCrit     (testCase, checks); break;

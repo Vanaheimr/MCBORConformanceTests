@@ -81,6 +81,9 @@ foreach (var vectorFile in vectorFiles)
                 case "documents":      RunDocuments    (testCase, checks); break;
                 case "json-to-cbor":   RunJsonToCbor   (testCase, checks); break;
                 case "json-escapes":   RunJSONEscapes  (testCase, checks); break;
+                // One-way tag conversions: the same two checks a document
+                // needs, judged against the text the specification prescribes.
+                case "json-tags":      RunDocuments    (testCase, checks); break;
                 case "parse-texts":    RunParseTexts   (testCase, checks); break;
                 case "cose-sign":      RunCoseSign     (testCase, checks); break;
                 case "cose-crit":      RunCOSECrit     (testCase, checks); break;

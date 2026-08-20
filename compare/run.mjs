@@ -84,7 +84,7 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
 // cbor-robustness is the layer beneath the one the specification describes.
 for (const name of ['cose-sign.json', 'cose-crit.json', 'cose-mac0.json', 'cose-encrypt.json',
                     'cose-x509.json', 'cbor-robustness.json', 'default-encoding.json',
-                    'json-escapes.json']) {
+                    'json-escapes.json', 'json-tags.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
@@ -349,6 +349,51 @@ for (const testCase of vectors['values-invalid']) {
     }
 
 }
+
+// --- suite: json-tags, the rows of the table nothing had checked ---
+
+/**
+ * One case per row of the conversion table in metrological-text.md §3.1.
+ *
+ * These are **one-way** conversions - a UUID becomes a string and comes back a
+ * string - so there is no round trip to hold them to. What holds them instead
+ * is that the specification prescribes the text itself, which makes the JSON
+ * output normative in a way the escape suite's output deliberately is not.
+ *
+ * Worth knowing while reading a failure here: RFC 8949 §6.1, which the
+ * specification names as its base, is non-normative advice aimed at lossy
+ * display. It would ignore every tag number and represent the content, so an
+ * implementation following it faithfully disagrees with both of ours on tag 1,
+ * tag 37, tag 4 and every unregistered tag. The vector descriptions say which
+ * rows those are.
+ */
+for (const testCase of vectors['json-tags']) {
+
+    const key    = `json-tags:${testCase.id}`;
+    const klass  = testCase.class ?? 'normative';
+    const reject = testCase.expect === 'reject';
+
+    for (const [impl, results] of impls) {
+
+        const produced = checkOf(results, key, 'toJson');
+
+        judge(testCase.id, reject ? 'refuses' : 'converts', impl, klass,
+              reject ? produced?.status === 'error'
+                     : produced?.status === 'ok' && produced.json === testCase.expectedJson,
+              reject ? `must refuse (${testCase.reason}), got ${describe(produced)}` : `expected ${testCase.expectedJson}, got ${describe(produced)}`);
+
+    }
+
+    if (!reject) {
+        const mine  = checkOf(csharp, key, 'toJson');
+        const yours = checkOf(ts,     key, 'toJson');
+        judge(testCase.id, 'agree on the JSON', 'csharp↔typescript', klass,
+              mine?.status === 'ok' && mine.json !== undefined && mine.json === yours?.json,
+              `C#: ${mine?.json ?? describe(mine)} / TS: ${yours?.json ?? describe(yours)}`);
+    }
+
+}
+
 
 // --- suite: json-escapes, the reader nobody had reached ---
 
@@ -972,7 +1017,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), json-escapes (${vectors['json-escapes'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -1009,6 +1054,36 @@ if (divergences.length > 0) {
     }
     lines.push('');
 }
+
+// --- JSON tag conversions ---
+
+lines.push('## The conversion table, row by row');
+lines.push('');
+lines.push('One case per row of the CBOR-to-JSON table in metrological-text.md §3.1 that no');
+lines.push('vector reached before: tags 0, 1, 32, 33, 34, 36, 37 and 55799, and a');
+lines.push('document-level decimal fraction with a non-negative exponent. Six of those rows');
+lines.push('appeared in no vector at all, so a normative table had rows nothing verified on');
+lines.push('either side.');
+lines.push('');
+lines.push('These are **one-way** conversions, so the JSON text itself is what is judged —');
+lines.push('which the specification makes possible by prescribing it. RFC 8949 §6.1, named');
+lines.push('as the base, is non-normative advice that would ignore every tag number; the');
+lines.push('vector descriptions say which rows depart from it.');
+lines.push('');
+lines.push('| Case | C# | TS | Agree |');
+lines.push('|---|---|---|---|');
+
+for (const testCase of vectors['json-tags']) {
+    const own  = verdicts.filter(v => v.caseId === testCase.id &&
+                                      (v.check === 'converts' || v.check === 'refuses'));
+    const cs   = own.find(v => v.impl === 'csharp');
+    const tsv  = own.find(v => v.impl === 'typescript');
+    const agr  = verdicts.find(v => v.caseId === testCase.id && v.check === 'agree on the JSON');
+    const mark = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    lines.push(`| ${testCase.id} | ${mark(cs)} | ${mark(tsv)} | ${mark(agr)} |`);
+}
+
+lines.push('');
 
 // --- JSON string escapes ---
 

@@ -1,0 +1,105 @@
+{
+  "suite": "json-tags",
+  "description": "One case per row of the CBOR-to-JSON table in metrological-text.md Section 3.1 that no vector had ever reached: tags 0, 1, 32, 33, 34, 36, 37 and 55799, and a document-level decimal fraction with a non-negative exponent. Six of those rows appeared in no vector at all, in either directory, so a normative conversion table had rows that nothing verified on either implementation. These are ONE-WAY conversions - a UUID becomes a string and comes back a string - so what is judged is the JSON text itself rather than a round trip, which is possible precisely because the specification prescribes the text. Each description also says how the row stands to RFC 8949 Section 6.1, which the specification names as its base: that section is explicitly non-normative advice aimed at lossy display, and this profile departs from it on more rows than the specification text currently admits. The reverse direction has an RFC 8949 section too - 6.2 - which the specification cites nowhere, and where the profile rule that matters most, that a number with a fractional part never becomes a binary float, is not a departure at all but the exemption 6.2 itself grants: decimal representation should only be used on the CBOR side if that is specified in a protocol, and this is that protocol.",
+  "cases": [
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-0-date-time-string",
+      "cborHex": "C074323032362D30382D32305430353A30303A30305A",
+      "expectedJson": "\"2026-08-20T05:00:00Z\"",
+      "description": "Tag 0 wraps a text string and passes through as that string. This is one of the rows where §3.1 and RFC 8949 §6.1 agree, though for different reasons: 6.1 ignores the tag number and represents the content, and the content here happens to be the string already."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-1-epoch-time",
+      "cborHex": "C11A693FDAB8",
+      "expectedJson": "\"2025-12-15T09:54:00.000Z\"",
+      "description": "Tag 1 becomes the instant it denotes, in UTC with millisecond precision. **This departs from RFC 8949 §6.1**, which would ignore the tag and represent the content — and the content is a number, so 6.1 yields 1765792440 where §3.1 yields a timestamp. The departure is deliberate: a number that used to be a time is a number, and nothing downstream can tell it from a count."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-37-uuid",
+      "cborHex": "D82550F81D4FAE7DEC11D0A76500A0C91E6BF6",
+      "expectedJson": "\"f81d4fae-7dec-11d0-a765-00a0c91e6bf6\"",
+      "description": "Tag 37 becomes the canonical lowercase UUID text. **This departs from RFC 8949 §6.1**, which would ignore the tag and represent the content — a byte string, hence base64url. The RFC 4122 example UUID is used so the digit grouping is checkable by eye."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-32-uri",
+      "cborHex": "D820782868747470733A2F2F6578616D706C652E636F6D2F6D657465722F3149534130303030303030303432",
+      "expectedJson": "\"https://example.com/meter/1ISA0000000042\"",
+      "description": "Tag 32 is a URI and becomes the string it wraps. Agrees with RFC 8949 §6.1, whose rule for other tags — represent the content, ignore the number — gives the same answer here. The solidus is unescaped, which JSON permits and which the escape suite pins separately."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-33-base64url",
+      "cborHex": "D8216F534756736247385F64323979624751",
+      "expectedJson": "\"SGVsbG8_d29ybGQ\"",
+      "description": "Tag 33 says its text is base64url; the text travels unchanged. Note it is already *text* here rather than a byte string with an encoding hint — RFC 8949 §6.1 handles those separately, under tags 21 to 23, which this profile does not carry."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-34-base64",
+      "cborHex": "D82270534756736247382F643239796247513D",
+      "expectedJson": "\"SGVsbG8/d29ybGQ=\"",
+      "description": "Tag 34, the padded alphabet, with the \"/\" and \"=\" that distinguish it from base64url. A converter that re-encodes rather than passing the string through would change both characters."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-36-mime-message",
+      "cborHex": "D824781C5375626A6563743A2072656164696E670D0A0D0A312E3130206B5768",
+      "expectedJson": "\"Subject: reading\\r\\n\\r\\n1.10 kWh\"",
+      "description": "Tag 36 is a MIME message, which is text with CRLF line endings in it — so this case also lands on the escape machinery, from a direction the escape suite does not approach it from. The body is a metrological reading, which must NOT become tag 44252 on the way back: it is part of a message, not a value."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-55799-self-described",
+      "cborHex": "D9D9F7A1616E01",
+      "expectedJson": "{\"n\":1}",
+      "description": "The self-described-CBOR tag is transparent: it says \"these bytes are CBOR\", which JSON has no use for. Agrees with RFC 8949 §6.1. A converter that treats it as an unknown tag refuses a document that begins with the one tag most likely to be at the front of a file."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-4-decimal-fraction-exponent-zero",
+      "cborHex": "C4820005",
+      "expectedJson": "5",
+      "description": "A decimal fraction with exponent zero, at document level rather than inside a reading. **This departs from RFC 8949 §6.1**, which would represent the content — the two-element array [0, 5]. Inside a reading §3.1 forbids a non-negative exponent; outside one it is legal, so this branch can only ever be reached by a document-level tag 4, which is why nothing had exercised it."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "id": "tag-4-decimal-fraction-exponent-positive",
+      "cborHex": "C4820201",
+      "expectedJson": "100",
+      "description": "The same with exponent +2: one times ten squared. The scale is spent rather than kept, because 100 and 1e2 are the same number and JSON has one spelling for it. The exactness rule of §3.1 applies to the value, not to the notation."
+    },
+    {
+      "class": "normative",
+      "direction": "write",
+      "expect": "reject",
+      "id": "tag-999-unknown",
+      "cborHex": "D903E701",
+      "reason": "a tag this profile does not carry has no defined JSON form (metrological-text.md §3.1, \"anything else: error\")",
+      "description": "An unregistered tag. **This is the opposite of RFC 8949 §6.1**, which says the tag number is ignored and the content represented — so 6.1 would silently yield 1 and lose the fact that the 1 meant something. §3.1 refuses instead, which is the reject-don’t-guess stance the tag specification takes throughout, and the difference is the sharpest one in this suite: 6.1 loses information quietly, §3.1 stops."
+    }
+  ]
+}
