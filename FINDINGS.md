@@ -995,3 +995,79 @@ never hands over.
 The suite now stands at **513 (C#) / 477 (TypeScript) normative passes, 259
 cross-implementation agreements, zero failures**, with the same four divergences
 as §14.
+
+
+## 16. The last open flake was under the implementation, not in it (added 2026-08-20)
+
+MetrologicalCBOR.TS carried one open fault: a property that had failed twice
+under load with a shrunk counterexample that passed on replay, and that two
+million further executions could not reproduce. It was written down as *"the
+property is not a function of its input, cause unknown"*.
+
+It is closed. The property **is** a function of its input. What is not is the
+platform beneath it: on Node 26.3.0, `JSON.parse` sometimes returns an object
+key one character short where the key had to be escaped — a key written `"\""`
+comes back as a lone backslash, `"*\""` as `*\`. The key holds the **raw**
+characters, cut to the length it would have had **unescaped**.
+
+The detail lives where the fix does not: MetrologicalCBOR.TS `WORKPLAN.md`, WP8,
+and `scripts/v8-json-key-repro.mjs`, which shows it in a hundred lines of plain
+JavaScript with nothing of that library in it. Three things belong here instead.
+
+### Why a conformance suite has a stake in this
+
+This suite's whole method is to run two independent implementations over the
+same vectors and report where they disagree. That reasoning has a premise
+nobody states: **that the ground under each implementation holds**. Where it
+does not, a disagreement is still recorded faithfully and still attributed
+wrongly — the report would say *TypeScript disagrees*, and every subsequent
+hour would go into TypeScript.
+
+So the first question to ask of a divergence that appears in one implementation
+only, in a suite that has been green, is not "what changed in that
+implementation" but "what is underneath it". Nothing here has ever needed that
+question. It is written down now because the cost of not asking it was measured:
+two days, on the wrong suspect, in a library that was correct.
+
+### Why this suite is not exposed, and why that is worth checking rather than assuming
+
+`runners/typescript/runner.ts` and `compare/run.mjs` both read their inputs with
+`JSON.parse`. Two things keep them clear of it:
+
+- **The keys never need escaping.** Vector files and result files are keyed by
+  field names and case identifiers — `id`, `expect`, `hex`, `json-tags:tag-37`.
+  The fault only reaches a key that carries an escape, and none of these do.
+  Values do carry escapes, in quantity, and no corruption of a value has been
+  observed — but "not observed" is weaker than "cannot happen", and that is the
+  honest state of it.
+- **The processes are short.** The fault needs a long-lived process that has
+  parsed a great many freshly built texts; it appears after roughly a million.
+  A runner reads a few dozen files and exits.
+
+### What actually made it findable
+
+Nothing about the search was cleverer than what had already been tried — two
+million executions had been. What was missing was the ability to look twice:
+
+- **A pinned seed.** `fc.assert` defaults to a clock-derived seed, so the
+  original failure's inputs left with the process. Since MetrologicalCBOR.TS
+  `4cd12dc` the properties run from a fixed seed and the nightly explores from
+  its own run number.
+- **A scale.** `MCBOR_PROPERTY_RUNS` multiplies a run for a campaign, so a
+  search can be a hundred times larger than any push should pay for.
+- **The one question already being asked.** `assertStable` had been added to
+  distinguish a counterexample from a flake, and it answered *repeats
+  identically* — which had been written down as meaning *the input is the
+  cause*. It does not. A process that has fallen into a fault stays in it and
+  repeats just as faithfully, and the difference between those two readings is
+  a fresh process.
+
+With those, `MCBOR_PROPERTY_SEED=83 MCBOR_PROPERTY_RUNS=5` fails at case 78 602
+on demand. The campaign that produced it: **21 failures in 99 million property
+executions** in long processes, against **1 in 43 million** in short ones — the
+rate is a rate per process, not per case, which is the other reason the earlier
+search came back empty.
+
+The same campaign against the tree as it stood when the fault first appeared
+reproduces it with the identical signature, so nothing committed since
+introduced it, and nothing committed since would have fixed it.
