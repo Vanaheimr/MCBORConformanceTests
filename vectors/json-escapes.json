@@ -194,11 +194,12 @@
     },
     {
       "id": "read-lone-surrogate",
-      "class": "survey",
+      "class": "normative",
       "direction": "read",
-      "expect": "accept",
+      "expect": "reject",
       "json": "\"\\uD800\"",
-      "description": "An unpaired surrogate. RFC 8259 Section 8.2 leaves this to the implementation and UTF-8 cannot carry one at all, so there is no right answer to hold either side to - which is exactly why it is recorded rather than judged. TypeScript substitutes U+FFFD; what C# does is the question this case exists to answer. A substitution is a silent change of content, and if the two differ, a document means different things to the two of them."
+      "reason": "UTF-8 cannot carry an unpaired surrogate, and substituting one silently changes what the document says",
+      "description": "An unpaired surrogate. RFC 8259 Section 8.2 leaves this to the implementation, so this row is a decision of this project rather than a requirement of the standard - which is why it began life as a survey case, recording what each side did. They did different things: C# refused, and TypeScript substituted U+FFFD. Refusing is the answer both now give, because the alternative writes a character nobody asked for, and a substitution made on the way out travels under whatever signature is applied next. The TypeScript refusal comes from its CBOR writer rather than from its JSON reader, so every path that writes text inherits it."
     }
   ]
 }

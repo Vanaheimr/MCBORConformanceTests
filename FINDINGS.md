@@ -856,22 +856,37 @@ hold either side to, and the suite records the answers rather than failing
 somebody. That is also why the case existed — it was written knowing the answer
 was open.
 
-It is worth a decision all the same. A substitution silently changes content, so
-the same document means different things to the two implementations; and
+**Decided, and the case is now normative.** A substitution silently changes
+content, so the same document meant different things to the two of them; and
 refusing what cannot be represented is the habit this library follows
-everywhere else. The C# behaviour looks like the right one, but changing the
-TypeScript side is a change to published behaviour rather than a bug fix, so it
-is recorded here rather than made.
+everywhere else. TypeScript now refuses too, and the vector says `reject` for
+both.
+
+The change went into the **CBOR writer** rather than into the JSON reader, which
+is the part worth recording. `TextEncoder` substitutes U+FFFD instead of
+failing, so the writer was the one place in that library which silently changed
+what it was given — while its reader has always refused a text string that is
+not valid UTF-8. That asymmetry was the actual defect: the JSON path was only
+where it happened to show. Putting the check at the writer means every path that
+writes text inherits it, and `ERR_CBOR_UNENCODABLE` already existed for exactly
+this ("a value cannot be encoded"), so no error taxonomy had to grow.
+
+The vector is normative rather than survey now, and the classification is
+honest about why: RFC 8259 §8.2 declines to decide, so the row records **this
+project's** decision, in the same way §4 records the specification's. A third
+implementation that substitutes is not violating the RFC; it is disagreeing
+with us, and the suite should say so.
 
 ### Still uncovered, and deliberately out of this scope
 
 The tag paths of the same module — UUID, URI, base64url, base64, MIME and
 self-described CBOR, plus the `onUnknownTag` hook. Closing the escape gap took
 `src/json/text.ts` from 74.19/60.51 to **85.88/69.74**, and the library as a
-whole from 95.58/93.21 to **97.44/94.66**. Those tags are one-way conversions
+whole from 95.58/93.21 to **97.46/94.71**. Those tags are one-way conversions
 rather than a hand-written parser, so they are worth less per test than the
 unescaper was; they remain the largest single gap left in that library.
 
-The suite now stands at **501 (C#) / 465 (TypeScript) normative passes, 249
-cross-implementation agreements, zero failures**, with five divergences: the
-three by-design decoder profiles of §4.11 and the two above.
+The suite now stands at **502 (C#) / 466 (TypeScript) normative passes, 249
+cross-implementation agreements, zero failures**, with **four** divergences:
+the three by-design decoder profiles of §4.11, and the astral spelling
+difference above. The unpaired surrogate is no longer among them.
