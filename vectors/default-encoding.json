@@ -1,0 +1,41 @@
+{
+  "suite": "default-encoding",
+  "description": "Encoding with each library’s DEFAULT writer options, which is the one path no other suite in this project takes. Everywhere else the C# side passes CBORWriterOptions.Canonical explicitly — the conformance runner and Styx’s own specification-vector tests alike — while CBORWriterOptions.Default has Deterministic = false and therefore writes map entries in insertion order. The TypeScript encoder is deterministic with no option to be otherwise. So a caller who asked for nothing in particular was, until this suite existed, on a code path no vector covered. Specification Section 6 is what makes these cases normative rather than a survey: the encoding of a given metrological value \"is a function of its value, scale, unit, prefix and uncertainty alone\", so an encoder that produces anything but the canonical bytes for a given value has violated it, whatever its options say. Each case is parsed from its text form rather than decoded from bytes, so that the map order comes from the encoder and not from something it read. The expected bytes are the specification annex’s own, cited per case.",
+  "cases": [
+    {
+      "id": "uncertainty-full-map",
+      "text": "(230.00 ±0.12) V, k=2, p=0.95, dist=normal, ν=45",
+      "expected": "D9ACDC84C482211959D80500A501C482210C020203C48221185F040105182D",
+      "source": "uncertainty-full-map",
+      "description": "The sharpest case in the suite: an uncertainty map with all five keys. Map key order is the one thing a non-deterministic writer is free to get differently, and five keys leave four places for it to happen. If the encoder assembles the map in any order but ascending, this is where a default-options writer parts company with the canonical bytes."
+    },
+    {
+      "id": "uncertainty-coverage-factor",
+      "text": "(230.00 ±0.12) V, k=2",
+      "expected": "D9ACDC84C482211959D80500A201C482210C0202",
+      "source": "spec5-09-coverage-factor",
+      "description": "Two keys, the common shape in a metrological record. One place to differ rather than four, which is why it sits beside the five-key case rather than instead of it."
+    },
+    {
+      "id": "uncertainty-student-t",
+      "text": "(5 ±1) A, dist=student-t",
+      "expected": "D9ACDC84050400A201010405",
+      "source": "uncertainty-student-t",
+      "description": "Two keys again, with the distribution named rather than the coverage factor. A different pair of keys reaches the map through a different path in the model, and it is the path that decides the insertion order."
+    },
+    {
+      "id": "plain-integer-reading",
+      "text": "5 A",
+      "expected": "D9ACDC820504",
+      "source": "spec5-01-int-ampere",
+      "description": "A control with no map anywhere. Nothing here can depend on key ordering, so this case says whether the default writer path produces correct bytes at all — as distinct from producing them in the wrong order."
+    },
+    {
+      "id": "decimal-with-prefix",
+      "text": "5.0 mA",
+      "expected": "D9ACDC83C4822018320422",
+      "source": "spec5-03-decimal-milliamp",
+      "description": "A second control, carrying a decimal fraction and a prefix. Deterministic encoding governs more than map order — shortest integer heads and preferred float forms among it — and a decimal fraction exercises the head rules without needing a map."
+    }
+  ]
+}

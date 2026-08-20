@@ -760,13 +760,39 @@ and the byte-agreement rows stayed green — the messages were still identical,
 only the verdicts differed. A harness that discriminates at that granularity
 is one whose green can be believed.
 
-### Still open
+### The default writer path, measured
 
-A vector that compares the two libraries' **default** writer options, rather
-than opting both into canonical encoding. It is the one finding above that no
-test covers, and it cannot be closed by adding a case to an existing suite:
-every path there passes `Canonical` on the C# side by construction.
+The finding above needed a suite of its own, because it could not be closed by
+adding a case to an existing one: every path there passes `Canonical` on the C#
+side by construction. `vectors/default-encoding.json` is that suite — five
+cases, each **parsed from its text form** rather than decoded from bytes, so
+that the map order comes from the encoder and not from something it read, and
+each encoded with the library's *default* writer options. The expected bytes are
+the specification annex's own, cited per case and checked against it
+programmatically rather than retyped.
 
-The suite now stands at **474 (C#) / 438 (TypeScript) normative passes, 235
+Specification §6 is what makes the cases normative rather than a survey: the
+encoding of a metrological value *"is a function of its value, scale, unit,
+prefix and uncertainty alone"*, so an encoder producing anything but the
+canonical bytes has violated it whatever its options say.
+
+**The answer is that Styx's default writer options do produce the canonical
+bytes — and not for the reason one would hope.** The writer sorts map keys only
+in deterministic mode; `CBORWriterOptions.Default` writes them in insertion
+order. What saves it is that `MetrologicalValue.ToCBORUncertainty` appends keys
+1 to 5 in ascending order by construction, so insertion order happens to equal
+sorted order. The behaviour was correct; the guarantee was incidental. It is now
+pinned by a test, which is the difference this entry was about.
+
+**Falsified, with the prediction stated first.** Reversing those appends —
+`entries.Reverse()`, one line — should turn exactly the three map-carrying cases
+red on the C# side and leave the two map-free controls green. It did, and the
+part worth reading is what *stayed* green: every other suite in the project,
+all 479 other normative rows, despite the encoder now building the map the wrong
+way round. They pass `Canonical`, which sorts it back. Nothing but this suite
+could have seen it.
+
+The suite now stands at **479 (C#) / 443 (TypeScript) normative passes, 240
 cross-implementation agreements, zero failures**, with the three by-design
-decoder-profile divergences of §4.11 unchanged.
+decoder-profile divergences of §4.11 unchanged. Nothing from this audit remains
+open.

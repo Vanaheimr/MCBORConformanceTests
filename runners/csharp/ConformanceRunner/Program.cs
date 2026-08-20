@@ -77,6 +77,7 @@ foreach (var vectorFile in vectorFiles)
                 case "values":         RunValues       (testCase, checks); break;
                 case "values-invalid": RunValuesInvalid(testCase, checks); break;
                 case "cbor-robustness": RunCBORRobustness(testCase, checks); break;
+                case "default-encoding": RunDefaultEncoding(testCase, checks); break;
                 case "documents":      RunDocuments    (testCase, checks); break;
                 case "json-to-cbor":   RunJsonToCbor   (testCase, checks); break;
                 case "parse-texts":    RunParseTexts   (testCase, checks); break;
@@ -212,6 +213,37 @@ static void RunCBORRobustness(JsonObject TestCase, JsonObject Checks)
         return CBORValue.TryParse(bytes, out var cbor, out var errorResponse)
                    ? OkHex(Convert.ToHexString(cbor.ToByteArray(CBORWriterOptions.Canonical)))
                    : Error(errorResponse!);
+
+    });
+
+}
+
+
+/// <summary>
+/// Encode a value with this library's DEFAULT writer options.
+///
+/// Deliberately NOT CBORWriterOptions.Canonical, which is what every other
+/// comparison in this project passes - the conformance runner above and Styx's
+/// own specification-vector tests alike. CBORWriterOptions.Default has
+/// Deterministic = false, so map entries are written in insertion order rather
+/// than sorted, and until this suite existed that path was covered by no
+/// vector at all.
+///
+/// Specification Section 6 is what makes this normative: the encoding of a
+/// given metrological value is a function of the value alone, so producing
+/// anything but the canonical bytes is a violation whatever the options say.
+/// </summary>
+static void RunDefaultEncoding(JsonObject TestCase, JsonObject Checks)
+{
+
+    Checks["defaultEncoding"] = Capture(() => {
+
+        if (!MetrologicalValue.TryParse(TestCase["text"]!.GetValue<String>(),
+                                        out var value,
+                                        out var errorResponse))
+            return Error(errorResponse);
+
+        return OkHex(Convert.ToHexString(value.ToCBOR().ToByteArray()));
 
     });
 

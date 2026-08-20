@@ -83,7 +83,7 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
 // they are not what a metrological value *is*: COSE is how one is signed, and
 // cbor-robustness is the layer beneath the one the specification describes.
 for (const name of ['cose-sign.json', 'cose-crit.json', 'cose-mac0.json', 'cose-encrypt.json',
-                    'cose-x509.json', 'cbor-robustness.json']) {
+                    'cose-x509.json', 'cbor-robustness.json', 'default-encoding.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
@@ -339,6 +339,42 @@ for (const testCase of vectors['values-invalid']) {
     }
 
 }
+
+// --- suite: default-encoding, the path no other suite takes ---
+
+/**
+ * The one question here is whether "default settings" is enough.
+ *
+ * Every other comparison in this project passes CBORWriterOptions.Canonical on
+ * the C# side, so the non-deterministic default writer - the one a caller who
+ * asked for nothing gets - was covered by no vector. Specification Section 6
+ * makes this normative rather than a matter of taste: the encoding of a given
+ * metrological value is a function of the value alone, so an encoder that
+ * writes anything else has violated it whatever its options say.
+ *
+ * The expected bytes are the specification annex's own, cited per case.
+ */
+for (const testCase of vectors['default-encoding']) {
+
+    const key   = `default-encoding:${testCase.id}`;
+    const klass = testCase.class ?? 'normative';
+
+    for (const [impl, results] of impls) {
+        const recorded = checkOf(results, key, 'defaultEncoding');
+        judge(testCase.id, 'default options still produce the canonical bytes', impl, klass,
+              recorded?.status === 'ok' && recorded.hex === testCase.expected,
+              `expected ${testCase.expected} (annex case '${testCase.source}'), got ${describe(recorded)}`);
+    }
+
+    const mine  = checkOf(csharp, key, 'defaultEncoding');
+    const yours = checkOf(ts,     key, 'defaultEncoding');
+
+    judge(testCase.id, 'agree on the default encoding', 'csharp↔typescript', klass,
+          mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+          `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+}
+
 
 // --- suite: cbor-robustness, the layer beneath ---
 
@@ -855,7 +891,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -892,6 +928,35 @@ if (divergences.length > 0) {
     }
     lines.push('');
 }
+
+// --- default writer options ---
+
+lines.push('## What "default settings" produces');
+lines.push('');
+lines.push('Every other comparison in this report hands the C# writer');
+lines.push('CBORWriterOptions.Canonical. This one deliberately does not: it asks what a');
+lines.push('caller who configured nothing gets. CBORWriterOptions.Default has');
+lines.push('Deterministic = false and writes map entries in insertion order; the TypeScript');
+lines.push('encoder is deterministic with no option to be otherwise.');
+lines.push('');
+lines.push('Specification section 6 makes these rows normative rather than informational —');
+lines.push('the encoding of a value *is* a function of the value — so a difference here would');
+lines.push('be a defect, not a preference.');
+lines.push('');
+lines.push('| Case | Annex case | C# | TS | Agree |');
+lines.push('|---|---|---|---|---|');
+
+for (const testCase of vectors['default-encoding']) {
+    const own  = verdicts.filter(v => v.caseId === testCase.id &&
+                                      v.check === 'default options still produce the canonical bytes');
+    const cs   = own.find(v => v.impl === 'csharp');
+    const tsv  = own.find(v => v.impl === 'typescript');
+    const agr  = verdicts.find(v => v.caseId === testCase.id && v.check === 'agree on the default encoding');
+    const mark = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    lines.push(`| ${testCase.id} | ${testCase.source} | ${mark(cs)} | ${mark(tsv)} | ${mark(agr)} |`);
+}
+
+lines.push('');
 
 // --- CBOR robustness ---
 

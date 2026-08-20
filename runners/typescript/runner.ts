@@ -245,6 +245,23 @@ function runCborRobustness(testCase: VectorCase, checks: Record<string, Check>):
 
 }
 
+/**
+ * Encode a value with this library's DEFAULT writer options.
+ *
+ * There is nothing to choose here: `encodeMetrologicalValue` writes through
+ * `encode`, whose default is `mapKeys: 'sorted'`, and no option makes it write
+ * otherwise. That is the whole reason this suite exists — the other side *does*
+ * have a choice, its default is the non-deterministic one, and every other
+ * comparison in this project hands it `Canonical` explicitly. This records what
+ * a caller who asked for nothing in particular gets, on both sides.
+ */
+function runDefaultEncoding(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    checks['defaultEncoding'] = capture(() =>
+        okHex(bytesToHex(encodeMetrologicalValue(parseMetrologicalValue(testCase.text!)))));
+
+}
+
 function runDocuments(testCase: VectorCase, checks: Record<string, Check>): void {
 
     let json: string | undefined;
@@ -874,6 +891,7 @@ for (const vectorFile of vectorFiles) {
                 case 'values':         runValues       (testCase, checks); break;
                 case 'values-invalid': runValuesInvalid(testCase, checks); break;
                 case 'cbor-robustness': runCborRobustness(testCase, checks); break;
+                case 'default-encoding': runDefaultEncoding(testCase, checks); break;
                 case 'documents':      runDocuments    (testCase, checks); break;
                 case 'json-to-cbor':   runJsonToCbor   (testCase, checks); break;
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
