@@ -115,7 +115,7 @@ choice remains open.
 | 4.15 | JSON numbers → CBOR (`5.0`, `1.10`, `1e2`) | exact decimal fractions from the digits as written (`4([-1, 50])`, `4([-2, 110])`, `4([2, 1])`) | binary float64 / integer via `JSON.parse` (`1.10` → 1.1, `2^53+1` → 2^53, `1e100` → the double's exact value as a 42-byte bignum) | The C# behaviour is metrological-text §3.2 and is the safe one; the spec should state that a converter MUST NOT go through binary floating point, and note what that requires of JavaScript (a raw-number JSON reader). |
 | 4.16 | Floats in documents → JSON | `1.0` → `1.0` (keeps the point, reads back as a decimal fraction) | `1.0` → `1` (reads back as an integer) | Cosmetic on the surface, semantic on the way back; pick one (the C# form keeps float-ness visible, but neither round-trips the float — fine, floats are documented one-way). |
 
-## 5. Specification housekeeping (applied by this project, to be committed upstream)
+## 5. Specification housekeeping (applied by this project, upstream since 2026-08-18)
 
 - The tag specification in the specification repository
   (`libs/specification/MetrologicalCBOR/README.md`) **lost the pointer to the
