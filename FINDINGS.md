@@ -796,3 +796,82 @@ The suite now stands at **479 (C#) / 443 (TypeScript) normative passes, 240
 cross-implementation agreements, zero failures**, with the three by-design
 decoder-profile divergences of §4.11 unchanged. Nothing from this audit remains
 open.
+
+
+## 14. String escapes in the JSON profile (added 2026-08-20)
+
+Found by coverage rather than by reading APIs, which is why §13 missed it.
+`src/json/text.ts` in the TypeScript implementation stood at **74.19 % of
+statements and 60.51 % of branches** where every other module in that library
+was above 97 %. The uncovered part was not error handling: it was the entire
+hand-written string unescaper, and the tag paths beside it.
+
+**Why a hand-written unescaper exists at all.** JavaScript's own `JSON.parse`
+rounds 2^53+1 to 2^53 before any library sees a digit, so the exact JSON text
+path — `mcborToJsonText` and `jsonTextToMcbor`, which the specification's §3
+conversion requires and which the TypeScript conformance runner uses for every
+JSON suite — carries its own reader. Its own reader means its own unescaper:
+sixty lines of `switch` that no test had ever executed, on the critical path of
+this project.
+
+**And nothing compared it.** Of the 37 JSON-carrying vector cases in this
+project, **not one contained a backslash.**
+
+`vectors/json-escapes.json`, 23 cases, closes both halves:
+
+- **Reading is normative.** RFC 8259 §7 says exactly what each escape denotes,
+  so the same text has to become the same bytes on both sides: all eight
+  two-character escapes, unicode escapes in either digit case, a three-byte
+  character, a surrogate pair that must join into one character rather than two
+  sequences, an escaped NUL that is a character and not a terminator, the
+  optional `\/`, and an escape in a map *name* rather than a value. Five more
+  are refusals — a truncated escape, a non-hexadecimal one, an escape JSON does
+  not define, an unterminated string and a raw control character.
+- **Writing is recorded, not judged.** JSON permits several spellings of one
+  string, so insisting the two agree would invent a requirement RFC 8259 does
+  not make. What is held normative is that each implementation reads its own
+  output back to the bytes it started from — and phase two's cross-feed makes
+  each read the *other's*, which is the guarantee that actually matters. All
+  eight written cases cross-fed in both directions; none refused.
+
+### Two things the comparison found on its first run
+
+**A legitimate spelling difference.** For U+1F600, C# writes the escaped
+surrogate pair `"\uD83D\uDE00"` and TypeScript writes the character. Both are
+correct JSON, each reads the other's, and the suite says so rather than picking
+a winner. Recorded because a passing row should not be mistaken for byte
+agreement that does not exist.
+
+**A real divergence, and the more interesting one.** Given an unpaired
+surrogate `"\uD800"`:
+
+| | |
+|---|---|
+| **C#** | refuses — *"Cannot read incomplete UTF-16 JSON text as string with missing low surrogate"* |
+| **TypeScript** | accepts, and substitutes U+FFFD (`63EFBFBD`) |
+
+RFC 8259 §8.2 leaves unpaired surrogates to the implementation and UTF-8 cannot
+carry one at all, so the case is classed **survey**: there is no requirement to
+hold either side to, and the suite records the answers rather than failing
+somebody. That is also why the case existed — it was written knowing the answer
+was open.
+
+It is worth a decision all the same. A substitution silently changes content, so
+the same document means different things to the two implementations; and
+refusing what cannot be represented is the habit this library follows
+everywhere else. The C# behaviour looks like the right one, but changing the
+TypeScript side is a change to published behaviour rather than a bug fix, so it
+is recorded here rather than made.
+
+### Still uncovered, and deliberately out of this scope
+
+The tag paths of the same module — UUID, URI, base64url, base64, MIME and
+self-described CBOR, plus the `onUnknownTag` hook. Closing the escape gap took
+`src/json/text.ts` from 74.19/60.51 to **85.88/69.74**, and the library as a
+whole from 95.58/93.21 to **97.44/94.66**. Those tags are one-way conversions
+rather than a hand-written parser, so they are worth less per test than the
+unescaper was; they remain the largest single gap left in that library.
+
+The suite now stands at **501 (C#) / 465 (TypeScript) normative passes, 249
+cross-implementation agreements, zero failures**, with five divergences: the
+three by-design decoder profiles of §4.11 and the two above.

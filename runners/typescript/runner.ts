@@ -276,6 +276,37 @@ function runDocuments(testCase: VectorCase, checks: Record<string, Check>): void
 
 }
 
+/**
+ * String escapes, in whichever direction the case names.
+ *
+ * The reading direction is the one that matters: this implementation carries
+ * its own JSON reader, and therefore its own unescaper, which no vector in this
+ * project had ever reached - not one of the JSON-carrying cases contained a
+ * backslash. The writing direction records what each side produces without
+ * insisting they agree, because JSON permits several spellings of one string;
+ * what has to hold is that each reads its own output back.
+ */
+function runJsonEscapes(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    if (testCase.json !== undefined)
+        checks['toCbor'] = jsonToCborHex(testCase.json);
+
+    if (testCase.cborHex !== undefined) {
+
+        let json: string | undefined;
+
+        checks['toJson'] = capture(() => {
+            json = mcborToJsonText(hexToBytes(testCase.cborHex!));
+            return okJson(json);
+        });
+
+        if (json !== undefined)
+            checks['roundtrip'] = jsonToCborHex(json);
+
+    }
+
+}
+
 function runJsonToCbor(testCase: VectorCase, checks: Record<string, Check>): void {
     checks['toCbor'] = jsonToCborHex(testCase.json!);
 }
@@ -894,6 +925,7 @@ for (const vectorFile of vectorFiles) {
                 case 'default-encoding': runDefaultEncoding(testCase, checks); break;
                 case 'documents':      runDocuments    (testCase, checks); break;
                 case 'json-to-cbor':   runJsonToCbor   (testCase, checks); break;
+                case 'json-escapes':   runJsonEscapes  (testCase, checks); break;
                 case 'parse-texts':    runParseTexts   (testCase, checks); break;
                 case 'cose-sign':      runCoseSign     (testCase, checks); break;
                 case 'cose-crit':      runCoseCrit     (testCase, checks); break;

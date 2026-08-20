@@ -1,0 +1,204 @@
+{
+  "suite": "json-escapes",
+  "description": "String escapes in the JSON text profile, which no vector touched until now: of the JSON-carrying cases in this project not one contained a backslash. That mattered because the TypeScript implementation carries its own JSON reader - JavaScript’s own one rounds 2^53+1 to 2^53 before any library sees a digit - and a hand-written reader means a hand-written unescaper, which coverage showed had never been executed by any test. The reading direction is normative: RFC 8259 Section 7 says exactly what each escape denotes, so the same text has to become the same bytes on both sides. The writing direction is not, because JSON permits several spellings of one string; what is judged there is that each implementation reads its own output back to the bytes it started from, and the cross-feed makes each read the other’s.",
+  "cases": [
+    {
+      "id": "read-all-simple-escapes",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"",
+      "expected": "68225C2F080C0A0D09",
+      "description": "All eight two-character escapes of RFC 8259 Section 7 in one string, in the order the grammar lists them. A reader that has a gap in its switch shows it here rather than in the one message a year that happens to carry a tab."
+    },
+    {
+      "id": "read-unicode-escape-ascii",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\u0041\"",
+      "expected": "6141",
+      "description": "A unicode escape denoting a character that needed no escaping. Reading it as the letter A rather than as six characters is the whole of the mechanism."
+    },
+    {
+      "id": "read-unicode-escape-lowercase-hex",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\u00e4\"",
+      "expected": "62C3A4",
+      "description": "Lowercase hexadecimal digits. RFC 8259 permits either case and a reader that accepts only one will read most of the world’s documents and refuse the rest."
+    },
+    {
+      "id": "read-unicode-escape-uppercase-hex",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\u00E4\"",
+      "expected": "62C3A4",
+      "description": "The same character with uppercase digits, which must give the same bytes. Together with the case above this pins that the case of the digits carries no meaning."
+    },
+    {
+      "id": "read-unicode-escape-three-byte",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\u20AC\"",
+      "expected": "63E282AC",
+      "description": "U+20AC, which is one escape and three UTF-8 bytes. A reader that assumes an escape is one byte truncates here."
+    },
+    {
+      "id": "read-surrogate-pair",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\uD83D\\uDE00\"",
+      "expected": "64F09F9880",
+      "description": "U+1F600 arrives as two escapes because JSON escapes are UTF-16 code units, and has to leave as the four UTF-8 bytes of one character - not as two three-byte sequences, which is what a reader that decodes each escape independently produces."
+    },
+    {
+      "id": "read-escaped-nul",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\u0000\"",
+      "expected": "6100",
+      "description": "An escaped NUL. It is a character, not a terminator; a reader that treats it as the end of the string loses the rest of the document without saying so."
+    },
+    {
+      "id": "read-escaped-solidus",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\/\"",
+      "expected": "612F",
+      "description": "JSON permits \"\\/\" and requires nobody to write it. Both readers have to accept the spelling they do not produce."
+    },
+    {
+      "id": "read-escape-in-map-name",
+      "class": "normative",
+      "direction": "read",
+      "expect": "accept",
+      "json": "{\"a\\nb\":1}",
+      "expected": "A163610A6201",
+      "description": "An escape in a map *name* rather than a value. Names travel through a different code path in both implementations, and it is the path a document is more likely to exercise."
+    },
+    {
+      "id": "read-truncated-unicode-escape",
+      "class": "normative",
+      "direction": "read",
+      "expect": "reject",
+      "json": "\"\\u12\"",
+      "reason": "a unicode escape MUST have four hexadecimal digits (RFC 8259 §7)",
+      "description": "Two digits and then the end of the string. A reader that pads or guesses produces a character nobody wrote."
+    },
+    {
+      "id": "read-non-hex-unicode-escape",
+      "class": "normative",
+      "direction": "read",
+      "expect": "reject",
+      "json": "\"\\uZZZZ\"",
+      "reason": "a unicode escape MUST have four hexadecimal digits (RFC 8259 §7)",
+      "description": "Four characters that are not digits. Parsing them leniently as zero is the classic way this goes wrong quietly."
+    },
+    {
+      "id": "read-unknown-escape",
+      "class": "normative",
+      "direction": "read",
+      "expect": "reject",
+      "json": "\"\\x\"",
+      "reason": "the escape \\x is not one of the escapes JSON defines (RFC 8259 §7)",
+      "description": "JSON has a closed set of escapes. A reader that passes an unknown one through as its second character silently drops the backslash."
+    },
+    {
+      "id": "read-unterminated-string",
+      "class": "normative",
+      "direction": "read",
+      "expect": "reject",
+      "json": "\"abc",
+      "reason": "a string MUST be closed (RFC 8259 §7)",
+      "description": "The text ends inside a string. Returning what was read so far is how a truncated transfer becomes a shorter but valid-looking document."
+    },
+    {
+      "id": "read-raw-newline-in-string",
+      "class": "normative",
+      "direction": "read",
+      "expect": "reject",
+      "json": "\"a\nb\"",
+      "reason": "a character below U+0020 MUST be escaped inside a string (RFC 8259 §7)",
+      "description": "A raw line feed inside a string, which JSON forbids: control characters have to be escaped. Accepting it makes a document that no conforming reader will read."
+    },
+    {
+      "id": "write-quote",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "6122",
+      "description": "A quote, which every writer must escape somehow."
+    },
+    {
+      "id": "write-line-feed",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "610A",
+      "description": "A line feed: \"\\n\" and \"\\u000A\" are both correct and a reader has to take either."
+    },
+    {
+      "id": "write-control-u0001",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "6101",
+      "description": "U+0001 has no two-character escape, so it can only be written as a unicode escape - and the case of its hexadecimal digits is where two writers most easily differ."
+    },
+    {
+      "id": "write-nul",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "6100",
+      "description": "NUL, the character most likely to be mishandled by whatever the JSON text passes through next."
+    },
+    {
+      "id": "write-solidus",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "612F",
+      "description": "A solidus needs no escaping and some writers escape it anyway, historically to keep \"</script>\" out of HTML. Either is correct."
+    },
+    {
+      "id": "write-non-ascii",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "62C3A4",
+      "description": "U+00E4. A writer may emit the character or its escape; several JSON libraries escape everything above ASCII by default, so this is a likely and legitimate difference."
+    },
+    {
+      "id": "write-astral",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "64F09F9880",
+      "description": "U+1F600, which as an escape is a surrogate *pair*. A writer that escapes non-ASCII has to emit both halves."
+    },
+    {
+      "id": "write-escape-in-map-name",
+      "class": "normative",
+      "direction": "write",
+      "expect": "accept",
+      "cborHex": "A163610A6201",
+      "description": "A control character in a map name, which has to be escaped on the way out as a value would be."
+    },
+    {
+      "id": "read-lone-surrogate",
+      "class": "survey",
+      "direction": "read",
+      "expect": "accept",
+      "json": "\"\\uD800\"",
+      "description": "An unpaired surrogate. RFC 8259 Section 8.2 leaves this to the implementation and UTF-8 cannot carry one at all, so there is no right answer to hold either side to - which is exactly why it is recorded rather than judged. TypeScript substitutes U+FFFD; what C# does is the question this case exists to answer. A substitution is a silent change of content, and if the two differ, a document means different things to the two of them."
+    }
+  ]
+}

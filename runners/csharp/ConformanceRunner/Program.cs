@@ -80,6 +80,7 @@ foreach (var vectorFile in vectorFiles)
                 case "default-encoding": RunDefaultEncoding(testCase, checks); break;
                 case "documents":      RunDocuments    (testCase, checks); break;
                 case "json-to-cbor":   RunJsonToCbor   (testCase, checks); break;
+                case "json-escapes":   RunJSONEscapes  (testCase, checks); break;
                 case "parse-texts":    RunParseTexts   (testCase, checks); break;
                 case "cose-sign":      RunCoseSign     (testCase, checks); break;
                 case "cose-crit":      RunCOSECrit     (testCase, checks); break;
@@ -263,6 +264,41 @@ static void RunDocuments(JsonObject TestCase, JsonObject Checks)
 
     if (json is not null)
         Checks["roundtrip"] = JsonToCborHex(json);
+
+}
+
+
+/// <summary>
+/// String escapes, in whichever direction the case names.
+///
+/// The reading direction is the one that matters: the TypeScript side carries
+/// its own JSON reader, and therefore its own unescaper, which no vector in
+/// this project had ever reached - not one of the JSON-carrying cases contained
+/// a backslash. The writing direction records what each side produces without
+/// insisting they agree, because JSON permits several spellings of one string;
+/// what has to hold is that each reads its own output back.
+/// </summary>
+static void RunJSONEscapes(JsonObject TestCase, JsonObject Checks)
+{
+
+    if (TestCase["json"] is not null)
+        Checks["toCbor"] = JsonToCborHex(TestCase["json"]!.GetValue<String>());
+
+    if (TestCase["cborHex"] is not null)
+    {
+
+        var cborHex = TestCase["cborHex"]!.GetValue<String>();
+        String? json = null;
+
+        Checks["toJson"] = Capture(() => {
+            json = CBORJSON.ToJSONText(Convert.FromHexString(cborHex));
+            return new JsonObject { ["status"] = "ok", ["json"] = json };
+        });
+
+        if (json is not null)
+            Checks["roundtrip"] = JsonToCborHex(json);
+
+    }
 
 }
 

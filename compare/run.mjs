@@ -83,7 +83,8 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
 // they are not what a metrological value *is*: COSE is how one is signed, and
 // cbor-robustness is the layer beneath the one the specification describes.
 for (const name of ['cose-sign.json', 'cose-crit.json', 'cose-mac0.json', 'cose-encrypt.json',
-                    'cose-x509.json', 'cbor-robustness.json', 'default-encoding.json']) {
+                    'cose-x509.json', 'cbor-robustness.json', 'default-encoding.json',
+                    'json-escapes.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
@@ -101,6 +102,15 @@ function crossVectorsFrom(sourceResults) {
         const recorded = sourceResults.results[`documents:${testCase.id}`];
         if (recorded?.toJson?.status === 'ok')
             jsonCases.push({ id: `xdoc-${testCase.id}`, json: recorded.toJson.json });
+    }
+
+    // The escape cases matter here more than anywhere: JSON permits several
+    // spellings of one string, so the two implementations are *allowed* to
+    // write different text - and are not allowed to fail on each other's.
+    for (const testCase of vectors['json-escapes']) {
+        const recorded = sourceResults.results[`json-escapes:${testCase.id}`];
+        if (recorded?.toJson?.status === 'ok')
+            jsonCases.push({ id: `xesc-${testCase.id}`, json: recorded.toJson.json });
     }
 
     for (const testCase of vectors['values']) {
@@ -339,6 +349,77 @@ for (const testCase of vectors['values-invalid']) {
     }
 
 }
+
+// --- suite: json-escapes, the reader nobody had reached ---
+
+/**
+ * Reading is judged, writing is recorded.
+ *
+ * RFC 8259 Section 7 says exactly what each escape denotes, so the same JSON
+ * text has to become the same CBOR on both sides, and a disagreement is a
+ * defect in one of the two readers. What each side *writes* is a different
+ * matter: a quote may be written one way or another, a character above ASCII
+ * may be escaped or not, and a solidus may be escaped for reasons that are
+ * entirely historical. Insisting on agreement there would invent a requirement
+ * RFC 8259 does not make.
+ *
+ * So the writing direction is held to what does matter - that each reads its
+ * own output back to the bytes it started from - and the cross-feed of phase
+ * two makes each read the other's.
+ */
+for (const testCase of vectors['json-escapes']) {
+
+    const key   = `json-escapes:${testCase.id}`;
+    const klass = testCase.class ?? 'normative';
+
+    if (testCase.direction === 'read') {
+
+        const reject = testCase.expect === 'reject';
+
+        for (const [impl, results] of impls) {
+
+            const recorded = checkOf(results, key, 'toCbor');
+
+            judge(testCase.id, reject ? 'refuses' : 'reads', impl, klass,
+                  reject
+                      ? recorded?.status === 'error'
+                      : recorded?.status === 'ok' &&
+                        (testCase.expected === undefined || recorded.hex === testCase.expected),
+                  reject ? `must refuse (${testCase.reason}), got ${describe(recorded)}` : `expected ${testCase.expected}, got ${describe(recorded)}`);
+
+        }
+
+        if (!reject) {
+            const mine  = checkOf(csharp, key, 'toCbor');
+            const yours = checkOf(ts,     key, 'toCbor');
+            judge(testCase.id, 'agree on the bytes', 'csharp↔typescript', klass,
+                  mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+                  `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+        }
+
+    }
+
+    else {
+
+        // Normative: each reads its own writing back.
+        for (const [impl, results] of impls) {
+            const back = checkOf(results, key, 'roundtrip');
+            judge(testCase.id, 'reads its own writing back', impl, klass,
+                  back?.status === 'ok' && back.hex === testCase.cborHex,
+                  `must read its own JSON back to ${testCase.cborHex}, got ${describe(back)}`);
+        }
+
+        // Survey: whether they chose the same spelling. Recorded, never failed.
+        const mine  = checkOf(csharp, key, 'toJson');
+        const yours = checkOf(ts,     key, 'toJson');
+        judge(testCase.id, 'wrote the same spelling', 'csharp↔typescript', 'survey',
+              mine?.status === 'ok' && mine.json !== undefined && mine.json === yours?.json,
+              `C#: ${mine?.json ?? describe(mine)} / TS: ${yours?.json ?? describe(yours)}`);
+
+    }
+
+}
+
 
 // --- suite: default-encoding, the path no other suite takes ---
 
@@ -891,7 +972,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), json-escapes (${vectors['json-escapes'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -928,6 +1009,57 @@ if (divergences.length > 0) {
     }
     lines.push('');
 }
+
+// --- JSON string escapes ---
+
+lines.push('## String escapes in the JSON profile');
+lines.push('');
+lines.push('Until these cases existed, not one JSON-carrying vector in this project');
+lines.push('contained a backslash — and the TypeScript side carries its own JSON reader,');
+lines.push('and therefore its own unescaper, which no test had ever executed.');
+lines.push('');
+lines.push('**Reading is judged**: RFC 8259 §7 says exactly what each escape denotes, so the');
+lines.push('same text has to become the same bytes on both sides. **Writing is recorded**:');
+lines.push('JSON permits several spellings of one string, so what has to hold is that each');
+lines.push('implementation reads its own output back — and that each reads the *other* one,');
+lines.push('which is what the cross-feed of phase two establishes.');
+lines.push('');
+lines.push('| Case | Direction | C# | TS | Agree |');
+lines.push('|---|---|---|---|---|');
+
+for (const testCase of vectors['json-escapes']) {
+
+    const own  = verdicts.filter(v => v.caseId === testCase.id &&
+                                      ['refuses', 'reads', 'reads its own writing back'].includes(v.check));
+    const cs   = own.find(v => v.impl === 'csharp');
+    const tsv  = own.find(v => v.impl === 'typescript');
+    const agr  = verdicts.find(v => v.caseId === testCase.id &&
+                                    (v.check === 'agree on the bytes' || v.check === 'wrote the same spelling'));
+    // A survey case has no wrong answer, so it is shown as what happened
+    // rather than as a verdict: refusing an unpaired surrogate and
+    // substituting one are both defensible, and calling either "NO" would
+    // read as a defect where the specification deliberately says nothing.
+    const mark = v => v === undefined      ? '—'
+                    : testCase.class === 'survey' ? (v.pass ? '*reads it*' : '*refuses it*')
+                    : v.pass               ? 'yes'
+                                           : '**NO**';
+
+    // A spelling difference is not a failure either.
+    const agreed = agr === undefined              ? '—'
+                 : agr.pass                       ? 'yes'
+                 : testCase.class === 'survey'    ? '*differ*'
+                 : testCase.direction === 'write' ? '*spelling differs*'
+                                                  : '**NO**';
+
+    const what = testCase.direction === 'read'
+                     ? (testCase.expect === 'reject' ? 'read, refuse' : 'read')
+                     : 'write';
+
+    lines.push(`| ${testCase.id}${testCase.class === "survey" ? " *(survey)*" : ""} | ${what} | ${mark(cs)} | ${mark(tsv)} | ${agreed} |`);
+
+}
+
+lines.push('');
 
 // --- default writer options ---
 
