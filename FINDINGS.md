@@ -951,15 +951,25 @@ explicitly leaves to the protocol to widen. Saying so would make the document
 stronger, not weaker: an implementer who reads §6.2 and finds no acknowledgement
 of it in §3.2 has to guess whether the omission was considered.
 
-### What this is worth doing about
+### Applied to the specification, and pushed upstream
 
-A specification-text change, and therefore the maintainer's call rather than
-this project's: §3 should say that it departs from §6.1, list the rows, and cite
-§6.2 for the reverse direction together with its protocol sentence. Nothing about
-either implementation changes — both already do what the table says. What changes
-is that a third implementer, reading "the base is §6.1" and implementing §6.1
-faithfully, currently produces base64url where we produce a UUID, a bare number
-where we produce a timestamp, and silently drops a tag where we refuse.
+Done in `metrological-text.md` at `ce4765b`. Three corrections, **none of them a
+rule change** — both implementations already did what the table said, and what
+was wrong was the prose describing it:
+
+- **§3's opening** is now a table naming the five replaced rules, with the
+  reason in front of it: §6.1 is non-normative advice and says what it is for.
+- **§3.2** cites §6.2 and its protocol sentence, which removes the appearance of
+  a contradiction and tells an implementer that the omission was considered.
+- **§3.3's** list of what does not round-trip was three rows short: tags 32, 33,
+  34 and 36 keep the string and lose the tag that said what kind of string it
+  was, and tag 55799 says something a JSON document has no way of saying.
+
+The reason it was worth doing is what a third implementer sees. Reading "the
+base is §6.1" and implementing §6.1 faithfully produced base64url where this
+profile produces a UUID, a bare number where it produces a timestamp, and a
+silently discarded tag where it refuses. The document now says which rows those
+are, so the disagreement is visible before it is shipped rather than after.
 
 ### The vectors, and the coverage behind them
 
