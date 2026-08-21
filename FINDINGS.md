@@ -1050,6 +1050,23 @@ two days, on the wrong suspect, in a library that was correct.
 - **Values are not affected.** That is measured on the reduced trigger rather
   than assumed: the same escape that corrupts a key is read correctly in a
   value. Our files carry escapes in quantity, all of them in values.
+- **The version this suite runs on is one of the clean ones.** Both CI legs put
+  the TypeScript runner on Node 22, and the trigger reads every key back
+  correctly there. Measured, not assumed — MetrologicalCBOR.TS sweeps four
+  versions nightly, `ubuntu-latest` x64, a fresh process each:
+
+  | Node | V8 | result |
+  |---|---|---|
+  | v20.20.2 | 11.3.244.8 | reads every key back correctly |
+  | v22.23.2 | 12.4.254.21 | reads every key back correctly |
+  | v24.19.0 | 13.6.233.17 | **loses 5 of 36 keys** |
+  | v26.7.0 | 14.6.202.34 | **loses 5 of 36 keys** |
+
+  The break falls between V8 12.4 and 13.6 — the 22 → 24 jump — and it is not
+  fixed on the current line. Moving these runners to Node 24 or later would put
+  them on an affected platform. The two bullets above say why that would still
+  be safe; this one says it would stop being safe *by construction* and start
+  being safe *by argument*, which is a different thing to rely on.
 
 The earlier reading of this — *"the processes here are short, and the fault
 needs a long-lived one"* — was wrong, and is left here because the error is
