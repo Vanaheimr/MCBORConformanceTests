@@ -1117,3 +1117,65 @@ trigger made the mechanism obvious.
 A description that fits every observation is not thereby the mechanism. Finding
 the case that would tell two explanations apart is the work; collecting more
 cases that fit both is not.
+
+
+## 17. A divergence this suite could not have found (added 2026-08-21)
+
+The two implementations disagreed about an input for as long as both have
+existed, and this suite reported zero failures throughout. Not a bug in the
+suite — a limit of the method, and one worth writing down.
+
+**What it was.** An uncertainty written as a map that states only its
+magnitude, `44252([5, 4, 0, {1: 2}])`. The coverage factor defaults to 1, so
+the map says exactly what the bare number `2` says. TypeScript refused it;
+C# accepted it. Measured, not read:
+
+| | `A10102` as an uncertainty |
+|---|---|
+| TypeScript, strict (its default) | `ERR_UNCERTAINTY_REDUNDANT_MAP` |
+| TypeScript, lenient | accepted, re-encodes to `D9ACDC8405040002` |
+| C# (Styx), default reader | accepted, re-encodes to `D9ACDC8405040002` |
+
+Note the second and third rows: both implementations agree on what the map
+*means*, and normalise it to the identical bare form. That is why nothing
+downstream ever complained — the bytes that came out were right. What differed
+was only whether the input was taken at all, which matters exactly once: a
+signed document read and written back changed its bytes on one side.
+
+**Why the suite was blind to it.** This suite finds disagreements the vectors
+ask about, and the vectors can only ask what the specification says. §3.4
+described the two forms an uncertainty may take and never said which one a
+decoder must refuse, so there was no rule to write a vector against, so there
+was no vector, so there was nothing to disagree in. **The suite's blind spot
+is the specification's silence** — and silence is not visible in a report of
+zero failures.
+
+§6 made the silence checkable in hindsight: it collects the value-level
+uniqueness rules as "one spelling per reading (§3.1), per exponent and per
+unit (§3.2), per prefix (§3.3)". Four subsections state such a rule and the
+list names three. The gap was in the sentence the whole time.
+
+**What surfaced it** was not a test. It was writing down, in
+MetrologicalCBOR.TS `WORKPLAN.md` §10.4, that four of the five strict-mode
+refusals now rested on an explicit *decoders MUST reject* **and the fifth did
+not**. Naming the residue instead of rounding it up to "closed" is what made
+somebody go and measure the fifth.
+
+**The closure**, in the order it had to happen: §3.4 gained the sentence in
+the words its siblings use; §6's list gained §3.4; the annex gained
+`uncertainty-map-only-magnitude`; and Styx was brought to it, since the
+specification decides and both implementations follow. TypeScript needed no
+change — its default already refused.
+
+Falsified rather than assumed: removing the two lines from the Styx reader
+turns exactly two tests red, the new unit assertion and the specification
+vector, and nothing else. The suite now stands at **514 (C#) / 478
+(TypeScript) normative passes**, one more per side, **259 cross-implementation
+agreements, zero failures**, and the same four by-design divergences.
+
+**What to take from it.** A conformance suite audits implementations against
+a document. Nothing in it audits the document for the questions it forgets to
+answer, and those are the questions where two honest implementations quietly
+part company. The four subsections of §3 were readable as a checklist —
+*does each rule that forbids a second spelling say what a decoder does with
+it?* — and that check took an afternoon once someone thought to run it.
