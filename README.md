@@ -12,6 +12,10 @@ run against the same language-neutral vectors, against **each other**, and
 against the specification
 ([OpenChargingTechnology/Whitepapers → MetrologicalCBOR](https://github.com/OpenChargingTechnology/Whitepapers)).
 
+The tag is registered: IANA assigned **44252** on 2026-08-19, with that
+specification as its
+["Description of semantics"](https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml).
+
 A particular focus is the **CBOR ↔ JSON document conversion**, in which every
 metrological value travels as one string in the metrological text format
 (`"1.10 kWh"`, `"(230.00 ±0.12) V, k=2"`): the suite verifies that JSON
