@@ -454,6 +454,24 @@ for (const testCase of vectors['json-escapes']) {
                   `must read its own JSON back to ${testCase.cborHex}, got ${describe(back)}`);
         }
 
+        // Survey: whether each wrote the spelling metrological-text.md §3.1
+        // RECOMMENDS — escape what RFC 8259 §7 requires and nothing else.
+        //
+        // Survey and not normative, because RECOMMENDED is not MUST: §7
+        // permits escaping the solidus and permits \uXXXX for anything, and a
+        // converter that chooses otherwise is not wrong. What this row catches
+        // is the one thing the pairwise comparison below cannot — both
+        // implementations agreeing on a spelling the specification does not
+        // recommend, which is agreement about nothing.
+        if (testCase.expectedJson !== undefined) {
+            for (const [impl, results] of impls) {
+                const wrote = checkOf(results, key, 'toJson');
+                judge(testCase.id, 'wrote the recommended spelling', impl, 'survey',
+                      wrote?.status === 'ok' && wrote.json === testCase.expectedJson,
+                      `§3.1 recommends ${testCase.expectedJson}, got ${wrote?.json ?? describe(wrote)}`);
+            }
+        }
+
         // Survey: whether they chose the same spelling. Recorded, never failed.
         const mine  = checkOf(csharp, key, 'toJson');
         const yours = checkOf(ts,     key, 'toJson');

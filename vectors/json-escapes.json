@@ -133,6 +133,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "\"\\\"\"",
       "cborHex": "6122",
       "description": "A quote, which every writer must escape somehow."
     },
@@ -141,6 +142,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "\"\\n\"",
       "cborHex": "610A",
       "description": "A line feed: \"\\n\" and \"\\u000A\" are both correct and a reader has to take either."
     },
@@ -149,6 +151,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "\"\\u0001\"",
       "cborHex": "6101",
       "description": "U+0001 has no two-character escape, so it can only be written as a unicode escape - and the case of its hexadecimal digits is where two writers most easily differ."
     },
@@ -157,6 +160,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "\"\\u0000\"",
       "cborHex": "6100",
       "description": "NUL, the character most likely to be mishandled by whatever the JSON text passes through next."
     },
@@ -165,6 +169,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "\"/\"",
       "cborHex": "612F",
       "description": "A solidus needs no escaping and some writers escape it anyway, historically to keep \"</script>\" out of HTML. Either is correct."
     },
@@ -173,6 +178,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "\"ä\"",
       "cborHex": "62C3A4",
       "description": "U+00E4. A writer may emit the character or its escape; several JSON libraries escape everything above ASCII by default, so this is a likely and legitimate difference."
     },
@@ -181,6 +187,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "\"😀\"",
       "cborHex": "64F09F9880",
       "description": "U+1F600, which as an escape is a surrogate *pair*. A writer that escapes non-ASCII has to emit both halves."
     },
@@ -189,6 +196,7 @@
       "class": "normative",
       "direction": "write",
       "expect": "accept",
+      "expectedJson": "{\"a\\nb\":1}",
       "cborHex": "A163610A6201",
       "description": "A control character in a map name, which has to be escaped on the way out as a value would be."
     },

@@ -1598,10 +1598,12 @@ must override are abstract **and** `unsafe`, so Styx gained
 general-purpose library and it is named in the csproj beside the flag: nothing
 else in Styx uses pointers.
 
-The conformance vector did not change. The write direction of `json-escapes`
-was deliberately built as **survey** — "a character above ASCII may be escaped
-or not, and insisting on agreement there would invent a requirement RFC 8259
-does not make" — and that reasoning still stands. The row simply agrees now.
+The conformance vector did not change here. The write direction of
+`json-escapes` was deliberately built as **survey** — "a character above ASCII
+may be escaped or not, and insisting on agreement there would invent a
+requirement RFC 8259 does not make" — and that reasoning still stands; the row
+simply agreed once the defect was gone. What it did not yet do was say what
+the *right* spelling is, which §23 takes up.
 
 **Falsified:** putting the old encoder back turns exactly one test red, the
 new one, and nothing else.
@@ -1620,3 +1622,55 @@ difference is *allowed* is not an explanation of why it *exists*.
 **The suite now stands at 520 (C#) / 484 (TypeScript) normative passes, 268
 cross-implementation agreements, zero failures and — for the first time —
 zero divergences.**
+
+
+## 23. RECOMMENDED, and what a suite does with one (added 2026-08-22)
+
+§22 fixed a writer and left a gap that a one-line remark found: *you could
+phrase it as highly recommended.* The suite had two verdicts, **normative** and
+**survey**, and the escaping question fitted neither. Insisting on a spelling
+would invent a requirement RFC 8259 §7 does not make; recording the spelling
+without an opinion says nothing about which one to write.
+
+RFC 2119 has the word for the middle, and the specification now uses it.
+metrological-text.md §3.1 says a converter SHOULD escape only what §7 requires
+— the quotation mark, the reverse solidus, the characters below U+0020 —
+preferring the two-character forms where §7 defines one, and write every other
+character as itself.
+
+**Why it is worth saying at all**, given that both spellings are correct: it
+makes the JSON text a *function of the CBOR document*. §3.1 already buys that
+property for tag 1, by prescribing `YYYY-MM-DDThh:mm:ss.fffZ` down to the
+millisecond, and for the same reason — a text two implementations derive
+independently can be compared, and one that is a matter of taste cannot. The
+escaping was the last place in the CBOR-to-JSON direction where the output was
+not determined by the input.
+
+### What that looks like in the harness
+
+Eight write-direction vectors gained an `expectedJson`, and each is judged
+against it **at survey class**, per implementation. That is the encoding of a
+SHOULD: a deviation is recorded, legible and attributed —
+
+```
+| write-astral | wrote the recommended spelling | csharp | §3.1 recommends "😀", got "\uD83D\uDE00" |
+```
+
+— and the run stays green, because an implementation that escapes differently
+is not failing the specification. The pairwise *"wrote the same spelling"* row
+stays beside it, because the two catch different things: the pairwise row sees
+the implementations drift apart, and the new rows see them **drift together**
+away from the document. Nothing before could see the second.
+
+Deriving the eight was the check worth having. Each expected spelling was
+computed from the rule rather than copied from what the implementations
+produce, and all eight matched what both already write — so the recommendation
+names behaviour that agreed before it was written down, which is the cheapest
+possible moment to write a rule.
+
+**Falsified** by putting the old encoder back: the C# row for `write-astral`
+reports `§3.1 recommends "😀", got "\uD83D\uDE00"` while the TypeScript row
+beside it matches, the divergence count goes 0 → 1, and the normative counts
+do not move at all.
+
+Survey observations per implementation: 30 → **38**.
