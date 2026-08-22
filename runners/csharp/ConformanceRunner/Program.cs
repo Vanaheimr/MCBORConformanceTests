@@ -78,6 +78,7 @@ foreach (var vectorFile in vectorFiles)
                 case "values-invalid": RunValuesInvalid(testCase, checks); break;
                 case "cbor-robustness": RunCBORRobustness(testCase, checks); break;
                 case "default-encoding": RunDefaultEncoding(testCase, checks); break;
+                case "default-readings": RunDefaultReadings(testCase, checks); break;
                 case "documents":      RunDocuments    (testCase, checks); break;
                 case "json-to-cbor":   RunJsonToCbor   (testCase, checks); break;
                 case "json-escapes":   RunJSONEscapes  (testCase, checks); break;
@@ -250,6 +251,33 @@ static void RunDefaultEncoding(JsonObject TestCase, JsonObject Checks)
         return OkHex(Convert.ToHexString(value.ToCBOR().ToByteArray()));
 
     });
+
+}
+
+
+/// <summary>
+/// Convert a JSON document with this library's DEFAULT options.
+///
+/// Deliberately NOT the Readings = Auto that JsonToCborHex passes, and that
+/// is the entire point of the suite. Every other JSON comparison in this
+/// project asks for the conversion metrological-text.md Section 3.2
+/// describes, so a suite that overrides the default can never see a
+/// divergence in it - which is not hypothetical: the two implementations
+/// disagreed about this exact default for a day and nothing here noticed.
+///
+/// The writer options ARE canonical, because what is under test is the
+/// reading decision and not the writing one.
+/// </summary>
+static void RunDefaultReadings(JsonObject TestCase, JsonObject Checks)
+{
+
+    Checks["defaultReadings"] = Capture(() =>
+        OkHex(
+            Convert.ToHexString(
+                CBORJSON.ToCBOR(TestCase["json"]!.GetValue<String>()).
+                         ToByteArray(CBORWriterOptions.Canonical)
+            )
+        ));
 
 }
 

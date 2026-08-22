@@ -267,6 +267,22 @@ function runDefaultEncoding(testCase: VectorCase, checks: Record<string, Check>)
 
 }
 
+/**
+ * Convert a JSON document with this library's DEFAULT options.
+ *
+ * Deliberately *not* the `readings: 'auto'` that `jsonToCborHex` passes, and
+ * that is the entire point of the suite. Every other JSON comparison in this
+ * project asks for the conversion `metrological-text.md` Section 3.2
+ * describes, so a suite that overrides the default can never see a divergence
+ * in it — which is not hypothetical: the two implementations disagreed about
+ * this exact default for a day and nothing here noticed.
+ */
+function runDefaultReadings(testCase: VectorCase, checks: Record<string, Check>): void {
+
+    checks['defaultReadings'] = capture(() => okHex(bytesToHex(jsonTextToMcbor(testCase.json!))));
+
+}
+
 function runDocuments(testCase: VectorCase, checks: Record<string, Check>): void {
 
     let json: string | undefined;
@@ -928,6 +944,7 @@ for (const vectorFile of vectorFiles) {
                 case 'values-invalid': runValuesInvalid(testCase, checks); break;
                 case 'cbor-robustness': runCborRobustness(testCase, checks); break;
                 case 'default-encoding': runDefaultEncoding(testCase, checks); break;
+                case 'default-readings': runDefaultReadings(testCase, checks); break;
                 case 'documents':      runDocuments    (testCase, checks); break;
                 case 'json-to-cbor':   runJsonToCbor   (testCase, checks); break;
                 case 'json-escapes':   runJsonEscapes  (testCase, checks); break;

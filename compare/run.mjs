@@ -84,7 +84,7 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
 // cbor-robustness is the layer beneath the one the specification describes.
 for (const name of ['cose-sign.json', 'cose-crit.json', 'cose-mac0.json', 'cose-encrypt.json',
                     'cose-x509.json', 'cbor-robustness.json', 'default-encoding.json',
-                    'json-escapes.json', 'json-tags.json']) {
+                    'default-readings.json', 'json-escapes.json', 'json-tags.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
 }
@@ -496,6 +496,44 @@ for (const testCase of vectors['default-encoding']) {
     const yours = checkOf(ts,     key, 'defaultEncoding');
 
     judge(testCase.id, 'agree on the default encoding', 'csharp↔typescript', klass,
+          mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+          `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+}
+
+
+// --- suite: default-readings, the other path no other suite takes ---
+
+/**
+ * What a caller who asked for nothing gets on the way *in*.
+ *
+ * Every other JSON comparison here passes `readings: 'auto'` (TypeScript) or
+ * `Readings = Auto` (C#), because what they compare is the conversion
+ * metrological-text.md Section 3.2 describes. That is right, and it has a
+ * cost: a suite that overrides a default cannot see a divergence in it. The
+ * two implementations disagreed about this exact default for a day - one
+ * examined every string, the other none - and every row here stayed green.
+ *
+ * Section 3.2 is what makes these normative rather than a survey: which
+ * strings are examined is the caller's to name, and a converter SHOULD
+ * examine none until told.
+ */
+for (const testCase of vectors['default-readings']) {
+
+    const key   = `default-readings:${testCase.id}`;
+    const klass = testCase.class ?? 'normative';
+
+    for (const [impl, results] of impls) {
+        const recorded = checkOf(results, key, 'defaultReadings');
+        judge(testCase.id, 'a caller who asked for nothing gets no readings', impl, klass,
+              recorded?.status === 'ok' && recorded.hex === testCase.expected,
+              `expected ${testCase.expected}, got ${describe(recorded)}`);
+    }
+
+    const mine  = checkOf(csharp, key, 'defaultReadings');
+    const yours = checkOf(ts,     key, 'defaultReadings');
+
+    judge(testCase.id, 'agree on what the default does', 'csharp↔typescript', klass,
           mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
           `C#: ${describe(mine)} / TS: ${describe(yours)}`);
 
@@ -1017,7 +1055,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), default-readings (${vectors['default-readings'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');

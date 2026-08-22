@@ -1,0 +1,41 @@
+{
+    "suite": "default-readings",
+    "description": "Converting JSON to CBOR with each library's DEFAULT options, which since 2026-08-22 is the one reading path no other suite in this project takes. Everywhere else both runners pass 'auto' explicitly, because what they compare is the conversion metrological-text.md Section 3.2 describes — and a suite that overrides a default can never see a divergence in it. That is not hypothetical: the two implementations disagreed about this exact default for a day, and nothing here noticed. Section 3.2 makes these cases normative rather than a survey: which strings are examined is the caller's to name, and a converter SHOULD examine none until told, so a caller who passes nothing gets the strings back as strings. Each case is a document whose strings WOULD become readings had the caller asked; the expected bytes are what comes out when nobody did.",
+    "cases": [
+        {
+            "id": "root-reading",
+            "class": "normative",
+            "json": "\"5 A\"",
+            "expected": "63352041",
+            "description": "The plainest case there is: a string that matches the grammar in full, at the root of the document. Under 'auto' this is D9ACDC820504; the difference between the two hexes is the whole suite."
+        },
+        {
+            "id": "reading-in-a-member",
+            "class": "normative",
+            "json": "{\"energy\":\"1.10 kWh\"}",
+            "expected": "A166656E6572677968312E3130206B5768",
+            "description": "A reading where an application would actually keep one, under a member name that says so. Even a name as suggestive as 'energy' is not an instruction: the caller names the paths, not the format."
+        },
+        {
+            "id": "the-prose-hazard",
+            "class": "normative",
+            "json": "\"1 h\"",
+            "expected": "63312068",
+            "description": "The case the default exists for. \"1 h\" is a perfectly good measurement and a perfectly good piece of prose, and a converter that guesses produces a well-formed reading of something nobody measured — a failure nothing downstream can notice, because the result is indistinguishable from a real one."
+        },
+        {
+            "id": "mixed-document",
+            "class": "normative",
+            "json": "{\"e\":\"5 A\",\"note\":\"hello\"}",
+            "expected": "A2616563352041646E6F74656568656C6C6F",
+            "description": "One string that would convert and one that never could, in one document. Both come back as strings, so the case also shows that the default is not doing something clever — it is doing nothing."
+        },
+        {
+            "id": "a-number-is-not-a-string",
+            "class": "normative",
+            "json": "{\"v\":1.10}",
+            "expected": "A16176C48221186E",
+            "description": "The control. Numbers are not affected by the decision at all: 1.10 becomes the exact decimal fraction 4([-2, 110]) with its trailing zero intact, whatever the caller says about strings. Without this row the suite could pass on a converter that had simply stopped converting."
+        }
+    ]
+}

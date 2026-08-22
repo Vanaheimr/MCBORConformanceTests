@@ -1503,3 +1503,46 @@ each half of the project was internally consistent — and neither was caught by
 the conformance suite, because the suite had been taught to ask for the
 behaviour it wanted to compare. What caught them was writing an inventory and
 reading it out loud.
+
+
+## 21. A suite that asks for nothing (added 2026-08-22)
+
+§20 ended on the limit of this method: **the suite compares what it asks
+for.** Both runners pass `readings: 'auto'` where they mean the conversion
+metrological-text.md §3.2 describes, which is right — and it is why a
+day-long disagreement about the *default* passed through 263 green
+cross-implementation rows without a mark.
+
+There was already a precedent for closing exactly this kind of hole.
+`default-encoding` exists because every other comparison hands the C# writer
+`CBORWriterOptions.Canonical`, leaving the default writer on a path no vector
+took. `default-readings` is the same idea one direction over: five documents
+converted with **no options at all**, on both sides.
+
+The five are chosen so that passing them means something: a reading at the
+document root, a reading under a member called `energy` (a suggestive name is
+still not an instruction), `"1 h"` — the prose that is also a measurement —
+a document mixing a convertible string with one that never could be, and a
+control that holds a *number*, so the suite cannot be satisfied by a converter
+that has simply stopped converting.
+
+**Falsified, and this is the part that matters.** Putting the TypeScript
+default back to `'auto'` — the exact state of yesterday morning — turns **four
+TypeScript rows and four cross-implementation rows red** and takes the
+divergence count from 1 to 5. The same edit, before this suite existed, moved
+nothing at all. The fifth row stays green in both states, because it is the
+number: a control that went red would mean the suite was measuring something
+other than what it claims.
+
+The specification followed the same reasoning in the other direction. §3.2
+described try-parsing as what the conversion does, with the caller narrowing
+it per JSON Pointer path; both implementations now do the opposite, and a
+document that describes a different default than every implementation of it
+is the §17 failure mode exactly. §3.2 now says which strings are examined is
+the caller's to name and that a converter SHOULD examine none until told, with
+both ways of naming — every string, or per path — spelled out. §3.3's
+byte-for-byte round trip gained the condition it always had and never stated:
+*given a caller that named the strings to examine.*
+
+The suite now stands at **520 (C#) / 484 (TypeScript) normative passes, 268
+cross-implementation agreements, zero failures, one by-design divergence**.
