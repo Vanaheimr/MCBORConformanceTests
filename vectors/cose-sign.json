@@ -3,6 +3,17 @@
     "description": "COSE cross-signing conformance (RFC 9052 / 9053 / 9338 / 9679). Every case is signed by both implementations and then handed to the other one to verify. Signing is deterministic (RFC 6979) on both sides, because that is the only mode in which two implementations can be compared byte for byte; the randomized mode is exercised by the cross-verification instead. The keys are the example keys of RFC 9052 and of the specification's worked example, and they secure nothing.",
     "cases": [
         {
+            "id": "sign1-non-canonical-payload",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "A CBOR payload written in reading order rather than in the deterministic encoding of RFC 8949 \u00a74.2.1 \u2014 {\"meter\": \u2026, \"time\": \u2026}, whose sorted spelling puts \"time\" first. Both implementations rewrite it before signing, so the message carries the sorted 49 bytes and not the 49 bytes handed in. The point is what happens afterwards: a receiver that decodes the record and encodes it again produces the sorted form, and unless the signer produced it too, that receiver forwards a signature that no longer verifies \u2014 having altered nothing. This vector is what makes the two implementations agree about which of the two spellings gets signed.",
+            "algorithm": "ES256",
+            "curve": "P-256",
+            "keyD": "57C92077664146E876760C9520D054AA93C3AFB04E306705DB6090308507B4D3",
+            "keyIdentifier": "3131",
+            "payload": "A2656D657465726E31495341303030303030303034326474696D65C074323032362D30382D31355430383A31343A30305A"
+        },
+        {
             "id": "sign1-es256-p256",
             "class": "normative",
             "shape": "sign1",

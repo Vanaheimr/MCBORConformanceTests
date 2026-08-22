@@ -450,7 +450,7 @@ function runCoseSign(testCase: VectorCase, checks: Record<string, Check>): void 
                                 : CoseSign1.signWithApplicationAlgorithm(payload, key, options);
 
             checks['toBeSigned'] = capture(() => okHex(bytesToHex(
-                CoseSign1.toBeSigned(message.protectedHeaderBytes, payload, externalAad))));
+                CoseSign1.toBeSigned(message.protectedHeaderBytes, message.payload ?? payload, externalAad))));
             checks['signature']  = capture(() => okHex(bytesToHex(message.signature)));
             checks['message']    = capture(() => okHex(bytesToHex(message.toBytes())));
 
@@ -483,7 +483,7 @@ function runCoseSign(testCase: VectorCase, checks: Record<string, Check>): void 
             const message = signed.addCountersignature(second, options);
 
             checks['toBeSigned']  = capture(() => okHex(bytesToHex(
-                CoseSign1.toBeSigned(signed.protectedHeaderBytes, payload, externalAad))));
+                CoseSign1.toBeSigned(signed.protectedHeaderBytes, signed.payload ?? payload, externalAad))));
             checks['toBeSigned2'] = capture(() => okHex(bytesToHex(
                 message.toBeCountersigned(message.countersignatures[0]!, { externalAad }))));
             checks['signature']   = capture(() => okHex(bytesToHex(message.signature)));

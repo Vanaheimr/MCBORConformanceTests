@@ -65,11 +65,13 @@ Every row below is **resolved**: the specification was amended (tag
 specification `README.md` §3.1–§3.4 and §6; `metrological-text.md` §2 and
 §3), and both implementations were brought to it. The suite reports zero
 normative failures per implementation — including the cross-feed of the
-TypeScript ASCII rendering into the C# parser — and the only remaining
-default-behaviour divergences are exactly the strict/lenient decoder-profile
-difference §6 describes (non-shortest heads, indefinite lengths,
-non-preferred bignums — the strict profile is RECOMMENDED, TS's default;
-the lenient profile is C#'s generic-reader default).
+TypeScript ASCII rendering into the C# parser. The strict/lenient
+decoder-profile difference that outlived this section (non-shortest heads,
+indefinite lengths, non-preferred bignums) was closed on 2026-08-22, when C#
+gained a byte-level metrological entry point that reads the RECOMMENDED
+strict profile by default; see §18. **One** default-behaviour divergence
+remains, and it is not one: the two legitimate JSON spellings of an astral
+character.
 
 What was decided, per row of the original table:
 
@@ -84,7 +86,7 @@ What was decided, per row of the original table:
 | 4.8 | Unit **names are not symbols** (`1 hour` is prose). §2.1 says symbols and aliases only; C# restricted its text and wire lookups. |
 | 4.9 | Non-reduced rational exponents (and the rational spelling of an integer, `[2, 1]`) are **rejected**, not reduced (§3.2). C# added the checks. |
 | 4.10 | `[[unit, 1]]`, the redundant prefix 0, unknown uncertainty-map keys and the exponent zero are all **decoder-MUST rejections** now (§3.2–§3.4). C# added the first three, TS the last. |
-| 4.11 | §6 now names the two decoder profiles: **strict (RECOMMENDED)** verifies deterministic encoding; **lenient** MAY accept non-deterministic bytes but MUST NOT reproduce them. The defaults of the two implementations are both describable and stay as they are. |
+| 4.11 | §6 now names the two decoder profiles: **strict (RECOMMENDED)** verifies deterministic encoding; **lenient** MAY accept non-deterministic bytes but MUST NOT reproduce them. Both defaults became describable at once — and on 2026-08-22 they also became the same: `MetrologicalValue.TryParse(bytes, …)` reads the strict profile, which is where the rule belongs, while C#'s *generic* reader stays lenient because RFC 9052 requires it to (§18). |
 | 4.12–4.16 | The JSON conversion is **exact and pinned** (metrological-text §3): integers of any size and decimal fractions are exact JSON numbers in both directions and never pass through binary floats; floats are written with their point (`1.0`) and come back as exact decimals; tag 1 becomes the instant as `YYYY-MM-DDThh:mm:ss.fffZ`; tags 2/3/4 outside readings convert as numbers. TS grew the exact text path this requires (`mcborToJsonText` / `jsonTextToMcbor`), since JavaScript's `JSON.parse`/`stringify` cannot carry exact digits; C# normalises JSON exponents that leave no decimal places to integers. |
 
 The last tolerance questions were decided on 2026-08-18 as well, each the
@@ -1179,3 +1181,151 @@ answer, and those are the questions where two honest implementations quietly
 part company. The four subsections of §3 were readable as a checklist —
 *does each rule that forbids a second spelling say what a decoder does with
 it?* — and that check took an afternoon once someone thought to run it.
+
+
+## 18. The signature covered a spelling, not a record (added 2026-08-22)
+
+**Asked for**, in two sentences: make the C# side strict as well, and give
+signing a parameter for whether the payload is canonicalized first — with the
+default on, *because in e-mobility a record is typically received, parsed and
+forwarded, so parsing and re-serializing has to be deterministic.*
+
+Both are done. Between them they closed the last decoder-profile divergence
+this suite had, and they turned up something about the specification's own
+worked example.
+
+### Strict, but at the layer the rule belongs to
+
+The obvious reading — flip `CBORReaderOptions.Default.RequireDeterministic`
+to `true` — was measured first, and it is wrong. Twelve call sites of
+`CBORValue.TryParse` / `Parse` exist in Styx outside its tests and **not one
+of them passes options**, so they all ride on that default; eight of the
+twelve are COSE parsers. Flipping it turns **18 of 619** Styx tests red, in
+two groups that both matter:
+
+- `AppendixA_indefinite_length_vectors_normalize_to_their_definite_counterparts`
+  fails with *"Indefinite-length arrays are not allowed within deterministic
+  CBOR encoding (position 1)!"* — those are **RFC 8949 Appendix A's own
+  vectors**. A strict-by-default generic reader is not a conforming CBOR
+  reader.
+- `The_whole_record_verifies_from_the_published_bytes_alone` fails with *"The
+  CBOR map keys are not sorted in bytewise lexicographic order at position
+  36!"* — the specification's own 713-byte worked record. More generally,
+  **RFC 9052 does not require a received COSE message to be deterministically
+  encoded**: a verifier hashes the bytes that arrived, and what the sender
+  wrote is not its decision.
+
+So the profile does not belong to the CBOR reader, which serves COSE. It
+belongs to the tag, which is where it was put:
+
+```csharp
+MetrologicalValue.TryParse(bytes, out var value, out var error);           // strict
+MetrologicalValue.TryParse(bytes, out …, CBORReaderOptions.Default);       // lenient
+```
+
+Strict by default, matching TypeScript's `decode()`. The `CBORValue` overload
+deliberately grew **no** options parameter: by the time a caller holds a
+`CBORValue`, the byte-level evidence has been read away, and an option there
+would be a promise the layer cannot keep. `MetrologicalValue.ToByteArray()`
+is the other half — deterministic by default, because §6 makes the encoding a
+function of the value and the writer options do not get a vote.
+
+The C# conformance runner now reads readings through that entry point, which
+is what makes the two columns comparable at all; the deliberately-lenient
+`cbor-robustness` cases still ask the generic reader directly, which is where
+*"what does a caller who asked for nothing in particular get"* belongs.
+
+**Cross-implementation divergences: 4 → 2.**
+
+### Preferred bignums: the rule that was left over
+
+What remained was `values-invalid:value-non-preferred-bignum` — `5` written
+as a tag-2 bignum. §6 lists *"shortest integer heads, definite lengths,
+sorted map keys, preferred bignums"* as the byte level, and C# implemented
+the first three: `RequireDeterministic` is documented as RFC 8949 §4.2.1,
+and preferred bignums live in §4.2.2. So the flag was right and the profile
+was short one rule.
+
+`CBORReaderOptions.RequirePreferredBignums` closes it, kept as its own
+property for the reason the divergence existed — RFC 8949 keeps the two
+sections apart, and so should the options. `CBORReaderOptions.Canonical` sets
+both. The check needed two homes, because a bignum is a tag followed by a
+byte string and neither of the reader's two calls knows it is looking at one.
+
+**Cross-implementation divergences: 2 → 1**, and the one left is the astral
+escape of §14, where both spellings are correct JSON.
+
+### Signing the deterministic encoding
+
+`COSESign1.Sign(…, CanonicalizePayload: true)` — and the same on
+`COSESign.Sign` and on `CoseSign1.sign` / `CoseSign.sign` in COSE.TS.
+`COSEPayload` / `payload.ts` hold the three operations: `Canonicalize`,
+`IsCanonical`, `TryCanonicalize`.
+
+Three decisions worth writing down:
+
+- **A payload that is not CBOR is signed as it is.** RFC 9052 says nothing
+  about what a payload contains, and every published COSE example carries
+  `"This is the content."`. Refusing those would make the default useless for
+  the format's own vectors.
+- **`IsCanonical` is the round trip, not a strict decode.** What a forwarding
+  receiver does is decode and re-encode; the question worth answering is
+  whether *that* changes anything, not whether a list of rules is satisfied.
+- **A detached payload that canonicalization would change is refused.** The
+  message does not carry it, so the verifier is handed the caller's own
+  bytes: signing a different spelling of them produces a message that can
+  never verify, whoever holds it. The exception names the fix.
+
+The conformance suite grew `sign1-non-canonical-payload`, a COSE_Sign1 over
+`{"meter": …, "time": …}` written in reading order. Both implementations sign
+the sorted 49 bytes and produce **byte-identical** messages — which is the
+only way to know they agree about *which* of the two spellings a signature
+covers. The two runners also stopped recording `toBeSigned` over the payload
+they handed in rather than over the one the message carries; on every earlier
+vector those are the same bytes, which is why nothing had caught it.
+
+### What that found: the published worked example does not survive forwarding
+
+Every map in the specification's worked record is in **reading order** —
+`chargingStation`, `transaction`, `readings` — which is what a person wants
+and not what RFC 8949 §4.2.1 asks for. So:
+
+- `COSEPayload.IsCanonical(released.Payload)` is `false`, and so is every one
+  of the two inner meter readings.
+- A receiver that decodes the bundle and encodes it again — a backend, a
+  roaming hub, anything that keeps a record as a model rather than as bytes —
+  passes on a record whose signature no longer holds, **having altered
+  nothing**. The forwarded payload is even the same length: sorting a map
+  moves bytes without adding any.
+
+That is exactly the failure the new default exists to prevent, and the
+document that demonstrates the format demonstrates the failure. It is
+recorded as a test —
+`The_published_record_does_not_survive_being_forwarded()` — and the rebuild
+test now passes `CanonicalizePayload: false`, because **the published bytes
+are what they are**: regenerating the example changes a published document
+and its three signatures, which is the maintainer's call and not this
+project's. Rebuilt canonically the record is the same 713 bytes and differs
+from hex index 74 onwards.
+
+### Falsification
+
+- Flipping `CanonicalizePayload` back to `false`: exactly two tests red —
+  `Signing_canonicalizes_by_default_so_forwarding_survives` (the payload the
+  message carries equals the one handed in) and
+  `A_detached_payload_that_canonicalization_would_change_is_refused` (no
+  exception thrown). Nothing else moves.
+- Each profile step was measured by the divergence count alone, and each time
+  the rows that vanished were the predicted ones: the two byte-level rows for
+  the strict entry point, the bignum row for §4.2.2.
+
+The suite now stands at **515 (C#) / 479 (TypeScript) normative passes, 263
+cross-implementation agreements, zero failures, one by-design divergence**;
+Styx at **626** tests, COSE.TS at **224**.
+
+**What to take from it.** A default that only ever changes bytes nobody
+compares is invisible until somebody compares them — and a forwarder does,
+every time, on behalf of a party who never chose. The specification's own
+example had been through four implementations and a publication without
+anyone asking whether *re-encoding it* preserved it, because every check it
+had ever been given handed it the same bytes twice.

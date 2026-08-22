@@ -498,7 +498,7 @@ static void RunCoseSign(JsonObject TestCase, JsonObject Checks)
                                                primary.KeyIdentifier, externalAAD, detached, tagged, null, true);
 
             Checks["toBeSigned"] = Capture(() => OkHex(Convert.ToHexString(
-                                       COSESign1.ToBeSigned(message.ProtectedHeaderBytes, payload, externalAAD))));
+                                       COSESign1.ToBeSigned(message.ProtectedHeaderBytes, message.Payload ?? payload, externalAAD))));
             Checks["signature"]  = Capture(() => OkHex(Convert.ToHexString(message.Signature)));
             Checks["message"]    = Capture(() => OkHex(Convert.ToHexString(message.ToByteArray())));
 
@@ -547,7 +547,7 @@ static void RunCoseSign(JsonObject TestCase, JsonObject Checks)
             var countersignature = message.Countersignatures.First();
 
             Checks["toBeSigned"]  = Capture(() => OkHex(Convert.ToHexString(
-                                        COSESign1.ToBeSigned(signed.ProtectedHeaderBytes, payload, externalAAD))));
+                                        COSESign1.ToBeSigned(signed.ProtectedHeaderBytes, signed.Payload ?? payload, externalAAD))));
             Checks["toBeSigned2"] = Capture(() => OkHex(Convert.ToHexString(
                                         message.ToBeCountersigned(countersignature, externalAAD, detached ? payload : null))));
             Checks["signature"]   = Capture(() => OkHex(Convert.ToHexString(message.Signature)));
@@ -1100,6 +1100,23 @@ static JsonObject Verified(Boolean Ok, String? Reason)
 
 // ------------------------------------------------------------- primitives --
 
+/// <summary>
+/// Read a metrological value from its encoded bytes.
+///
+/// Through MetrologicalValue.TryParse(bytes, ...), which reads the STRICT
+/// decoder profile of specification Section 6 by default - the same profile
+/// the TypeScript decode() reads by default, which is what makes the two
+/// columns of this suite comparable at all. Going through CBORValue.TryParse
+/// first, as this did until the profile existed, reads leniently: the
+/// byte-level facts are normalized away before the metrological layer is
+/// asked anything, and the two implementations then disagree about inputs
+/// neither of them is wrong about.
+///
+/// The lenient profile is not untested by that. RunCBORRobustness above asks
+/// the generic reader directly and deliberately with default options, which
+/// is where "what does a caller who asked for nothing in particular get"
+/// belongs.
+/// </summary>
 static Boolean TryDecodeValue(String Hex, out MetrologicalValue Value, out String? ErrorResponse)
 {
 
@@ -1119,13 +1136,7 @@ static Boolean TryDecodeValue(String Hex, out MetrologicalValue Value, out Strin
     try
     {
 
-        if (!CBORValue.TryParse(bytes, out var cbor, out var cborError))
-        {
-            ErrorResponse = $"CBOR: {cborError}";
-            return false;
-        }
-
-        if (!MetrologicalValue.TryParse(cbor, out Value, out var valueError))
+        if (!MetrologicalValue.TryParse(bytes, out Value, out var valueError))
         {
             ErrorResponse = valueError;
             return false;
