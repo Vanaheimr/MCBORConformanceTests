@@ -69,9 +69,10 @@ TypeScript ASCII rendering into the C# parser. The strict/lenient
 decoder-profile difference that outlived this section (non-shortest heads,
 indefinite lengths, non-preferred bignums) was closed on 2026-08-22, when C#
 gained a byte-level metrological entry point that reads the RECOMMENDED
-strict profile by default; see §18. **One** default-behaviour divergence
-remains, and it is not one: the two legitimate JSON spellings of an astral
-character.
+strict profile by default; see §18. The last one — the two JSON spellings of
+an astral character — went on 2026-08-22 as well, and not by a decision about
+spelling: it was a defect in one writer, see §22. **The suite records no
+cross-implementation divergence at all.**
 
 What was decided, per row of the original table:
 
@@ -1546,3 +1547,76 @@ byte-for-byte round trip gained the condition it always had and never stated:
 
 The suite now stands at **520 (C#) / 484 (TypeScript) normative passes, 268
 cross-implementation agreements, zero failures, one by-design divergence**.
+
+
+## 22. "Both are valid" is a reason to stop comparing — and a reason nobody looks (added 2026-08-22)
+
+The last divergence in this suite was `json-escapes:write-astral`: C# wrote
+`"\uD83D\uDE00"`, TypeScript wrote `"😀"`, both are correct JSON for U+1F600
+under RFC 8259 §7, and both read back to the identical `64F09F9880`. It had
+been recorded as by design for two days, and everything in that sentence was
+true.
+
+It was also beside the point, and what surfaced that was not a test but a
+throwaway remark that the TypeScript spelling looked nicer. Measuring before
+answering turned it into something else entirely:
+
+```
+astral U+1F600   writer="\uD83D\uDE00"   tree="😀"
+BMP    U+00E4    writer="ä"                tree="ä"
+BMP    U+20AC    writer="€"                tree="€"
+```
+
+Three facts fell out of that, none of which anybody had.
+
+**Styx was not choosing to escape.** Its UTF-8 writer is configured with
+`JavaScriptEncoder.UnsafeRelaxedJsonEscaping` — "escape as little as
+possible" — and for the whole Basic Multilingual Plane it obeys. Only above
+U+FFFF does `Utf8JsonWriter` escape anyway.
+
+**No built-in encoder can do otherwise.** `Default`,
+`Create(UnicodeRanges.All)` and `UnsafeRelaxedJsonEscaping` all escape
+U+1F600, measured on .NET 10. The reason is structural rather than a policy:
+`JavaScriptEncoder.Create` takes `UnicodeRange`s, and a `UnicodeRange` is
+built from `char`s, so `UnicodeRanges.All` means *all of the BMP*. Every
+`System.Text.Json` producer in the world therefore escapes astral characters,
+which is why this reads as a C#-versus-JavaScript difference and is really a
+`System.Text.Json`-versus-everything-else one.
+
+**Styx's own two paths disagreed with each other.** The Newtonsoft tree wrote
+`"😀"` and the UTF-8 writer wrote the pair — for the same input, in the same
+library. `CBORJSONTests.BothPathsAgree` exists precisely to catch that, and
+was green, because not one vector in it carried a character above U+FFFF.
+
+### The fix, and what it cost
+
+`CBORJSONTextEncoder` escapes what RFC 8259 §7 requires — the quotation mark,
+the reverse solidus, the controls below U+0020 — and nothing else. It has to
+be a custom `JavaScriptEncoder`, and the two `TextEncoder` members a subclass
+must override are abstract **and** `unsafe`, so Styx gained
+`<AllowUnsafeBlocks>` for this one class. That is a real cost on a
+general-purpose library and it is named in the csproj beside the flag: nothing
+else in Styx uses pointers.
+
+The conformance vector did not change. The write direction of `json-escapes`
+was deliberately built as **survey** — "a character above ASCII may be escaped
+or not, and insisting on agreement there would invent a requirement RFC 8259
+does not make" — and that reasoning still stands. The row simply agrees now.
+
+**Falsified:** putting the old encoder back turns exactly one test red, the
+new one, and nothing else.
+
+### What to take from it
+
+The row had a correct explanation attached to it, and the explanation is what
+stopped anyone from looking. *Both spellings are valid* answers the question
+"is this a conformance failure?" — it does not answer "why does each side
+write what it writes?", and nobody had asked. Two days of a defect sitting
+under a true sentence.
+
+Worth carrying into the next by-design row: an explanation of why a
+difference is *allowed* is not an explanation of why it *exists*.
+
+**The suite now stands at 520 (C#) / 484 (TypeScript) normative passes, 268
+cross-implementation agreements, zero failures and — for the first time —
+zero divergences.**
