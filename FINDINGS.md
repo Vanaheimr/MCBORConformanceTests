@@ -95,8 +95,9 @@ factor MUST be positive (§3.4); leading zeros, surrounding whitespace, the
 missing space inside the `±` parenthesis and after the statement comma are
 accepted input (§2.6); and a bare space is **never** a factor separator —
 `5 m s` stays prose (§2.6, the one point where the implementations differed;
-TypeScript dropped the tolerance). Nothing outside the decoder-profile
-choice remains open.
+TypeScript dropped the tolerance). Nothing from this section remains open:
+the decoder-profile choice, the last thing that did, was settled on
+2026-08-22 — see §18.
 
 | # | Question | C# (Styx) | TS | Recommendation |
 |---|---|---|---|---|
@@ -1299,14 +1300,10 @@ and not what RFC 8949 §4.2.1 asks for. So:
   moves bytes without adding any.
 
 That is exactly the failure the new default exists to prevent, and the
-document that demonstrates the format demonstrates the failure. It is
-recorded as a test —
-`The_published_record_does_not_survive_being_forwarded()` — and the rebuild
-test now passes `CanonicalizePayload: false`, because **the published bytes
-are what they are**: regenerating the example changes a published document
-and its three signatures, which is the maintainer's call and not this
-project's. Rebuilt canonically the record is the same 713 bytes and differs
-from hex index 74 onwards.
+document that demonstrates the format demonstrated the failure. It was
+recorded rather than repaired here, because regenerating a published example
+rewrites a published document and its three signatures — a maintainer's
+decision and not this project's. **It was taken the same day: see §19.**
 
 ### Falsification
 
@@ -1329,3 +1326,115 @@ every time, on behalf of a party who never chose. The specification's own
 example had been through four implementations and a publication without
 anyone asking whether *re-encoding it* preserved it, because every check it
 had ever been given handed it the same bytes twice.
+
+
+## 19. Four decisions, taken (added 2026-08-22)
+
+§18 closed with four things **recorded rather than decided**, in this
+project's habit of leaving to a maintainer what belongs to one. All four were
+taken the same day, and three of them changed code.
+
+### The worked example was regenerated
+
+The published record is now written the way §18 says a signed document has to
+be: every map in it, at both layers, is the deterministic encoding of itself.
+`COSEPayload.IsCanonical` says yes of the bundle and of both meter readings,
+and `The_published_record_survives_being_forwarded()` is the test that until
+that morning was named for the opposite.
+
+What did **not** change is the part worth reading. The record is the same
+**713 bytes**; the bundle payload the same 511; the signed readings the same
+221 and 219; the unsigned reading the same 134; the metrological value inside
+it the same 31, byte for byte, because it was already canonical. The key
+identifiers, the three protected buckets and the whole size table of the
+document survived untouched. Sorting a map moves bytes without adding any —
+which is exactly why the old spelling was so easy to publish without noticing.
+
+The record is quoted in **seven places across four repositories**: Styx's
+test, COSE.TS's, MetrologicalCBOR.TS's vectors and two of its examples, the
+fetched `spec/` copy, and the published document. Every one was rewritten from
+a single regeneration, wrapping preserved per file, rather than by hand —
+hand-authored hex is what produced this project's only vector bugs.
+
+Two tests had pinned the old spelling as a **property** rather than as data,
+and both were turned around rather than adjusted: one asserted that the
+payload was *not* in lexicographic order and that strict mode said so; the
+other pinned the diagnostic notation in reading order. A test that says "and
+this is fine" about a thing that is not fine is the most expensive kind to
+leave lying around.
+
+### Section 6 gained a sentence about the carrier
+
+§6 made the encoding of a **value** a function of that value. The hazard §18
+found lives one layer up — in the map that carries readings — and the section
+said nothing about it. It does now: a document that will be signed SHOULD be
+written in the deterministic encoding of RFC 8949 §4.2.1 throughout, because a
+receiver that decodes it and encodes it again produces that encoding, and a
+signature over another spelling of the same data fails in a way
+indistinguishable from tampering. SHOULD and not MUST, because this
+specification cannot bind a format it does not define.
+
+### `readings` defaults to `'none'`
+
+WORKPLAN §10.3 had carried *"taken by default, not decided"* since day one.
+The decision went to `'none'`: nothing is guessed, a string stays a string
+until the caller names which strings are readings. The argument for the old
+default was that the round trip then worked without configuration; the
+argument against it is that this put the risk on the party who had not chosen,
+and the failure it risks is the invisible kind — a prose field holding
+`"1 h"` becomes a perfectly well-formed reading of something nobody measured.
+
+What it cost was measured before it was done, and the measurement moved the
+question:
+
+- **27 tests across five files** go red on the flip alone.
+- Among them the **specification's own document vectors** — `meter-reading-sorted`,
+  `transaction-record-sorted`, `nested-reading`, all marked `roundtrip: true`.
+  The specification asserts that `"1.10 kWh"` converts back to tag 44252, so a
+  default that declines is a default that does not perform the conversion the
+  document specifies.
+- And the **conformance runner** called `jsonTextToMcbor(jsonText)` bare, so
+  the flip would have compared C#'s conversion against this library declining
+  to perform one — a divergence in the whole JSON column that says nothing
+  about either implementation.
+
+That reframes the change from "a safer default" to "the conversion is
+something a caller asks for, and asking is visible in the source". Every
+caller that means the specified conversion now says `readings: 'auto'` — the
+round-trip properties, the spec-vector tests, the runner, each with the reason
+beside it. The suite is unchanged afterwards: **515 / 479 normative, 263
+cross-implementation agreements, one divergence**, exactly as before.
+
+It is a breaking change to published behaviour, made deliberately: at this
+stage of the project a clean API outranks backwards compatibility, which the
+maintainer said in as many words.
+
+### The four unreachable branches are marked as unreachable
+
+They had been annotated with the argument for their unreachability and left
+uncovered on purpose, so that a reader would meet the argument rather than a
+suppression. They now carry `/* v8 ignore */` hints **beside** those arguments
+— the prose stays, because the prose is what a reader has. Coverage reads
+**100% of statements, branches, functions and lines** (1570/1570, 1240/1240,
+263/263, 1520/1520) instead of 99.9% with four exceptions one had to go and
+look up.
+
+Two things worth writing down from doing it:
+
+- `/* v8 ignore next 3 */` in front of an `else` clause does **not** cover the
+  clause. `/* v8 ignore start */` … `/* v8 ignore stop */` around it does. This
+  was found by measuring, after the first attempt left the same line uncovered.
+- Two of the four sites are the else-arm of a **conditional expression**, and
+  v8 has no branch-level hint for one. The line hint therefore also stops
+  reporting the arm that *is* taken. That is a real loss of signal, it is named
+  in the comment at both sites, and it is the reason the argument in prose was
+  not replaced by the hint but joined by it.
+
+### What to take from it
+
+Three of these four had been sitting in a document as "the maintainer's call"
+— which is the right place for them, and also a place where a decision can
+quietly become a non-decision. What moved them was not new information about
+the code. It was someone reading the list and saying *do them*. The value of
+writing an open question down is only realised when something makes the list
+get read.

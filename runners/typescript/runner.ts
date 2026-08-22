@@ -88,7 +88,12 @@ function parseTextToHex(text: string): Check {
 }
 
 function jsonToCborHex(jsonText: string): Check {
-    return capture(() => okHex(bytesToHex(jsonTextToMcbor(jsonText))));
+    // `readings: 'auto'` explicitly, because that is what is being compared:
+    // metrological-text.md Section 3 says a string that reads as a reading
+    // converts back to one, and this library guesses nothing unless asked.
+    // Leaving the default here would compare C#'s conversion against this
+    // library declining to perform one.
+    return capture(() => okHex(bytesToHex(jsonTextToMcbor(jsonText, { readings: 'auto' }))));
 }
 
 
