@@ -1182,6 +1182,16 @@ static JsonObject ParseTextToHex(String Text)
 }
 
 
+/// <summary>
+/// Convert a JSON document back into CBOR.
+///
+/// `Readings = Auto` explicitly, because that is what is being compared:
+/// metrological-text.md Section 3 says a string that reads as a reading
+/// converts back into one, and neither library guesses that unless asked.
+/// Leaving the default here would compare one implementation declining to
+/// perform the conversion against the other declining to perform it, which
+/// is agreement about nothing.
+/// </summary>
 static JsonObject JsonToCborHex(String JsonText)
 {
 
@@ -1189,7 +1199,8 @@ static JsonObject JsonToCborHex(String JsonText)
     {
         return OkHex(
             Convert.ToHexString(
-                CBORJSON.ToCBOR(JsonText).ToByteArray(CBORWriterOptions.Canonical)
+                CBORJSON.ToCBOR(JsonText, new CBORJSONOptions { Readings = CBORJSONReadings.Auto }).
+                         ToByteArray(CBORWriterOptions.Canonical)
             )
         );
     }

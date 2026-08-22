@@ -1438,3 +1438,68 @@ quietly become a non-decision. What moved them was not new information about
 the code. It was someone reading the list and saying *do them*. The value of
 writing an open question down is only realised when something makes the list
 get read.
+
+
+## 20. Two asymmetries, closed the same day they were named (added 2026-08-22)
+
+§19 changed two defaults, and both changes stopped halfway across the project
+without anyone intending them to. Naming them in an inventory is what made
+them visible; both are now closed.
+
+### C# was still guessing which strings are readings
+
+`readings: 'none'` landed in MetrologicalCBOR.TS and Styx kept guessing:
+`CBORJSONOptions.Metrology` defaulted to `Text` with no
+`DetectMetrologicalValues` predicate, which means every string in a foreign
+document was tried against the reading grammar. That is exactly the `'auto'`
+TypeScript had just abandoned, and the argument for abandoning it — *a caller
+who passes nothing should not get a guess* — says nothing about which language
+the caller is writing in.
+
+The conformance suite could not see it. Both runners now opt in explicitly, so
+both columns compare the conversion metrological-text.md §3 describes rather
+than two defaults; a divergence in defaults is invisible to a suite that
+overrides them. **That is worth remembering about this suite in general: it
+compares what it asks for.**
+
+Styx gained `CBORJSONReadings { None, Auto }` with `Readings` defaulting to
+`None`, and the existing per-path predicate keeps precedence where it is
+given — the same three-way shape as `'none' | 'auto' | predicate`. Measured
+rather than assumed: **13 of 627 tests** go red on the flip, the same shape as
+the TypeScript 27 — the specification's document vectors, the JSON round
+trips, and the detector test whose whole point was that the caller decides.
+
+### `CanonicalizePayload` existed only on the two signing types
+
+A COSE authentication tag covers bytes exactly as a signature does, so a
+forwarder that decodes a payload and encodes it again destroys a MAC in
+precisely the way §18 measured for a signature — and the party who loses is,
+again, never the party who chose. The default was on `COSESign1` and
+`COSESign` and not on `COSEMac0` or `COSEMac`, because the request had said
+*signing* and that was taken literally.
+
+Both MAC types now carry it, in both implementations, with the same three
+decisions: a payload that is not CBOR is authenticated as it is; a detached
+payload that canonicalizing would change is refused; and the test pair is the
+same pair — the same record, forwarded the same way, survives with the default
+and breaks without it.
+
+`COSEEncrypt0` and `COSEEncrypt` deliberately did **not** get it. Their
+ciphertext travels opaque and no forwarder re-encodes it without holding the
+key, at which point it is composing a new message rather than passing one on.
+
+### Falsification
+
+Flipping the MAC default back turns **exactly one** test red per
+implementation — the new pair — and nothing else. The suite is unchanged
+throughout: **515 / 479 normative, 263 cross-implementation agreements, one
+divergence**; Styx 628, COSE.TS 379.
+
+### What to take from it
+
+Both of these were consequences of decisions taken hours earlier, in the same
+session, by the person who took them. Neither was caught by a test, because
+each half of the project was internally consistent — and neither was caught by
+the conformance suite, because the suite had been taught to ask for the
+behaviour it wanted to compare. What caught them was writing an inventory and
+reading it out loud.
