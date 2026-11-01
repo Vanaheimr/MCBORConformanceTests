@@ -132,6 +132,13 @@ breaks conformance or cross-implementation interop surfaces the next morning
 are bumped. Both publish the verdict to the run's summary page and upload
 `results/` as an artifact, red runs most of all.
 
+Dependabot opens the pull requests for new releases of what the suite runs
+on — weekly for the GitHub Actions, in one, and weekly for the TypeScript
+runner's `tsx`, the only npm dependency with a lock file here. The submodule
+pins are deliberately not among them: each is advanced by hand with the gate
+results that justify it, and `nightly.yml` already runs the whole suite
+against the four latest `master` states every night.
+
 ## Reading the results
 
 - `results/report.md` — summary, normative failures, cross-implementation

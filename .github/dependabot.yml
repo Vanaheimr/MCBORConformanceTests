@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+
+  # The TypeScript runner's `tsx`, and nothing else: this is the only npm
+  # project here with a committed lock file. The root `package.json` declares
+  # no dependencies at all, and the four libraries under `libs/` are
+  # submodules that carry their own Dependabot.
+  #
+  # CI installs with `npm ci` (ci.yml, nightly.yml), so the lock file is what
+  # is actually run and a lock file left behind its own range is invisible
+  # until something reads it. That is not hypothetical: on 2026-11-01 `tsx`
+  # sat at 4.23.12 while 4.23.15 was out and `^4.20.3` had always allowed it.
+  # This block exists so that nobody has to notice that by hand again.
+  #
+  # No group: one dependency makes a group a heading over a single line.
+  - package-ecosystem: npm
+    directory: /runners/typescript
+    schedule:
+      interval: weekly
+    # A release inside the range updates the lock file; the range itself
+    # moves only for a release outside it.
+    versioning-strategy: increase-if-necessary
+
+  # checkout, setup-node, setup-dotnet, upload-artifact — the four this
+  # repository uses, in one pull request rather than four.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - '*'
+
+  # Two ecosystems are deliberately absent, and both are worth saying out
+  # loud, because their absence looks like an oversight:
+  #
+  # **nuget.** `runners/csharp/ConformanceRunner` and `tools/CertificateCorpus`
+  # declare no PackageReference whatsoever — one ProjectReference each, onto
+  # `libs/Styx`. There is nothing for Dependabot to update, and whatever Styx
+  # itself depends on is Styx's to track.
+  #
+  # **gitsubmodule.** The four pins under `libs/` are set by hand on purpose:
+  # every "Advance the pin" commit carries the gate results it rests on —
+  # the suite, both library gates, the conformance counts — and an automated
+  # bump would carry none of that. The drift it would guard against is
+  # already guarded: `nightly.yml` advances all four submodules to their
+  # current `master` and runs the whole suite every night, which is the same
+  # check without a pull request per upstream commit in four repositories.
