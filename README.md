@@ -151,10 +151,13 @@ are bumped. Both publish the verdict to the run's summary page and upload
 
 Dependabot opens the pull requests for new releases of what the suite runs
 on — weekly for the GitHub Actions, in one, and weekly for the TypeScript
-runner's `tsx`, the only npm dependency with a lock file here. The submodule
-pins are deliberately not among them: each is advanced by hand with the gate
-results that justify it, and `nightly.yml` already runs the whole suite
-against the four latest `master` states every night.
+runner's `tsx`, the only npm dependency CI installs. Two things are
+deliberately not among them, both argued in `dependabot.yml`: the submodule
+pins, each advanced by hand with the gate results that justify it and already
+exercised every night against the four latest `master` states; and the
+`@noble` primitives of `tools/EcdhCases`, whose output is committed and read
+by every run while the generator itself is run by hand, so a bump there would
+move a lock file no gate reads.
 
 ## Reading the results
 

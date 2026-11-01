@@ -2,10 +2,12 @@ version: 2
 
 updates:
 
-  # The TypeScript runner's `tsx`, and nothing else: this is the only npm
-  # project here with a committed lock file. The root `package.json` declares
-  # no dependencies at all, and the four libraries under `libs/` are
-  # submodules that carry their own Dependabot.
+  # The TypeScript runner's `tsx`, and nothing else — not for want of other
+  # npm projects, but because this is the only one CI installs. The root
+  # `package.json` declares no dependencies at all, the four libraries under
+  # `libs/` are submodules that carry their own Dependabot, and the generator
+  # in `tools/EcdhCases` is left out for the reason at the bottom of this
+  # file.
   #
   # CI installs with `npm ci` (ci.yml, nightly.yml), so the lock file is what
   # is actually run and a lock file left behind its own range is invisible
@@ -33,8 +35,8 @@ updates:
         patterns:
           - '*'
 
-  # Two ecosystems are deliberately absent, and both are worth saying out
-  # loud, because their absence looks like an oversight:
+  # Two ecosystems and one directory are deliberately absent, and all three
+  # are worth saying out loud, because their absence looks like an oversight:
   #
   # **nuget.** `runners/csharp/ConformanceRunner` and `tools/CertificateCorpus`
   # declare no PackageReference whatsoever — one ProjectReference each, onto
@@ -48,3 +50,19 @@ updates:
   # already guarded: `nightly.yml` advances all four submodules to their
   # current `master` and runs the whole suite every night, which is the same
   # check without a pull request per upstream commit in four repositories.
+  #
+  # **`tools/EcdhCases`.** An npm project with a committed lock file and three
+  # `@noble` dependencies, and the one place in this repository where leaving
+  # it out needs an argument rather than an observation. It mints
+  # `vectors/cose-ecdh.json` — the ECDH-ES cases, the two zero-leading-secret
+  # key pairs and the three attack points both implementations must refuse —
+  # and that file is committed and is what every run reads. Nothing in CI
+  # installs or executes the generator, so a bump here would move a lock file
+  # no gate reads: the pull request could be neither confirmed nor refuted by
+  # anything this repository runs, which is the worst kind of green. The check
+  # that a changed primitive would trip sits inside the generator instead — it
+  # refuses to write unless it first reproduces the COSE working group's
+  # `p256-hkdf-256-01` byte for byte — and it fires at the only moment the
+  # answer matters, which is when somebody regenerates. The day CI regenerates
+  # the vectors and diffs them, which `tools/CertificateCorpus` would need
+  # just as much, a block here starts earning its keep. Not before.
