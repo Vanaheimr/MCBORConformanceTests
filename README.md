@@ -87,8 +87,9 @@ misreading.
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
 | `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
 | `vectors/` | the suites that are not what a metrological value *is*, and so do not belong in the specification's annex: COSE cross-signing, authentication, encryption, `crit` and certificate chains — COSE is how a value is signed — plus `cbor-robustness` (the layer beneath the one the specification describes) `default-encoding` (what each library writes with its own default options, which is the one path every other suite bypasses) `json-escapes` (string escapes, which no JSON-carrying vector had ever contained) and `json-tags` (one case per row of the conversion table that nothing had reached) |
-| `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — fifteen certificates, deterministically, so it can be regenerated and diffed rather than believed |
+| `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — 18 certificates, deterministically, so it can be regenerated and diffed rather than believed |
 | `tools/EcdhCases/` | generates `vectors/cose-ecdh.json` from the noble primitives alone, independently of both implementations under test, and refuses to write anything unless it first reproduces a published working-group example byte for byte |
+| `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying a header neither implementation will construct, so that a rule both of them enforce can be compared between them at last |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |
@@ -161,9 +162,9 @@ runner's `tsx`, the only npm dependency CI installs. Two things are
 deliberately not among them, both argued in `dependabot.yml`: the submodule
 pins, each advanced by hand with the gate results that justify it and already
 exercised every night against the four latest `master` states; and the
-`@noble` primitives of `tools/EcdhCases`, whose output is committed and read
-by every run while the generator itself is run by hand, so a bump there would
-move a lock file no gate reads.
+`@noble` primitives of the two generators under `tools/`, whose output is
+committed and read by every run while the generators themselves are run by
+hand, so a bump there would move a lock file no gate reads.
 
 ## Reading the results
 

@@ -1181,6 +1181,9 @@ for (const vectorFile of vectorFiles) {
                 case 'cose-mac0-verify': runCoseMac0Verify(testCase, checks); break;
                 case 'cose-x509':      runCoseX509     (testCase, checks); break;
                 case 'cose-x509-validate': runCoseX509Validate(testCase, checks); break;
+                // Messages a third party assembled, because neither side will
+                // write them: the same reading path as the cross-feed above.
+                case 'cose-x509-messages': runCoseX509Validate(testCase, checks); break;
             }
         }
         catch (cause) {

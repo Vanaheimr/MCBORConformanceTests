@@ -84,7 +84,8 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
 // cbor-robustness is the layer beneath the one the specification describes.
 for (const name of ['cose-sign.json', 'cose-crit.json', 'cose-mac0.json', 'cose-encrypt.json',
                     'cose-ecdh.json',
-                    'cose-x509.json', 'cbor-robustness.json', 'default-encoding.json',
+                    'cose-x509.json', 'cose-x509-messages.json',
+                    'cbor-robustness.json', 'default-encoding.json',
                     'default-readings.json', 'json-escapes.json', 'json-tags.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
     vectors[suite.suite] = suite.cases;
@@ -1182,6 +1183,53 @@ for (const testCase of vectors['cose-x509']) {
 
 }
 
+// --- suite: cose-x509-messages, a header neither side will write ---
+
+/**
+ * Four messages a third party assembled, because the implementations under
+ * test refuse to assemble them: a certificate thumbprint labelled with an
+ * algorithm that is not a hash algorithm. Both sides enforce that rule, each
+ * in its own unit tests, and until this suite existed nothing compared the two.
+ *
+ * There is nothing to agree on byte for byte — neither side wrote the bytes —
+ * so what is judged is the verdict. A refusal counts whether it comes back as
+ * a verdict or as a failure to read the message at all, and no error text is
+ * judged: verifying the message is the one wrong answer, and it is an answer an
+ * implementation really can give, because the digest beside the wrong label is
+ * the true hash of the certificate.
+ */
+const verdictOf = check => check?.status === 'ok' && check.verified === true ? 'verifies' : 'refuses';
+
+for (const testCase of vectors['cose-x509-messages']) {
+
+    const key    = `cose-x509-messages:${testCase.id}`;
+    const klass  = testCase.class ?? 'normative';
+    const accept = testCase.expected === 'accept';
+
+    for (const [impl, results] of impls) {
+
+        const validate = checkOf(results, key, 'validate');
+
+        judge(testCase.id, `validate (${testCase.expected})`, impl, klass,
+              accept ? validate?.status === 'ok' && validate.verified === true
+                     : verdictOf(validate) === 'refuses',
+              accept ? describe(validate)
+                     : `must refuse (${testCase.reason}): ${describe(validate)}`);
+
+    }
+
+    // And the two verdicts against each other. The rows above can say that one
+    // side answered wrongly; this one says that the two disagreed, which for a
+    // rule both of them claim to enforce is the more interesting failure.
+    const mine  = checkOf(csharp, key, 'validate');
+    const yours = checkOf(ts,     key, 'validate');
+
+    judge(testCase.id, 'agree on the verdict', 'csharp↔typescript', klass,
+          verdictOf(mine) === verdictOf(yours),
+          `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+}
+
 // --- cross-implementation agreement on every shared check ---
 
 const divergences = [];
@@ -1237,7 +1285,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-ecdh (${vectors['cose-ecdh'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), default-readings (${vectors['default-readings'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-ecdh (${vectors['cose-ecdh'].length}), cose-x509 (${vectors['cose-x509'].length}), cose-x509-messages (${vectors['cose-x509-messages'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), default-readings (${vectors['default-readings'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');

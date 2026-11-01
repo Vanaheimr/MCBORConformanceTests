@@ -108,6 +108,9 @@ foreach (var vectorFile in vectorFiles)
                     break;
 
                 case "cose-x509-validate":
+                // Messages a third party assembled, because neither side will
+                // write them: the same reading path as the cross-feed above.
+                case "cose-x509-messages":
                     RunCoseX509Validate(testCase, checks,
                                         corpus ?? throw new Exception("No certificate corpus was found beside the vector file!"));
                     break;

@@ -1860,3 +1860,105 @@ beside it matches, the divergence count goes 0 → 1, and the normative counts
 do not move at all.
 
 Survey observations per implementation: 30 → **38**.
+
+## 24. A rule both implementations enforced, and neither could be asked to break (added 2026-11-01)
+
+COSE.TS 0.12.0 reads one thing more strictly than 0.11.0 did: a certificate
+thumbprint whose algorithm names a signature or a MAC instead of a hash is
+refused (`aec9823`). Styx enforces the same rule, with the same predicate —
+`COSECertificateHash.IsHashAlgorithm`, which asks for `Family == None` *and* a
+digest, and refuses both when reading the structure and when matching it
+against a certificate.
+
+Two implementations, one rule, agreed upon. And nothing in this suite measured
+it. Each side checked it against itself: COSE.TS in
+`tests/der-refusals.test.ts` and `tests/x509.test.ts`, whose own case title
+reads *"refuses a signature algorithm in place of a hash, as Styx does"* — the
+claim about the other implementation was in the test name, not in a row that
+could fail.
+
+### Why the suite could not reach it
+
+`vectors/cose-x509.json` is generative: the runner builds each message through
+the implementation under test and then reads it back. That is the right shape
+for almost everything, and it cannot reach this rule at all. A rule enforced on
+the way out cannot be violated on the way in by the same library —
+`CoseCertificateHash.from` and `COSECertificateHash.From` both refuse to
+construct the header, correctly, so there is no way to ask either side to write
+the message that the other side must refuse.
+
+So the message has to come from somewhere else. `tools/X509Cases` assembles it
+from the noble primitives alone: the CBOR, the `COSE_Sign1`, the
+`Sig_structure` and the `x5t` header are written out by hand, and the signature
+is brainpool ECDSA over the bytes the generator built. It writes
+`vectors/cose-x509-messages.json`, whose cases travel the reading path the
+cross-feed already used (`cose-x509-validate`), so each runner needed one
+dispatch line and no new code.
+
+### Four messages that differ in one integer
+
+Three label the thumbprint with an algorithm that is not a hash algorithm — a
+signature one (`ES256`), a MAC one (`HMAC 256/256`) and a key-derivation one
+(`ECDH-ES + HKDF-256`) — and one labels it `SHA-256`.
+
+**The digest is correct in all four.** That is the whole construction. A
+refusal is only measurable if the message verifies for an implementation that
+skips the check, and here it does: all three wrong labels name SHA-256 for
+their own purposes, so an implementation that reads the digest and hashes the
+certificate without looking at the label finds a match and verifies the
+message. Had the digest been wrong as well, both branches would have ended in
+"does not verify" and the rows would have been green either way.
+
+**Three, not one**, for the same reason the predicate has two halves. An
+implementation that asked *"does this algorithm name a digest"* would accept
+all three, because all three do; one that refused only signature algorithms
+would pass the first row and fail the next two. The three rows separate those
+from the question RFC 9054 actually registers, which is whether the algorithm
+*is* a hash algorithm.
+
+**The fourth row is the control**, and it is not the generator's word for what
+a sound message looks like: its bytes are byte for byte the message both
+implementations already produce and agree on for
+`cose-x509:thumbprint-names-the-certificate`, and the generator refuses to
+write the file unless it reproduces them — curve parameters, RFC 6979 nonce,
+every CBOR head. The three refusals are therefore anchored in two independent
+implementations rather than in a third party's say-so, and without the control
+they would prove nothing: a message that verifies for nobody is refused by
+everybody, whatever they check.
+
+### Falsification
+
+Each side alone, with the family check removed from its predicate and nothing
+else touched:
+
+| | normative | divergences | the three rows report |
+|---|---|---|---|
+| COSE.TS, `hashAlgorithmOf` | TS 555 → **552, 3 fail**; C# unchanged | 0 → **3** | `must refuse (…): verified` |
+| Styx, `IsHashAlgorithm` | C# 591 → **588, 3 fail**; TS unchanged | 0 → **3** | `must refuse (…): verified` |
+
+Exactly three rows per side, the same three, and the control stays green both
+times. The word in the report is *verified*, not *error*: the mislabelled
+message really does open for whoever skips the check, which is what the rows
+were built to measure.
+
+Both implementations, unpatched, refuse all three and name the algorithm while
+doing it — Styx *"The certificate thumbprint of this COSE_Sign1 message is
+invalid: The COSE algorithm 'ES256' of the COSE_CertHash is not a hash
+algorithm!"*, COSE.TS the same sentence without the outer clause. The wording
+is recorded and not judged; refusing is the measurement.
+
+Suite: 587 / 551 normative and 356 agreements → **591 (C#) / 555 (TypeScript)
+normative, 360 cross-implementation agreements**, zero failures, zero
+divergences. Survey observations unchanged at 46.
+
+### What to take from it
+
+A rule two implementations agree on is the easiest kind to leave unmeasured,
+because nothing goes wrong while they both hold it. The generative form of a
+suite makes that worse rather than better: the better the implementations get
+at refusing to write something, the less reachable the rule becomes from
+inside, until the only party that can state the question is a third one. The
+suite had such a third party for key agreement already, for a different reason
+(§12: a derived structure nobody transmits). It needed a second one here for
+the opposite reason — a structure that is transmitted, and that neither sender
+will produce.

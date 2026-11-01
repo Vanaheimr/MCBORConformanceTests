@@ -1,0 +1,10 @@
+{
+    "name":        "x509-cases",
+    "private":     true,
+    "type":        "module",
+    "description": "Generates vectors/cose-x509-messages.json from the noble primitives alone — signed messages carrying headers that neither implementation under test will construct.",
+    "dependencies": {
+        "@noble/curves": "^2.4.0",
+        "@noble/hashes": "^2.4.0"
+    }
+}
