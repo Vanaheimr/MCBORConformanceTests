@@ -130,7 +130,8 @@ X509Certificate Issue(String                        Name,
                       (X509Certificate Certificate, AsymmetricKeyParameter Key)?  Issuer   = null,
                       DateTime?                     NotBefore    = null,
                       DateTime?                     NotAfter     = null,
-                      Boolean                       AllowSigning = true)
+                      Boolean                       AllowSigning = true,
+                      Int32?                        Usage        = null)
 {
 
     var generator = new X509V3CertificateGenerator();
@@ -150,11 +151,12 @@ X509Certificate Issue(String                        Name,
 
     generator.AddExtension(X509Extensions.KeyUsage,
                            true,
-                           new KeyUsage(IsCertificateAuthority
-                                            ? KeyUsage.KeyCertSign | KeyUsage.DigitalSignature
-                                            : AllowSigning
-                                                  ? KeyUsage.DigitalSignature
-                                                  : KeyUsage.KeyEncipherment));
+                           new KeyUsage(Usage
+                                            ?? (IsCertificateAuthority
+                                                    ? KeyUsage.KeyCertSign | KeyUsage.DigitalSignature
+                                                    : AllowSigning
+                                                          ? KeyUsage.DigitalSignature
+                                                          : KeyUsage.KeyEncipherment)));
 
     var certificate = generator.Generate(
                           new Asn1SignatureFactory(SignatureAlgorithm,
@@ -296,6 +298,41 @@ var otherRoot     = Issue("otherRoot", "Other Root CA", otherRootKey, true,
 Issue("otherIntermediate", "Other Intermediate CA",
       EllipticCurveKey("secp256r1", otherInterD), true,
       "SHA256withECDSA", (otherRoot, otherRootKey.Private), authorityFrom, authorityUntil);
+
+
+// ----------------------------------------- keys that agree rather than sign ---
+
+// What ECDH-ES addresses a recipient by [EVQI Transport, section 6.8]: a key
+// that agrees rather than signs, certified with keyUsage keyAgreement and
+// nothing else, critical, by the operator's own authority. Two generations of
+// one station's key, valid for 90 days each and overlapping, as a station
+// holds them during a renewal. tools/EcdhCases reads both keys and both
+// certificates from here rather than writing its own, so that the pairing of
+// key and certificate has exactly one owner.
+//
+// Appended after everything else on purpose: serial numbers and the seeded
+// random run on from where the certificates above left them, so not one byte
+// of those changes.
+
+const String operatorRootD     = "8192A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F70";
+const String stationAgreeD     = "92A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F7081";
+const String stationRenewedD   = "A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192";
+
+var operatorRootKey = EllipticCurveKey("secp256r1", operatorRootD);
+var operatorRoot    = Issue("operatorRoot", "Charging Station Operator CA", operatorRootKey, true,
+                            "SHA256withECDSA", null, authorityFrom, authorityUntil);
+
+Issue("stationKeyAgreement", "CS-0000000001", EllipticCurveKey("secp256r1", stationAgreeD), false,
+      "SHA256withECDSA", (operatorRoot, operatorRootKey.Private),
+      At("2026-04-01T00:00:00Z"), At("2026-06-30T00:00:00Z"), Usage: KeyUsage.KeyAgreement);
+
+RecordKey("stationKeyAgreement", "ECDH-ES + HKDF-256", "P-256", stationAgreeD);
+
+Issue("stationKeyAgreementRenewed", "CS-0000000001", EllipticCurveKey("secp256r1", stationRenewedD), false,
+      "SHA256withECDSA", (operatorRoot, operatorRootKey.Private),
+      At("2026-06-01T00:00:00Z"), At("2026-08-30T00:00:00Z"), Usage: KeyUsage.KeyAgreement);
+
+RecordKey("stationKeyAgreementRenewed", "ECDH-ES + HKDF-256", "P-256", stationRenewedD);
 
 
 // ----------------------------------------------------------------- output ---

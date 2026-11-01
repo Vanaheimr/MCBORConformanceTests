@@ -50,6 +50,7 @@ import {
     kdfContext,
     keyWrapAlgorithmFor,
     label,
+    PRESERVE,
     X509Certificate,
 } from '../../libs/COSE.TS/src/index.ts';
 import type { CborEntry, CoseSignature, PartyInfo, Verification } from '../../libs/COSE.TS/src/index.ts';
@@ -698,6 +699,16 @@ interface RecipientEntry {
     salt?:           string;
     partyU?:         { identity?: string; nonce?: string | number; other?: string };
     partyV?:         { identity?: string; nonce?: string | number; other?: string };
+    certificate?:    string;
+}
+
+/**
+ * The certificate an ECDH-ES recipient is named by, as DER: written into the
+ * recipient as x5t, and handed to whoever opens the message (EVQI Transport
+ * §6.8). Null when the entry names none.
+ */
+function certificateOfEntry(entry: RecipientEntry | undefined): X509Certificate | null {
+    return entry?.certificate !== undefined ? X509Certificate.parse(hexToBytes(entry.certificate)) : null;
 }
 
 const isEcdh = (entry: RecipientEntry | undefined): boolean =>
@@ -732,7 +743,9 @@ function partyOf(party: RecipientEntry['partyU']): PartyInfo | undefined {
 }
 
 function ecdhOptionsOf(entry: RecipientEntry) {
+    const certificate = certificateOfEntry(entry);
     return {
+        ...(certificate  !== null      ? { certificateThumbprint: CoseCertificateHash.from(certificate) } : {}),
         ...(entry.salt   !== undefined ? { salt:   hexToBytes(entry.salt) } : {}),
         ...(entry.partyU !== undefined ? { partyU: partyOf(entry.partyU)! } : {}),
         ...(entry.partyV !== undefined ? { partyV: partyOf(entry.partyV)! } : {}),
@@ -850,6 +863,28 @@ function recordEcdh(testCase: VectorCase, contentKey: CoseKey, recipients: CoseR
     if (direct)
         checks['agreedKey'] = capture(() => okHex(bytesToHex(contentKey.privateKeyBytes())));
 
+    const certificate = certificateOfEntry(first);
+
+    if (certificate !== null) {
+
+        // The thumbprint as it went into the message, not as computed beside it.
+        checks['thumbprint'] = capture(() => {
+            const written = recipients[0]!.unprotectedHeader.get(label(HeaderLabel.x5T));
+            if (written === null)
+                throw new Error('the recipient carries no x5t');
+            return okHex(bytesToHex(cbor.encode(written, PRESERVE)));
+        });
+
+        // That the certificate certifies the key the case agrees with: the
+        // pairing is a row of its own rather than a comment that might stop
+        // being true.
+        checks['certificateKey'] = capture(() =>
+            bytesToHex(certificate.publicKey.publicKeyBytes()) === bytesToHex(recipient.publicKeyBytes())
+                ? { status: 'ok', verified: true }
+                : { status: 'ok', verified: false, reason: 'the certificate certifies another key' });
+
+    }
+
 }
 
 
@@ -944,45 +979,61 @@ function runCoseEncrypt(testCase: VectorCase, checks: Record<string, Check>): vo
 }
 
 
-/** Open a message the *other* implementation produced. */
+/**
+ * Open a message the *other* implementation produced.
+ *
+ * Where the recipient is named by a certificate, the message is opened twice:
+ * once given that certificate, which lets the library pass over recipients
+ * naming another (EVQI Transport §6.8), and once without, which must change
+ * nothing for a caller who names none.
+ */
 function runCoseDecrypt(testCase: VectorCase, checks: Record<string, Check>): void {
 
-    checks['open'] = capture(() => {
+    const certificate = certificateOfEntry(testCase.recipients?.[0]);
 
-        const external = optionalBytes(testCase.externalAad);
-        const bytes    = hexToBytes(testCase.message!);
-        const payload  = hexToBytes(testCase.payload!);
+    checks['open'] = capture(() => openCoseMessage(testCase, certificate));
 
-        // Whoever opens the message holds a recipient key, or — for the bare
-        // form — the content key itself.
-        const key = testCase.recipients !== undefined && testCase.recipients.length > 0
-                        ? openingKeyOf(testCase.recipients[0]!)
-                        : symmetricKeyOf(testCase.key!, testCase.algorithm);
+    if (certificate !== null)
+        checks['openWithoutCertificate'] = capture(() => openCoseMessage(testCase, null));
 
-        if (testCase.shape === 'mac')
-            return verification(CoseMac.parse(bytes).verify(key, { externalAad: external }));
+}
 
-        const detached = testCase.detached === true
-                             ? hexToBytes(testCase.detachedCiphertext!)
-                             : null;
 
-        const result = testCase.shape === 'encrypt0'
-                           ? CoseEncrypt0.parse(bytes).decrypt(symmetricKeyOf(testCase.key!, testCase.algorithm),
-                                                               { externalAad: external, detachedCiphertext: detached })
-                           : CoseEncrypt.parse(bytes).decrypt(key,
-                                                              { externalAad: external, detachedCiphertext: detached });
+function openCoseMessage(testCase: VectorCase, recipientCertificate: X509Certificate | null): Check {
 
-        if (!result.decrypted)
-            return { status: 'ok', verified: false, reason: result.reason };
+    const external = optionalBytes(testCase.externalAad);
+    const bytes    = hexToBytes(testCase.message!);
+    const payload  = hexToBytes(testCase.payload!);
 
-        // Decrypting is only half of it: the plaintext has to be the payload
-        // the vector names, or the two implementations agree about nothing.
-        return bytesToHex(result.plaintext) === bytesToHex(payload)
-                   ? { status: 'ok', verified: true }
-                   : { status: 'ok', verified: false,
-                       reason: `decrypted to ${bytesToHex(result.plaintext)} rather than to the expected payload` };
+    // Whoever opens the message holds a recipient key, or — for the bare
+    // form — the content key itself.
+    const key = testCase.recipients !== undefined && testCase.recipients.length > 0
+                    ? openingKeyOf(testCase.recipients[0]!)
+                    : symmetricKeyOf(testCase.key!, testCase.algorithm);
 
-    });
+    if (testCase.shape === 'mac')
+        return verification(CoseMac.parse(bytes).verify(key, { externalAad: external, recipientCertificate }));
+
+    const detached = testCase.detached === true
+                         ? hexToBytes(testCase.detachedCiphertext!)
+                         : null;
+
+    const result = testCase.shape === 'encrypt0'
+                       ? CoseEncrypt0.parse(bytes).decrypt(symmetricKeyOf(testCase.key!, testCase.algorithm),
+                                                           { externalAad: external, detachedCiphertext: detached })
+                       : CoseEncrypt.parse(bytes).decrypt(key,
+                                                          { externalAad: external, detachedCiphertext: detached,
+                                                            recipientCertificate });
+
+    if (!result.decrypted)
+        return { status: 'ok', verified: false, reason: result.reason };
+
+    // Decrypting is only half of it: the plaintext has to be the payload
+    // the vector names, or the two implementations agree about nothing.
+    return bytesToHex(result.plaintext) === bytesToHex(payload)
+               ? { status: 'ok', verified: true }
+               : { status: 'ok', verified: false,
+                   reason: `decrypted to ${bytesToHex(result.plaintext)} rather than to the expected payload` };
 
 }
 

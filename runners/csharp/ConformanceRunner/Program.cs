@@ -762,6 +762,23 @@ static Byte[]? SaltOf(JsonNode Entry)
     => Entry["salt"] is not null ? Convert.FromHexString(Entry["salt"]!.GetValue<String>()) : null;
 
 /// <summary>
+/// The certificate an ECDH-ES recipient is named by, as DER: written into the
+/// recipient as x5t, and handed to whoever opens the message (EVQI Transport
+/// section 6.8). Null when the entry names none.
+/// </summary>
+static X509Certificate? CertificateOfEntry(JsonNode? Entry)
+
+    => Entry?["certificate"] is not null
+           ? new X509CertificateParser().ReadCertificate(Convert.FromHexString(Entry["certificate"]!.GetValue<String>()))
+           : null;
+
+static COSECertificateHash? ThumbprintOf(JsonNode Entry)
+
+    => CertificateOfEntry(Entry) is X509Certificate certificate
+           ? COSECertificateHash.From(certificate)
+           : null;
+
+/// <summary>
 /// The recipient's public key and the sender's ephemeral private key of an
 /// ECDH-ES entry.
 /// </summary>
@@ -808,7 +825,8 @@ static (COSEKey ContentKey, List<COSERecipient> Recipients) ContentKeyAndRecipie
                                                               COSEAlgorithm.Parse(first["algorithm"]!.GetValue<String>()),
                                                               SaltOf(first),
                                                               PartyOf(first["partyU"]),
-                                                              PartyOf(first["partyV"]));
+                                                              PartyOf(first["partyV"]),
+                                                              CertificateThumbprint: ThumbprintOf(first));
 
         return (agreedKey, [structure]);
 
@@ -859,6 +877,27 @@ static void RecordECDH(JsonObject TestCase, COSEKey ContentKey, List<COSERecipie
     if (direct)
         Checks["agreedKey"] = Capture(() => OkHex(Convert.ToHexString(ContentKey.K!)));
 
+    if (CertificateOfEntry(first) is X509Certificate certificate)
+    {
+
+        // The thumbprint as it went into the message, not as computed beside it.
+        Checks["thumbprint"] = Capture(() =>
+            Recipients[0].UnprotectedHeader.TryGet(COSEHeaderLabel.X5T, out var written)
+                ? OkHex(Convert.ToHexString(written.ToByteArray()))
+                : Error("The recipient carries no x5t!"));
+
+        // That the certificate certifies the key the case agrees with: the
+        // pairing is a row of its own rather than a comment that might stop
+        // being true.
+        Checks["certificateKey"] = Capture(() =>
+            certificate.GetPublicKey() is ECPublicKeyParameters certified &&
+            recipient.ToPublicKey()    is ECPublicKeyParameters agreed    &&
+            certified.Q.Equals(agreed.Q)
+                ? Verified(true,  null)
+                : Verified(false, "The certificate certifies another key!"));
+
+    }
+
 }
 
 static List<COSERecipient> RecipientsOf(JsonObject TestCase, Byte[] ContentKey)
@@ -881,7 +920,8 @@ static List<COSERecipient> RecipientsOf(JsonObject TestCase, Byte[] ContentKey)
             var (theirs, ephemeral) = ECDHPartiesOf(recipient);
 
             recipients.Add(COSERecipient.ECDHKeyWrap(ContentKey, theirs, ephemeral, COSEAlgorithm.Parse(algorithm),
-                                                     SaltOf(recipient), PartyOf(recipient["partyU"]), PartyOf(recipient["partyV"])));
+                                                     SaltOf(recipient), PartyOf(recipient["partyU"]), PartyOf(recipient["partyV"]),
+                                                     CertificateThumbprint: ThumbprintOf(recipient)));
 
             continue;
 
@@ -993,74 +1033,89 @@ static void RunCoseEncrypt(JsonObject TestCase, JsonObject Checks)
 
 /// <summary>
 /// Open a message the OTHER implementation produced.
+///
+/// Where the recipient is named by a certificate, the message is opened
+/// twice: once given that certificate, which lets the library pass over
+/// recipients naming another (EVQI Transport section 6.8), and once without,
+/// which must change nothing for a caller who names none.
 /// </summary>
 static void RunCoseDecrypt(JsonObject TestCase, JsonObject Checks)
 {
 
-    Checks["open"] = Capture(() => {
+    var certificate = CertificateOfEntry(TestCase["recipients"]?.AsArray().FirstOrDefault());
 
-        var shape        = TestCase["shape"]!.GetValue<String>();
-        var bytes        = Convert.FromHexString(TestCase["message"]!.GetValue<String>());
-        var payload      = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
-        var externalAAD  = TestCase["externalAad"] is null
-                               ? null
-                               : Convert.FromHexString(TestCase["externalAad"]!.GetValue<String>());
+    Checks["open"] = Capture(() => OpenCoseMessage(TestCase, certificate));
 
-        var detachedCiphertext = (TestCase["detached"]?.GetValue<Boolean>() ?? false)
-                                     ? Convert.FromHexString(TestCase["detachedCiphertext"]!.GetValue<String>())
-                                     : null;
+    if (certificate is not null)
+        Checks["openWithoutCertificate"] = Capture(() => OpenCoseMessage(TestCase, null));
 
-        // Whoever opens the message holds a recipient key, or - for the bare
-        // form - the content key itself.
-        var recipientKey = TestCase["recipients"] is not null && TestCase["recipients"]!.AsArray().Count > 0
-                               ? OpeningKeyOf(TestCase["recipients"]![0]!)
-                               : SymmetricKeyOf(TestCase["key"]!.GetValue<String>(), TestCase["algorithm"]!.GetValue<String>());
+}
 
-        if (shape == "mac")
-        {
+static JsonObject OpenCoseMessage(JsonObject TestCase, X509Certificate? RecipientCertificate)
+{
 
-            if (!COSEMac.TryParse(bytes, out var mac, out var macParseError))
-                return Error($"The COSE_Mac message could not be read: {macParseError}");
+    var shape        = TestCase["shape"]!.GetValue<String>();
+    var bytes        = Convert.FromHexString(TestCase["message"]!.GetValue<String>());
+    var payload      = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
+    var externalAAD  = TestCase["externalAad"] is null
+                           ? null
+                           : Convert.FromHexString(TestCase["externalAad"]!.GetValue<String>());
 
-            return Verified(mac.Verify(recipientKey, out var macError, externalAAD), macError);
+    var detachedCiphertext = (TestCase["detached"]?.GetValue<Boolean>() ?? false)
+                                 ? Convert.FromHexString(TestCase["detachedCiphertext"]!.GetValue<String>())
+                                 : null;
 
-        }
+    // Whoever opens the message holds a recipient key, or - for the bare
+    // form - the content key itself.
+    var recipientKey = TestCase["recipients"] is not null && TestCase["recipients"]!.AsArray().Count > 0
+                           ? OpeningKeyOf(TestCase["recipients"]![0]!)
+                           : SymmetricKeyOf(TestCase["key"]!.GetValue<String>(), TestCase["algorithm"]!.GetValue<String>());
 
-        Byte[]? plaintext;
-        String? errorResponse;
+    if (shape == "mac")
+    {
 
-        if (shape == "encrypt0")
-        {
+        if (!COSEMac.TryParse(bytes, out var mac, out var macParseError))
+            return Error($"The COSE_Mac message could not be read: {macParseError}");
 
-            if (!COSEEncrypt0.TryParse(bytes, out var encrypt0, out var parseError))
-                return Error($"The COSE_Encrypt0 message could not be read: {parseError}");
+        return Verified(mac.Verify(recipientKey, out var macError, externalAAD,
+                                   RecipientCertificate: RecipientCertificate), macError);
 
-            var key = SymmetricKeyOf(TestCase["key"]!.GetValue<String>(), TestCase["algorithm"]!.GetValue<String>());
+    }
 
-            encrypt0.Decrypt(key, out plaintext, out errorResponse, externalAAD, detachedCiphertext);
+    Byte[]? plaintext;
+    String? errorResponse;
 
-        }
+    if (shape == "encrypt0")
+    {
 
-        else
-        {
+        if (!COSEEncrypt0.TryParse(bytes, out var encrypt0, out var parseError))
+            return Error($"The COSE_Encrypt0 message could not be read: {parseError}");
 
-            if (!COSEEncrypt.TryParse(bytes, out var encrypt, out var parseError))
-                return Error($"The COSE_Encrypt message could not be read: {parseError}");
+        var key = SymmetricKeyOf(TestCase["key"]!.GetValue<String>(), TestCase["algorithm"]!.GetValue<String>());
 
-            encrypt.Decrypt(recipientKey, out plaintext, out errorResponse, externalAAD, detachedCiphertext);
+        encrypt0.Decrypt(key, out plaintext, out errorResponse, externalAAD, detachedCiphertext);
 
-        }
+    }
 
-        if (plaintext is null)
-            return Verified(false, errorResponse);
+    else
+    {
 
-        // Decrypting is only half of it: the plaintext has to be the payload
-        // the vector names, or the two implementations agree about nothing.
-        return plaintext.SequenceEqual(payload)
-                   ? Verified(true, null)
-                   : Verified(false, $"decrypted to {Convert.ToHexString(plaintext)} rather than to the expected payload");
+        if (!COSEEncrypt.TryParse(bytes, out var encrypt, out var parseError))
+            return Error($"The COSE_Encrypt message could not be read: {parseError}");
 
-    });
+        encrypt.Decrypt(recipientKey, out plaintext, out errorResponse, externalAAD, detachedCiphertext,
+                        RecipientCertificate: RecipientCertificate);
+
+    }
+
+    if (plaintext is null)
+        return Verified(false, errorResponse);
+
+    // Decrypting is only half of it: the plaintext has to be the payload
+    // the vector names, or the two implementations agree about nothing.
+    return plaintext.SequenceEqual(payload)
+               ? Verified(true, null)
+               : Verified(false, $"decrypted to {Convert.ToHexString(plaintext)} rather than to the expected payload");
 
 }
 

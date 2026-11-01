@@ -150,6 +150,30 @@
             "expectedMessage": "D8608444A1011818A1054C02D1F7E6F26C43D4868D87CE58249BE5F725CD67B9A0BD58E25DA55C5E665A2A10F52D421325BC042F9E32D01AF0B74CD818818344A1013818A220A3010120042158207B4E909BBE7FFE44C465A220037D608EE35897D31EF972F07F74892CB0F73F13044A656E642D746F2D656E6440"
         },
         {
+            "id": "ecdh-direct-p256-x5t",
+            "class": "normative",
+            "shape": "encrypt",
+            "description": "ECDH-ES + HKDF-256 on P-256 to a recipient named by its certificate: the recipient structure carries x5t (RFC 9360, header parameter 34) — the SHA-256 COSE_CertHash of the station's renewed key-agreement certificate from tools/CertificateCorpus — and no kid, which is how EVQI Transport §6.8 addresses a recipient that holds more than one key during a renewal. The thumbprint, secret, context, key and message are computed by this generator; each implementation must also confirm that the certificate certifies the receiving key, open the other's message given that certificate, and open it without one, since a caller who names no certificate must see no change. Note what x5t is: a selector, not a protected statement. It sits in the unprotected bucket, nothing authenticates it, and a matching thumbprint proves nothing — it only says which key to use. Read as evidence of anything, it is a vulnerability.",
+            "algorithm": "A128GCM",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "recipients": [
+                {
+                    "algorithm": "ECDH-ES + HKDF-256",
+                    "curve": "P-256",
+                    "key": "A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F708192",
+                    "ephemeral": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "certificate": "3082014D3081F5A003020102020203F9300A06082A8648CE3D04030230273125302306035504030C1C4368617267696E672053746174696F6E204F70657261746F72204341301E170D3236303630313030303030305A170D3236303833303030303030305A30183116301406035504030C0D43532D303030303030303030313059301306072A8648CE3D020106082A8648CE3D03010703420004EBE004A3D42B132F0399F03535228CCA645B7F971F8C39423CB6EAD40A31A3DE89E6C2025DA227776D9EC36875C02A797C3D28AD6AE8AE7DAB5762D60BC4F005A320301E300C0603551D130101FF04023000300E0603551D0F0101FF040403020308300A06082A8648CE3D04030203470030440220266203AF8CBCBDB17C64E82E3E439048E87F4695444A217F9899A33240EF755A0220188D6BDD084AEDE786C7E6A4DC328F64890B7DBC17F66D23FCBC2F94256484CD"
+                }
+            ],
+            "computedBy": "tools/EcdhCases",
+            "expectedSecret": "74DEAE0392F99517F70F8FAF5A0F0B83F072F2072E8D6F7A25C3BCE64BE9C1F0",
+            "expectedContext": "840183F6F6F683F6F6F682188044A1013818",
+            "expectedKey": "9AF161A877EF7A01A7734E308E1CBF48",
+            "expectedMessage": "D8608443A10101A1054C02D1F7E6F26C43D4868D87CE5824E258BDAEF07E75413EFE2CEC47D11D849E80BC574D4FD89533FD52B9C6F3BCCBC58DAADF818344A1013818A220A4010220012158200217E617F0B6443928278F96999E69A23A4F2C152BDF6D6CDF66E5B80282D4ED225820194A7DEBCB97712D2DDA3CA85AA8765A56F45FC758599652F2897C65306E57941822822F5820EFC80558A862F67AC8E060D99362F8A27FAC63CA4507E1ECD1D0D8BF1198192F40",
+            "expectedThumbprint": "822F5820EFC80558A862F67AC8E060D99362F8A27FAC63CA4507E1ECD1D0D8BF1198192F"
+        },
+        {
             "id": "ecdh-key-wrap-brainpool",
             "class": "normative",
             "shape": "encrypt",
@@ -292,6 +316,25 @@
                     "curve": "X25519",
                     "key": "2222222222222222222222222222222222222222222222222222222222222222",
                     "keyIdentifier": "736D616C6C2D6F726465722D31"
+                }
+            ]
+        },
+        {
+            "id": "ecdh-refuses-recipient-naming-another-certificate",
+            "class": "normative",
+            "shape": "encrypt",
+            "expected": "reject",
+            "reason": "the recipient names a certificate by x5t that is not the one of the key in hand (EVQI Transport §6.8)",
+            "description": "A station during a renewal: it holds its old key-agreement key with the old certificate, and this recipient names the RENEWED certificate by x5t. EVQI Transport §6.8: the recipient \"refuses a thumbprint that matches none of its certificates instead of trying its keys in turn\" — stated, not recommended, so this is normative. The message is encrypted for the OLD key all the same, which anybody can arrange, since nothing authenticates a recipient's unprotected bucket: an implementation that ignores the thumbprint tries the old key, derives the right content key and opens it. Opening is therefore the one wrong answer, and no error text is judged. The control beside it: the same message, opened with the same key and no certificate, must open — otherwise a refusal here would prove nothing. x5t is a selector, not a protected statement.",
+            "algorithm": "A128GCM",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "message": "D8608443A10101A1054C02D1F7E6F26C43D4868D87CE58246D206CB607C432A563164407BCA2EF380585B0ED4417116E6B3FCCF4899819C3E19C4A19818344A1013818A220A4010220012158200217E617F0B6443928278F96999E69A23A4F2C152BDF6D6CDF66E5B80282D4ED225820194A7DEBCB97712D2DDA3CA85AA8765A56F45FC758599652F2897C65306E57941822822F5820EFC80558A862F67AC8E060D99362F8A27FAC63CA4507E1ECD1D0D8BF1198192F40",
+            "recipients": [
+                {
+                    "algorithm": "ECDH-ES + HKDF-256",
+                    "curve": "P-256",
+                    "key": "92A3B4C5D6E7F8091A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6F7081",
+                    "certificate": "3082014E3081F5A003020102020203F8300A06082A8648CE3D04030230273125302306035504030C1C4368617267696E672053746174696F6E204F70657261746F72204341301E170D3236303430313030303030305A170D3236303633303030303030305A30183116301406035504030C0D43532D303030303030303030313059301306072A8648CE3D020106082A8648CE3D030107034200048438465B00661807190C8DEC025970596AF50958C08E0968A5C5E122F76753601B5D8912DB2962A5DC8B51B97151EAF284D492DE438BF7D30A8BBF36FD0FA889A320301E300C0603551D130101FF04023000300E0603551D0F0101FF040403020308300A06082A8648CE3D040302034800304502206890B0E71FBFEAC1262BA3E20051FF42A789748059238E30379BF7A042F50812022100B3F9B0C4B63E04F5AFC923EE473CC46A77FFF55787287AE7182821F99E621867"
                 }
             ]
         }

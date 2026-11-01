@@ -986,7 +986,11 @@ const ECDH_AGREEMENTS = [
     ['secret',     'the agreed ECDH secret'],
     ['kdfContext', 'the derived key-derivation context'],
     ['agreedKey',  'the directly agreed content key'],
+    ['thumbprint', 'the x5t naming the recipient\'s certificate'],
 ];
+
+/** Whether a case names its recipient by a certificate (x5t, EVQI Transport §6.8). */
+const namesCertificate = testCase => testCase.recipients?.[0]?.certificate !== undefined;
 
 /**
  * What a third party computed, which no agreement can supply: the COSE
@@ -998,6 +1002,7 @@ const ECDH_PUBLISHED = [
     ['expectedSecret',  'secret',     'the secret'],
     ['expectedContext', 'kdfContext', 'the COSE_KDF_Context'],
     ['expectedKey',     'agreedKey',  'the content key'],
+    ['expectedThumbprint', 'thumbprint', 'the x5t'],
     ['expectedMessage', 'message',    'the message'],
 ];
 
@@ -1015,6 +1020,17 @@ for (const testCase of vectors['cose-ecdh']) {
             judge(testCase.id, 'refuses', impl, klass,
                   opened?.status === 'error' || (opened?.status === 'ok' && opened.verified === false),
                   `must refuse (${testCase.reason}): ${describe(opened)}`);
+        }
+        // Where the refusal rests on a certificate the opener names, the same
+        // message opened without it is the control: it has to open, or the
+        // refusal above would prove nothing — a message that opens for nobody
+        // is refused by everybody, whatever they check.
+        if (namesCertificate(testCase)) {
+            for (const [impl, results] of impls) {
+                const control = checkOf(results, key, 'openWithoutCertificate');
+                judge(testCase.id, 'opens without the certificate (control)', impl, klass,
+                      control?.status === 'ok' && control.verified === true, describe(control));
+            }
         }
         continue;
     }
@@ -1056,6 +1072,16 @@ for (const testCase of vectors['cose-ecdh']) {
         }
     }
 
+    // A recipient named by its certificate: the certificate has to certify the
+    // key the case agrees with, so the pairing is a row rather than a comment.
+    if (namesCertificate(testCase)) {
+        for (const [impl, results] of impls) {
+            const certified = checkOf(results, key, 'certificateKey');
+            judge(testCase.id, 'the certificate certifies the recipient key', impl, klass,
+                  certified?.status === 'ok' && certified.verified === true, describe(certified));
+        }
+    }
+
     for (const [impl, own, otherName, otherCross] of [
              ['csharp', csharp, 'typescript', tsCross],
              ['typescript', ts, 'csharp', csharpCross]]) {
@@ -1073,6 +1099,15 @@ for (const testCase of vectors['cose-ecdh']) {
         judge(testCase.id, `cross-open ${impl}→${otherName}`, otherName, klass,
               opened?.status === 'ok' && opened.verified === true,
               `${otherName} opening the message produced by ${impl}: ${describe(opened)}`);
+
+        // Naming the certificate is the opener's choice, not its duty: the
+        // same message has to open for a caller who names none.
+        if (namesCertificate(testCase)) {
+            const bare = checkOf(otherCross, `cose-decrypt:xenc-${testCase.id}`, 'openWithoutCertificate');
+            judge(testCase.id, `cross-open ${impl}→${otherName} without the certificate`, otherName, klass,
+                  bare?.status === 'ok' && bare.verified === true,
+                  `${otherName} opening the message produced by ${impl}, naming no certificate: ${describe(bare)}`);
+        }
 
     }
 

@@ -691,6 +691,62 @@ checked against values `tools/EcdhCases` computes itself — independent of both
 implementations, and labelled *computed* rather than *published* wherever the
 suite reports them.
 
+### A recipient named by its certificate (added 2026-11-01)
+
+EVQI Transport §6.8, decided the same day, addresses an ECDH-ES recipient by
+the SHA-256 thumbprint of its key-agreement certificate (`x5t`, RFC 9360)
+rather than by a `kid`, because a station renewing its key holds the old and
+the new one at once. Both libraries gained it together — COSE.TS `3b19e5b`,
+Styx `9e0633a7`, pinned since `bc1d899` — and two cases hold them to it.
+
+**The key and the certificate have one owner.** `tools/CertificateCorpus`
+mints an operator authority on P-256 and two generations of one station's
+key-agreement certificate, shaped as §6.8 has them: `keyUsage: keyAgreement`
+and nothing else, critical, 90 days each, overlapping. `tools/EcdhCases` reads
+key and DER from the corpus rather than writing its own, so two generators in
+two languages never have to agree on a constant. Appended after everything
+else, the new certificates leave every earlier byte of the corpus as it was.
+
+`ecdh-direct-p256-x5t` is addressed to the renewed key and names it. Beyond the
+agreements and the values the generator computes — thumbprint included — each
+side must confirm that the certificate certifies the key the case agrees with,
+so that the pairing is a row rather than a comment; open the other's message
+given the certificate; and open it **without** one, because naming a
+certificate is the opener's choice and a caller who names none must see no
+change.
+
+`ecdh-refuses-recipient-naming-another-certificate` is the station still
+holding the old key and the old certificate, handed a recipient that names the
+renewed one. §6.8 says the recipient "refuses a thumbprint that matches none of
+its certificates instead of trying its keys in turn" — stated, not recommended,
+so by this project's rule (§23) the case is normative. The first design of it
+measured nothing, and it was the suite's own session that saw why: with the
+message encrypted for the renewed key, an implementation that ignores `x5t`
+tries the old key, derives another content key and fails at the AEAD tag —
+refusing as well, for the wrong reason. The message is therefore encrypted for
+the **old** key and names the renewed certificate anyway. Anybody can write
+that, since nothing authenticates a recipient's unprotected bucket: the
+`Enc_structure` covers the body's protected bucket, `COSE_KDF_Context` the
+recipient's protected one. Ignoring the thumbprint now opens the message, which
+makes opening the one wrong answer, and no error text is judged. Beside it
+stands the control: the same message, same key, no certificate, must open —
+without it a refusal would prove nothing, since a message that opens for nobody
+is refused by everybody. The control is the second correction to the first
+design: a "positive half" with the renewed key cannot exist, because the
+message is not encrypted for it.
+
+**Falsified, on both sides.** Making `isFor` answer yes to every certificate —
+COSE.TS and Styx in turn, each alone — turns exactly one row red: `refuses`, on
+the side that was changed. The control, the positive case and everything else
+stay green.
+
+`x5t` is a selector, not a protected statement. A matching thumbprint proves
+nothing; it says which key to use. Whoever reads it as evidence of anything has
+a vulnerability, and the description of both cases says so.
+
+The suite now stands at **587 (C#) / 551 (TypeScript) normative passes, 356
+cross-implementation agreements, zero failures, zero divergences**.
+
 
 ## 13. Symmetry audit of the two implementations (added 2026-08-19)
 

@@ -18,7 +18,7 @@
  * published ECDH example uses, has to reproduce RFC 8439's AEAD example
  * first.
  *
- * The cases it writes come in four kinds:
+ * The cases it writes come in five kinds:
  *
  *   - three anchored on the working group's published examples, with the
  *     secret, the context, the derived key and the whole message as they
@@ -31,7 +31,15 @@
  *   - two key pairs whose shared x-coordinate begins with a zero byte, found
  *     by searching, on P-256 and on P-521 — the I2OSP padding trap;
  *   - three messages that must be refused, each built so that an
- *     implementation which skipped the check would open it.
+ *     implementation which skipped the check would open it;
+ *   - a recipient named by its certificate (x5t, EVQI Transport §6.8), once
+ *     to be opened and once to be passed over — the second again built so
+ *     that it opens for an implementation that ignores the thumbprint.
+ *
+ * The key-agreement keys and certificates of the x5t cases are not written
+ * here: tools/CertificateCorpus owns them, and this generator reads them from
+ * vectors/cose-x509-corpus.json, so that the pairing of key and certificate
+ * has one owner rather than two that must remember to agree.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -112,7 +120,7 @@ const AEAD = { A128GCM: gcm, A192GCM: gcm, A256GCM: gcm, 'ChaCha20/Poly1305': ch
  * secret: whatever an implementation computed as the secret, this is the
  * message that opens for it.
  */
-function directMessage({ secret, ephemeralKey, kid, iv, payload, content = 'A128GCM', keyLength = 16 }) {
+function directMessage({ secret, ephemeralKey, kid, x5t, iv, payload, content = 'A128GCM', keyLength = 16 }) {
 
     const recipientProtected = cbor.map([[cbor.int(1), cbor.int(ALG['ECDH-ES + HKDF-256'])]]);
     const context            = kdfContext(ALG[content], keyLength, recipientProtected);
@@ -123,6 +131,7 @@ function directMessage({ secret, ephemeralKey, kid, iv, payload, content = 'A128
 
     const unprotected = [[cbor.int(-1), ephemeralKey]];
     if (kid !== undefined) unprotected.push([cbor.int(4), cbor.bytes(kid)]);
+    if (x5t !== undefined) unprotected.push([cbor.int(34), x5t]);
 
     const message = cbor.tag(96, cbor.array([
         cbor.bytes(bodyProtected),
@@ -233,6 +242,39 @@ function zeroLeading(curve, recipient) {
 const p256Zero = zeroLeading(p256, fill(32, 0x22));
 
 /**
+ * A station's key-agreement key in two generations, as tools/CertificateCorpus
+ * minted them: keyUsage keyAgreement only, the renewed certificate overlapping
+ * the old one. x5t is the COSE_CertHash of the DER — SHA-256, algorithm -16.
+ */
+const corpus       = JSON.parse(readFileSync(join(root, 'vectors', 'cose-x509-corpus.json'), 'utf8'));
+const station      = name => {
+    const d           = corpus.privateKeys[name].keyD;
+    const certificate = corpus.certificates[name];
+    if (corpus.privateKeys[name].curve !== 'P-256')
+        throw new Error(`The corpus key ${name} is not on P-256.`);
+    return { d, certificate, publicKey: p256.getPublicKey(unhex(d), false),
+             x5t: cbor.array([cbor.int(-16), cbor.bytes(sha256(unhex(certificate)))]) };
+};
+const stationOld   = station('stationKeyAgreement');
+const stationNew   = station('stationKeyAgreementRenewed');
+const x5tEphemeral = fill(32, 0x11);
+const x5tEphemeralPublic = p256.getPublicKey(x5tEphemeral, false);
+const x5tEphemeralKey    = ec2Key(1, x5tEphemeralPublic.slice(1, 33), x5tEphemeralPublic.slice(33));
+const agreeWith    = publicKey => p256.getSharedSecret(x5tEphemeral, publicKey, true).slice(1);
+
+// Addressed to the renewed key, named by the renewed certificate.
+const x5tSecret    = agreeWith(stationNew.publicKey);
+const x5tMessage   = directMessage({ secret: x5tSecret, ephemeralKey: x5tEphemeralKey, x5t: stationNew.x5t, iv, payload });
+
+// Encrypted for the OLD key, but naming the renewed certificate: nothing
+// authenticates a recipient's unprotected bucket — the Enc_structure covers
+// the body's protected bucket, COSE_KDF_Context the recipient's PROTECTED one
+// — so this is a message anybody can write. It opens for whoever tries the
+// old key regardless of the thumbprint, and for nobody who reads it.
+const passedOver   = directMessage({ secret: agreeWith(stationOld.publicKey), ephemeralKey: x5tEphemeralKey,
+                                     x5t: stationNew.x5t, iv, payload });
+
+/**
  * ECDH-ES on X25519 delivering a ChaCha20/Poly1305 key: no published example
  * combines the two, so the generator supplies what it can supply on its own.
  */
@@ -317,6 +359,20 @@ const cases = [
     },
 
     {
+        id: 'ecdh-direct-p256-x5t', class: 'normative', shape: 'encrypt',
+        description: 'ECDH-ES + HKDF-256 on P-256 to a recipient named by its certificate: the recipient structure carries x5t (RFC 9360, header parameter 34) — the SHA-256 COSE_CertHash of the station\'s renewed key-agreement certificate from tools/CertificateCorpus — and no kid, which is how EVQI Transport §6.8 addresses a recipient that holds more than one key during a renewal. The thumbprint, secret, context, key and message are computed by this generator; each implementation must also confirm that the certificate certifies the receiving key, open the other\'s message given that certificate, and open it without one, since a caller who names no certificate must see no change. Note what x5t is: a selector, not a protected statement. It sits in the unprotected bucket, nothing authenticates it, and a matching thumbprint proves nothing — it only says which key to use. Read as evidence of anything, it is a vulnerability.',
+        algorithm: 'A128GCM', iv: hex(iv), payload: hex(payload),
+        recipients: [{ algorithm: 'ECDH-ES + HKDF-256', curve: 'P-256', key: stationNew.d,
+                       ephemeral: hex(x5tEphemeral), certificate: stationNew.certificate }],
+        computedBy:         'tools/EcdhCases',
+        expectedSecret:     hex(x5tSecret),
+        expectedContext:    hex(x5tMessage.context),
+        expectedKey:        hex(x5tMessage.cek),
+        expectedMessage:    hex(x5tMessage.message),
+        expectedThumbprint: hex(stationNew.x5t),
+    },
+
+    {
         id: 'ecdh-key-wrap-brainpool', class: 'normative', shape: 'encrypt',
         description: 'ECDH-ES + A128KW on brainpoolP256r1, the curve of the meter certificates this project turns on, which no published example covers.',
         algorithm: 'A256GCM', key: cek256, iv: hex(iv), payload: hex(payload),
@@ -375,6 +431,15 @@ const cases = [
         description: 'The same with u = 1, a point of small order that is not zero: an implementation that checks its INPUT for zero lets it through, one that checks the OUTPUT as RFC 7748 §6.1 says does not. The secret is again all zeroes and the message opens for whoever did not look. Both implementations must refuse.',
         algorithm: 'A128GCM', payload: hex(payload), message: hex(smallOrder(1).message),
         recipients: [{ algorithm: 'ECDH-ES + HKDF-256', curve: 'X25519', key: hex(fill(32, 0x22)), keyIdentifier: hex(utf8('small-order-1')) }],
+    },
+
+    {
+        id: 'ecdh-refuses-recipient-naming-another-certificate', class: 'normative', shape: 'encrypt', expected: 'reject',
+        reason: 'the recipient names a certificate by x5t that is not the one of the key in hand (EVQI Transport §6.8)',
+        description: 'A station during a renewal: it holds its old key-agreement key with the old certificate, and this recipient names the RENEWED certificate by x5t. EVQI Transport §6.8: the recipient "refuses a thumbprint that matches none of its certificates instead of trying its keys in turn" — stated, not recommended, so this is normative. The message is encrypted for the OLD key all the same, which anybody can arrange, since nothing authenticates a recipient\'s unprotected bucket: an implementation that ignores the thumbprint tries the old key, derives the right content key and opens it. Opening is therefore the one wrong answer, and no error text is judged. The control beside it: the same message, opened with the same key and no certificate, must open — otherwise a refusal here would prove nothing. x5t is a selector, not a protected statement.',
+        algorithm: 'A128GCM', payload: hex(payload), message: hex(passedOver.message),
+        recipients: [{ algorithm: 'ECDH-ES + HKDF-256', curve: 'P-256', key: stationOld.d,
+                       certificate: stationOld.certificate }],
     },
 
 ];

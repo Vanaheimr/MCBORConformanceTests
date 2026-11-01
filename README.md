@@ -50,11 +50,15 @@ ECDH-ES gets more than agreement, for the reason FINDINGS §12 gives: its
 sides opens perfectly. Its cases therefore also record the agreed secret, the
 context and the derived key; check them against the COSE working group's
 published examples, and where no example exists — ECDH-ES delivering a
-ChaCha20/Poly1305 key — against values the case generator computes on its own,
-independently of both implementations; include a key pair whose shared secret begins with a zero
-byte, found on purpose; and carry three messages that both implementations must
-*refuse*, each built so that it opens for an implementation which skipped the
-point check.
+ChaCha20/Poly1305 key, a recipient named by its certificate — against values
+the case generator computes on its own, independently of both implementations;
+include a key pair whose shared secret begins with a zero byte, found on
+purpose; and carry messages that both implementations must *refuse*, each built
+so that it opens for an implementation which skipped the check: three for the
+point check, one for a recipient whose `x5t` names another certificate than
+the one of the key in hand (EVQI Transport §6.8). The key-agreement keys and
+certificates come from `tools/CertificateCorpus`, which owns them; the case
+generator reads them rather than writing its own.
 
 They are included for what they make visible rather than for what they protect.
 A tag proves nothing to anyone who cannot also produce it; an encrypted message
