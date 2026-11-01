@@ -1122,6 +1122,31 @@ A description that fits every observation is not thereby the mechanism. Finding
 the case that would tell two explanations apart is the work; collecting more
 cases that fit both is not.
 
+### The ending, ten weeks later (added 2026-11-01)
+
+V8 fixed it on main on 2026-09-17 —
+[93cd21e](https://chromium.googlesource.com/v8/v8/+/93cd21e8254b65c15ff131b2dcadf19beadb559d),
+*"skip fast transition path for escaped keys"*, crbug 521080746 — and
+[nodejs/node#63785](https://github.com/nodejs/node/issues/63785) closed as
+completed on 2026-10-26.
+
+A fix on main is not a fix anybody has, and the nightly `platform` job was
+built for exactly that gap: **v24.22.1 with V8 13.6.233.17 now reads every
+escaped key back**, where on 2026-08-22 the same V8 line lost five of
+thirty-six. Node 20, 22 and latest are clean as well. The backport has landed
+and the hazard is gone from every supported Node.
+
+Two things worth taking from how that was learned. The job **reports rather
+than fails**, which is why it could be left running for ten weeks across four
+Node versions without anybody tending it — a check that fails on somebody
+else's defect gets disabled, and a check that reports gets read. And it was
+written to answer *"which versions carry it, and when does it go away"*, a
+question nobody could answer from one machine; it answered the second half on
+its own, without anybody asking upstream.
+
+The job stays, with its reason changed: it watched a live defect and is now a
+regression guard.
+
 
 ## 17. A divergence this suite could not have found (added 2026-08-21)
 
