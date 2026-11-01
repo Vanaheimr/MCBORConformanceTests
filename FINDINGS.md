@@ -1962,3 +1962,113 @@ suite had such a third party for key agreement already, for a different reason
 (§12: a derived structure nobody transmits). It needed a second one here for
 the opposite reason — a structure that is transmitted, and that neither sender
 will produce.
+
+## 25. The DER readers diverge four ways, and the corpus cannot see it (filed 2026-11-01)
+
+Filed, not built. Nothing in `vectors/` encodes what follows, because a
+normative row here would say which implementation is right, and that is the
+maintainer's call and probably an upstream change rather than a line in this
+repository.
+
+### What was measured
+
+COSE.TS reads certificate DER with a reader of its own (`src/asn1.ts`), and
+reads it strictly — its test file says why in its own heading, *"DER is read
+strictly, because that is where differentials live"*. Styx has no DER reader:
+it parses certificates with `Org.BouncyCastle.X509.X509Certificate`
+(BouncyCastle.Cryptography 2.7.0).
+
+Four encodings were put to both, each tampered **outside** the
+`TBSCertificate` so that the issuer's signature over the TBS bytes still
+holds — which is what makes the question sharp: a lenient parser accepts the
+certificate and walks the chain to the anchor, exactly as if nothing had
+happened.
+
+| the leaf certificate's encoding | Styx (Bouncy Castle) | COSE.TS |
+|---|---|---|
+| the outer SEQUENCE length as `83 00 01 4E` — three bytes where two suffice | verifies | refuses |
+| the outer SEQUENCE with a BER indefinite length, `30 80` … `00 00` | verifies | refuses |
+| one byte appended after the certificate, inside the `x5chain` byte string | verifies | refuses |
+| the `signatureAlgorithm` SEQUENCE length as `81 0A` instead of `0A` | verifies | refuses |
+
+Four to nothing, and the untampered control verifies on both sides, so the
+construction is sound. COSE.TS refuses each at the reader: *"The certificate
+at position 0 of the COSE_X509 could not be read"*.
+
+### The second order, which matters more
+
+`x5t` is the hash of a certificate's DER encoding [RFC 9360, Section 2]. So
+when a parser accepts an encoding that is not DER, which bytes does it hash —
+the ones that travelled, or its own re-encoding? Measured with the
+BER-encoded leaf and two thumbprints over the same certificate:
+
+| what `x5t` hashes | Styx | COSE.TS |
+|---|---|---|
+| the bytes that travelled | **refuses**: *"The certificate thumbprint does not belong to the given certificate!"* | refuses |
+| the canonical DER, which did **not** travel | **verifies** | refuses |
+
+Bouncy Castle re-encodes and hashes its own output. Under Styx the thumbprint
+therefore covers a byte string the sender never sent — and the sense of it is
+inverted: the honest sender, who hashes what it transmits, is the one refused.
+COSE.TS answers the same way to both because it never gets that far, which is
+why it never had to decide the question at all.
+
+### Why this suite was never going to find it
+
+The README states the principle and gets the instance wrong:
+
+> The certificates come from a corpus minted by Bouncy Castle rather than by
+> either party being tested — a parser checked against certificates its own
+> package produced would agree with itself about any misreading.
+
+The argument holds for COSE.TS, which reads certificates another package
+wrote. It does not hold for Styx, because Bouncy Castle *is* Styx's parser:
+for the C# side the corpus is precisely the self-check the sentence warns
+about, and no amount of certificates in it can expose the leniency of the
+library that minted them. It took a third encoder — `tools/X509Cases`, built
+for §24 — to ask the question at all.
+
+That is the general shape, and it is worth keeping: a corpus minted by one of
+the parties under test is blind in exactly the direction that party is blind.
+
+### Where it sits in the code
+
+Both stages are two lines apart, and neither is an oversight that reading the
+code would catch — each is the obvious way to use the library:
+
+- `Styx/Illias/COSE/COSECertificateChain.cs` parses with
+  `parser.ReadCertificate(certificate)` and keeps the certificate object. The
+  bytes it was handed are not compared with anything afterwards, so an encoding
+  Bouncy Castle tolerates is an encoding Styx accepts.
+- `Styx/Illias/COSE/COSECertificateHash.cs` hashes
+  `Certificate.GetEncoded()` — at the construction site and again where a
+  thumbprint is matched. `GetEncoded()` is Bouncy Castle's own DER output, not
+  the input, which is the second stage above.
+
+### What is not decided
+
+RFC 5280 §4.1 requires DER, and RFC 9360 defines `x5t` over the DER encoding,
+so the specifications point one way. The consequence does not follow from this
+repository: it is either a strictness check in Styx ahead of Bouncy Castle, or
+a decision that reading BER is acceptable and `x5t` is understood over the
+parsed form. Three ways to carry it here, in the maintainer's hands:
+
+1. nothing in `vectors/`, and this section is the record;
+2. `survey` rows that record both verdicts side by side every run and fail
+   nothing, which keeps the finding measured while the question is open;
+3. `normative` rows once one behaviour is decided to be the right one — which
+   would turn the other side red until it changes.
+
+One correction would close both stages at once, and it is the one to put to
+the maintainer: after `ReadCertificate`, require `GetEncoded()` to equal the
+input byte for byte and refuse otherwise. Bouncy Castle encodes DER
+canonically, so bytes that survive that comparison *were* DER — and
+`GetEncoded()` is then exactly what travelled, which makes the thumbprint
+cover the right string without a second change.
+
+The probe that produced both tables is four tamperings and two thumbprints
+over the corpus's own `meter` certificate; it reproduces in minutes from the
+description above, and would become a generator beside `tools/X509Cases` if
+option 2 or 3 is chosen. After a fix in Styx all six would be green on both
+sides, which is the shape to aim for: the cases exist to be passed, not to
+record a disagreement for ever.
