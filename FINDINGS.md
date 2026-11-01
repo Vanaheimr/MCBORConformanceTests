@@ -523,8 +523,11 @@ recipient structure does not depend on the body's context.
 means the same thing: AES-CBC-MAC (see §10), AES-CCM, ChaCha20/Poly1305, and
 ECDH key agreement with the HKDF-based key derivations. The last of those is
 filed with its reasons in §12, because it is the one omission here that is a
-decision rather than a gap. *(Since 2026-11-01 ECDH-ES is built on both sides;
-§12 records how its conditions were met, and which one was not.)*
+decision rather than a gap. *(Since 2026-11-01 two of these are built on both
+sides, identically: ECDH-ES, whose conditions §12 records as met, and
+ChaCha20/Poly1305, built the same day at the maintainer's decision and held to
+the COSE working group's two examples by `encrypt0-chacha20poly1305` and
+`encrypt-chacha20poly1305-direct`, whole message included.)*
 
 The suite now stands at **454 (C#) / 418 (TypeScript) normative passes, 223
 cross-implementation agreements, zero failures**.
@@ -539,7 +542,8 @@ and + HKDF-512 (the agreed key *is* the content key), ECDH-ES + A128KW,
 implementations compute with and on X25519 and X448 — in COSE.TS (`f561b5f`)
 and in Styx's `Illias/COSE` (`d438b6ee`), pinned here since `cc0361a`. Below,
 the reasoning of the original entry stands where it still holds, and each of
-its conditions is answered separately — one of them is not answered at all.
+its conditions is answered separately: the vectors by this repository, the
+use case by the maintainer.
 
 ### The structure is derived, not transmitted
 
@@ -655,19 +659,37 @@ and refuses to write anything unless it first reproduces the working group's
 implementations meet on X448, brainpool, P-384, secp256k1, salt and party
 information and two recipients, and write identical bytes throughout.
 
-**A use case — open, and not this repository's to answer.** The entry said:
-ECDH earns its keep when a content key must reach a party with whom nothing was
-shared in advance, *a situation this system does not currently have*. Building
-it answers the second condition and not this one. Whether the system has, or
-will have, such a party is a decision about the system rather than about the
-implementations, and it lies with the maintainer, who has said he will take
-it later. Until then the honest position is: implemented and tested, on both
-sides, identically — and not yet called for.
+### A use case was named
 
-The suite now stands at **568 (C#) / 532 (TypeScript) normative passes, 334
+The original entry closed on a sentence no amount of building could answer:
+"ECDH earns its keep when a content key must reach a party with whom nothing
+was shared in advance — a situation this system does not currently have."
+Whether the system has such a party is a decision about the system rather than
+about the implementations, and this repository left it to the maintainer.
+
+Achim Friedland took it on 2026-11-01: *"Ende-zu-Ende durch den Local
+Controller und andere Use Cases sind wichtig"* — end to end through the Local
+Controller, and other use cases besides. The specification records it the same
+day in EVQI Transport §7.2, under "Delivering the key by ECDH-ES"
+(`libs/specification` at `fd92f60`, pinned here since `300b416`), which names
+the parties: CSMS and station, with a Local Controller between them that
+relays the message and cannot read it; and beyond that a CSMS forwarding data
+to a third party, data addressed to a contract holder, a station's log for its
+manufacturer.
+
+No case changed because of it — the decision says what ECDH-ES is for, not
+what it does — so the position the original entry ended on is superseded
+rather than revised: implemented, tested on both sides identically, and
+called for.
+
+The suite now stands at **577 (C#) / 541 (TypeScript) normative passes, 348
 cross-implementation agreements, zero failures, zero divergences**; the
-thirteen ECDH-ES cases account for 26 of each side's passes and 66 of the
-agreements.
+fourteen ECDH-ES cases account for 31 of each side's passes and 73 of the
+agreements. The fourteenth, `ecdh-direct-x25519-chacha20poly1305`, is the one
+no published example covers, so its secret, context, key and message are
+checked against values `tools/EcdhCases` computes itself — independent of both
+implementations, and labelled *computed* rather than *published* wherever the
+suite reports them.
 
 
 ## 13. Symmetry audit of the two implementations (added 2026-08-19)
@@ -693,7 +715,8 @@ authenticated data, `crit`, RFC 9338 countersignatures, `x5chain`/`x5t`,
 several signers, recipients by `direct` and key wrap — and so do the
 deliberate omissions: `COSE_Countersignature0`, `x5bag`, `x5u`, AES-CBC-MAC
 (§10), AES-CCM, ChaCha20/Poly1305, ECDH with the HKDF derivations (§12).
-*(ECDH-ES has since been built on both sides, identically; see §12.)*
+*(ECDH-ES and ChaCha20/Poly1305 have since been built on both sides,
+identically; see §11 and §12.)*
 
 One candidate finding did not survive checking. `CoseEncrypt0` and
 `CoseEncrypt` share a source file in the TypeScript implementation, so a

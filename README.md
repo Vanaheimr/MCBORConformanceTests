@@ -38,8 +38,8 @@ gateway that received it. That is what a fleet emits while it is being
 migrated, and neither half of it can be tested by one implementation alone.
 
 A third strand is **message authentication and encryption** — `COSE_Mac0` and
-`COSE_Mac` with HMAC, `COSE_Encrypt0` and `COSE_Encrypt` with AES-GCM, and the
-recipient structures that carry a content key by `direct`, by AES key wrap, or
+`COSE_Mac` with HMAC, `COSE_Encrypt0` and `COSE_Encrypt` with AES-GCM or
+ChaCha20/Poly1305, and the recipient structures that carry a content key by `direct`, by AES key wrap, or
 by ECDH-ES with HKDF — agreed with a recipient whose public key is all the
 sender knows. These need no arrangement to be compared beyond the vector
 supplying the key and the nonce, and for ECDH-ES the sender's ephemeral key:
@@ -49,7 +49,9 @@ ECDH-ES gets more than agreement, for the reason FINDINGS §12 gives: its
 `COSE_KDF_Context` is derived rather than transmitted, so a mistake made on both
 sides opens perfectly. Its cases therefore also record the agreed secret, the
 context and the derived key; check them against the COSE working group's
-published examples; include a key pair whose shared secret begins with a zero
+published examples, and where no example exists — ECDH-ES delivering a
+ChaCha20/Poly1305 key — against values the case generator computes on its own,
+independently of both implementations; include a key pair whose shared secret begins with a zero
 byte, found on purpose; and carry three messages that both implementations must
 *refuse*, each built so that it opens for an implementation which skipped the
 point check.

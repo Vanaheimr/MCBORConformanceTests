@@ -9,11 +9,14 @@
  * exactly that: COSE_KDF_Context is derived rather than transmitted, so a
  * mistake made identically on both sides opens perfectly — and a generator
  * sharing the code of either side would share its mistakes. What it uses is
- * the noble primitives (the curves, HKDF, AES-GCM) and nothing above them:
+ * the noble primitives (the curves, HKDF, AES-GCM, ChaCha20/Poly1305) and
+ * nothing above them:
  * the CBOR, the KDF context, the COSE structures and the attack points are
  * written out here, by hand. Before it emits anything it rebuilds the COSE
  * working group's example p256-hkdf-256-01 through that same pipeline and
- * stops unless the bytes come out as published.
+ * stops unless the bytes come out as published; ChaCha20/Poly1305, which no
+ * published ECDH example uses, has to reproduce RFC 8439's AEAD example
+ * first.
  *
  * The cases it writes come in four kinds:
  *
@@ -22,7 +25,9 @@
  *     were published — values no agreement between two implementations can
  *     supply;
  *   - cases on what those examples do not cover (X448, brainpool, P-384,
- *     secp256k1, salt and party information, two recipients, a MAC);
+ *     secp256k1, salt and party information, two recipients, a MAC, and a
+ *     ChaCha20/Poly1305 key — the one of these whose expected values the
+ *     generator computes itself, see below);
  *   - two key pairs whose shared x-coordinate begins with a zero byte, found
  *     by searching, on P-256 and on P-521 — the I2OSP padding trap;
  *   - three messages that must be refused, each built so that an
@@ -41,6 +46,7 @@ import { x448 }              from '@noble/curves/ed448.js';
 import { hkdf }              from '@noble/hashes/hkdf.js';
 import { sha256, sha512 }    from '@noble/hashes/sha2.js';
 import { gcm }               from '@noble/ciphers/aes.js';
+import { chacha20poly1305 }  from '@noble/ciphers/chacha.js';
 
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -98,7 +104,8 @@ const kdfContext = (algorithmId, keyLength, protectedBytes, partyU, partyV) => c
 
 // --------------------------------------------------------- COSE_Encrypt ---
 
-const ALG = { A128GCM: 1, A192GCM: 2, A256GCM: 3, 'ECDH-ES + HKDF-256': -25 };
+const ALG  = { A128GCM: 1, A192GCM: 2, A256GCM: 3, 'ChaCha20/Poly1305': 24, 'ECDH-ES + HKDF-256': -25 };
+const AEAD = { A128GCM: gcm, A192GCM: gcm, A256GCM: gcm, 'ChaCha20/Poly1305': chacha20poly1305 };
 
 /**
  * A COSE_Encrypt message with one direct ECDH-ES recipient, built from a raw
@@ -112,7 +119,7 @@ function directMessage({ secret, ephemeralKey, kid, iv, payload, content = 'A128
     const cek                = hkdf(sha256, secret, new Uint8Array(), context, keyLength);
     const bodyProtected      = cbor.map([[cbor.int(1), cbor.int(ALG[content])]]);
     const encStructure       = cbor.array([cbor.text('Encrypt'), cbor.bytes(bodyProtected), cbor.bytes(new Uint8Array())]);
-    const ciphertext         = gcm(cek, iv, encStructure).encrypt(payload);
+    const ciphertext         = AEAD[content](cek, iv, encStructure).encrypt(payload);
 
     const unprotected = [[cbor.int(-1), ephemeralKey]];
     if (kid !== undefined) unprotected.push([cbor.int(4), cbor.bytes(kid)]);
@@ -155,6 +162,21 @@ const byName    = name => published.find(each => each.name === name) ?? (() => {
                                         ['message', hex(rebuilt.message), v.cbor]])
         if (mine !== theirs)
             throw new Error(`The generator does not reproduce p256-hkdf-256-01: its ${what} is ${mine}, the published one ${theirs}. Nothing was written.`);
+}
+
+// RFC 8439, Section 2.8.2: ChaCha20/Poly1305 is used below for a case no
+// published example covers, so the primitive is held to its own RFC first.
+{
+    const sealed = hex(chacha20poly1305(unhex('808182838485868788898A8B8C8D8E8F909192939495969798999A9B9C9D9E9F'),
+                                        unhex('070000004041424344454647'),
+                                        unhex('50515253C0C1C2C3C4C5C6C7'))
+                       .encrypt(utf8('Ladies and Gentlemen of the class of \'99: If I could offer you only one tip for the future, sunscreen would be it.')));
+    const expected = 'D31A8D34648E60DB7B86AFBC53EF7EC2A4ADED51296E08FEA9E2B5A736EE62D63DBEA45E8CA9671282FAFB69DA92728B' +
+                     '1A71DE0A9E060B2905D6A5B67ECD3B3692DDBD7F2D778B8C9803AEE328091B58FAB324E4FAD675945585808B4831D7BC' +
+                     '3FF4DEF08E4B7A9DE576D26586CEC64B6116' +
+                     '1AE10B594F09E26A7E902ECBD0600691';
+    if (sealed !== expected)
+        throw new Error(`The generator does not reproduce RFC 8439, Section 2.8.2: its ChaCha20/Poly1305 gives ${sealed}. Nothing was written.`);
 }
 
 
@@ -209,6 +231,15 @@ function zeroLeading(curve, recipient) {
 }
 
 const p256Zero = zeroLeading(p256, fill(32, 0x22));
+
+/**
+ * ECDH-ES on X25519 delivering a ChaCha20/Poly1305 key: no published example
+ * combines the two, so the generator supplies what it can supply on its own.
+ */
+const chachaSecret  = x25519.getSharedSecret(fill(32, 0x11), x25519.getPublicKey(fill(32, 0x22)));
+const chachaMessage = directMessage({ secret: chachaSecret, ephemeralKey: okpKey(4, x25519.getPublicKey(fill(32, 0x11))),
+                                      kid: utf8('end-to-end'), iv, payload,
+                                      content: 'ChaCha20/Poly1305', keyLength: 32 });
 const p521Zero = zeroLeading(p521, concat(Uint8Array.of(0x01), fill(65, 0x22)));
 
 // The invalid-curve point: (x0, 0) lies on y² = x³ − 3x + b′ for
@@ -270,6 +301,19 @@ const cases = [
         algorithm: 'A192GCM', iv: hex(iv), payload: hex(payload),
         recipients: [{ algorithm: 'ECDH-ES + HKDF-512', curve: 'X448', key: hex(fill(56, 0x22)),
                        ephemeral: hex(fill(56, 0x11)), keyIdentifier: hex(utf8('x448-recipient')) }],
+    },
+
+    {
+        id: 'ecdh-direct-x25519-chacha20poly1305', class: 'normative', shape: 'encrypt',
+        description: 'ECDH-ES + HKDF-256 on X25519 delivering a 256-bit ChaCha20/Poly1305 key directly: two things EVQI Transport §7.2 names for encrypting end to end through a Local Controller — ECDH-ES + HKDF-256 to reach the one recipient, ChaCha20-Poly1305 as one of the two AEADs — here combined. COSE_KDF_Context names the content algorithm, 24, and asks for 256 bits — the place a mistake shared by both sides would hide, because a context built wrongly on both sides still opens. No published example combines ECDH-ES with ChaCha20/Poly1305, so the expected secret, context, key and message are the generator\'s own, computed from the noble primitives through the same hand-written CBOR that must reproduce p256-hkdf-256-01 before anything is written, with ChaCha20/Poly1305 held to RFC 8439 Section 2.8.2 first. That makes them independent of both implementations, not published by anyone.',
+        algorithm: 'ChaCha20/Poly1305', iv: hex(iv), payload: hex(payload),
+        recipients: [{ algorithm: 'ECDH-ES + HKDF-256', curve: 'X25519', key: hex(fill(32, 0x22)),
+                       ephemeral: hex(fill(32, 0x11)), keyIdentifier: hex(utf8('end-to-end')) }],
+        computedBy:      'tools/EcdhCases',
+        expectedSecret:  hex(chachaSecret),
+        expectedContext: hex(chachaMessage.context),
+        expectedKey:     hex(chachaMessage.cek),
+        expectedMessage: hex(chachaMessage.message),
     },
 
     {
@@ -337,7 +381,7 @@ const cases = [
 
 writeFileSync(join(root, 'vectors', 'cose-ecdh.json'), JSON.stringify({
     suite: 'cose-ecdh',
-    description: 'ECDH-ES with HKDF [RFC 9053, Section 6.3]: a content key reaching a party whose public key is all the sender knows, either as the derived key itself (ECDH-ES + HKDF-256, -512) or wrapped by it (ECDH-ES + A128KW, A192KW, A256KW). These cases run through the cose-encrypt machinery — each produced by both implementations, compared, and handed to the other to open — and add what FINDINGS §12 asked of any ECDH-ES here: published third-party values no agreement can supply, a shared secret that begins with a zero byte on purpose, and points that must be refused rather than merely disagreed about. The ephemeral key is given rather than drawn, the second departure from default settings after deterministic signing and for the same reason: the bytes would otherwise be incomparable. Generated by tools/EcdhCases, which depends on neither implementation. Note what a passing case does NOT establish: an encrypted message says nothing about who sent it, and ECDH-ES in particular authenticates nobody — the static-static variants that would tell the recipient who sent it are implemented on neither side. Every key is printed in this file and secures nothing.',
+    description: 'ECDH-ES with HKDF [RFC 9053, Section 6.3]: a content key reaching a party whose public key is all the sender knows, either as the derived key itself (ECDH-ES + HKDF-256, -512) or wrapped by it (ECDH-ES + A128KW, A192KW, A256KW). These cases run through the cose-encrypt machinery — each produced by both implementations, compared, and handed to the other to open — and add what FINDINGS §12 asked of any ECDH-ES here: third-party values no agreement can supply — published by the COSE working group where an example exists, computed by the generator where none does, and labelled accordingly — a shared secret that begins with a zero byte on purpose, and points that must be refused rather than merely disagreed about. The ephemeral key is given rather than drawn, the second departure from default settings after deterministic signing and for the same reason: the bytes would otherwise be incomparable. Generated by tools/EcdhCases, which depends on neither implementation. Note what a passing case does NOT establish: an encrypted message says nothing about who sent it, and ECDH-ES in particular authenticates nobody — the static-static variants that would tell the recipient who sent it are implemented on neither side. Every key is printed in this file and secures nothing.',
     cases,
 }, null, 4) + '\n');
 

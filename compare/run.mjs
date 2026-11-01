@@ -903,6 +903,19 @@ const ENCRYPT_AGREEMENTS = [
     ['recipient0',    'the first recipient structure'],
 ];
 
+/**
+ * What somebody else published, which no agreement can supply: two
+ * implementations that make the same mistake agree perfectly. The complete
+ * message pins more than the cryptography — recipient order, and the key
+ * order of every unprotected bucket — so a red row there may mean a spelling
+ * changed; the structure and ciphertext checks above it say which.
+ */
+const ENCRYPT_PUBLISHED = [
+    ['expectedTag',     'ciphertext', 'the tag published by RFC 9052 C.5.4'],
+    ['expectedWrapped', 'recipient0', 'the wrapped key published by RFC 9052 C.5.4'],
+    ['expectedMessage', 'message',    'the message the working group published'],
+];
+
 for (const testCase of vectors['cose-encrypt']) {
 
     const key   = `cose-encrypt:${testCase.id}`;
@@ -924,20 +937,15 @@ for (const testCase of vectors['cose-encrypt']) {
 
     }
 
-    // The values RFC 9052 Appendix C.5.4 prints, where a case names them.
-    if (testCase.expectedTag !== undefined) {
+    // The values RFC 9052 Appendix C.5.4 and the working group print, where a
+    // case names them.
+    for (const [field, check, what] of ENCRYPT_PUBLISHED) {
+        if (testCase[field] === undefined)
+            continue;
         for (const [impl, results] of impls) {
-            const tag = checkOf(results, key, 'ciphertext');
-            judge(testCase.id, 'the tag published by RFC 9052 C.5.4', impl, klass,
-                  tag?.status === 'ok' && tag.hex === testCase.expectedTag, describe(tag));
-        }
-    }
-
-    if (testCase.expectedWrapped !== undefined) {
-        for (const [impl, results] of impls) {
-            const wrapped = checkOf(results, key, 'recipient0');
-            judge(testCase.id, 'the wrapped key published by RFC 9052 C.5.4', impl, klass,
-                  wrapped?.status === 'ok' && wrapped.hex === testCase.expectedWrapped, describe(wrapped));
+            const recorded = checkOf(results, key, check);
+            judge(testCase.id, what, impl, klass,
+                  recorded?.status === 'ok' && recorded.hex === testCase[field], describe(recorded));
         }
     }
 
@@ -980,12 +988,17 @@ const ECDH_AGREEMENTS = [
     ['agreedKey',  'the directly agreed content key'],
 ];
 
-/** What the COSE working group published, which no agreement can supply. */
+/**
+ * What a third party computed, which no agreement can supply: the COSE
+ * working group where it published an example, otherwise the generator named
+ * in `computedBy` — independent of both implementations, but nobody's
+ * publication, and the row says so.
+ */
 const ECDH_PUBLISHED = [
-    ['expectedSecret',  'secret',     'the secret the working group published'],
-    ['expectedContext', 'kdfContext', 'the COSE_KDF_Context the working group published'],
-    ['expectedKey',     'agreedKey',  'the content key the working group published'],
-    ['expectedMessage', 'message',    'the message the working group published'],
+    ['expectedSecret',  'secret',     'the secret'],
+    ['expectedContext', 'kdfContext', 'the COSE_KDF_Context'],
+    ['expectedKey',     'agreedKey',  'the content key'],
+    ['expectedMessage', 'message',    'the message'],
 ];
 
 for (const testCase of vectors['cose-ecdh']) {
@@ -1020,9 +1033,11 @@ for (const testCase of vectors['cose-ecdh']) {
 
     }
 
-    for (const [field, check, what] of ECDH_PUBLISHED) {
+    for (const [field, check, thing] of ECDH_PUBLISHED) {
         if (testCase[field] === undefined)
             continue;
+        const what = testCase.computedBy !== undefined ? `${thing} computed by ${testCase.computedBy}`
+                                                       : `${thing} the working group published`;
         for (const [impl, results] of impls) {
             const recorded = checkOf(results, key, check);
             judge(testCase.id, what, impl, klass,
@@ -1439,21 +1454,28 @@ lines.push('');
 lines.push('## Encrypted and enveloped structures');
 lines.push('');
 lines.push('`COSE_Encrypt0` (tag 16), `COSE_Encrypt` (tag 96) and `COSE_Mac` (tag 97), with');
-lines.push('AES-GCM, AES key wrap and the `direct` recipient algorithm. Each is produced by');
-lines.push('both implementations and then handed to the other one to open.');
+lines.push('AES-GCM or ChaCha20/Poly1305, AES key wrap and the `direct` recipient algorithm.');
+lines.push('Each is produced by both implementations and then handed to the other one to');
+lines.push('open. *Published* counts the values printed by RFC 9052 or the COSE working');
+lines.push('group that both reproduced. Where that is the whole message it pins recipient');
+lines.push('order and header key order too, so a red cell can mean a spelling changed');
+lines.push('rather than a cipher broke.');
 lines.push('');
 lines.push('A passing row says the two agree. It does *not* say the message proves who sent');
 lines.push('it: with several recipients they all hold the same content key, so any of them');
 lines.push('could have produced it. That is why the metrological record is signed, and why a');
 lines.push('signed payload inside an encrypted envelope is how one gets both.');
 lines.push('');
-lines.push('| Case | Shape | Algorithm | Recipients | Bytes agree | C#→TS | TS→C# |');
-lines.push('|---|---|---|---|---|---|---|');
+lines.push('| Case | Shape | Algorithm | Recipients | Published | Bytes agree | C#→TS | TS→C# |');
+lines.push('|---|---|---|---|---|---|---|---|');
+
+const encryptPublished = new Set(ENCRYPT_PUBLISHED.map(([, , what]) => what));
 
 for (const testCase of vectors['cose-encrypt']) {
 
-    const own     = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
-    const agreed  = own.filter(v => v.check.startsWith('agree'));
+    const own       = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
+    const agreed    = own.filter(v => v.check.startsWith('agree'));
+    const published = own.filter(v => encryptPublished.has(v.check));
     const toTS    = own.find(v => v.check === 'cross-open csharp→typescript');
     const toCS    = own.find(v => v.check === 'cross-open typescript→csharp');
     const mark    = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
@@ -1461,6 +1483,7 @@ for (const testCase of vectors['cose-encrypt']) {
     const recipients = (testCase.recipients ?? []).map(each => each.algorithm).join(' + ') || '—';
 
     lines.push(`| ${testCase.id} | ${testCase.shape} | ${testCase.algorithm} | ${recipients} | ` +
+               `${published.length === 0 ? '—' : `${published.filter(v => v.pass).length}/${published.length}`} | ` +
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCS)} |`);
 
 }
@@ -1476,7 +1499,9 @@ lines.push('key is all the sender knows. Beyond the agreements above, each case 
 lines.push('agreed secret, the encoded `COSE_KDF_Context` and the derived key, because the');
 lines.push('context is derived rather than transmitted and a field built wrongly on both sides');
 lines.push('still opens (FINDINGS §12). *Published* counts the values of the COSE working');
-lines.push('group\'s examples both implementations reproduced; *refused* means each');
+lines.push('group\'s examples both implementations reproduced — or, marked *computed*, the');
+lines.push('values tools/EcdhCases computed where no example exists: independent of both');
+lines.push('implementations, but nobody\'s publication. *Refused* means each');
 lines.push('implementation declined, on its own, a message built to open for one that skipped');
 lines.push('the check.');
 lines.push('');
@@ -1497,12 +1522,13 @@ for (const testCase of vectors['cose-ecdh']) {
     }
 
     const agreed    = own.filter(v => v.check.startsWith('agree'));
-    const published = own.filter(v => v.check.includes('working group published'));
+    const published = own.filter(v => v.check.includes('working group published') || v.check.includes(' computed by '));
+    const computed  = testCase.computedBy !== undefined ? ' computed' : '';
     const toTS      = own.find(v => v.check === 'cross-open csharp→typescript');
     const toCS      = own.find(v => v.check === 'cross-open typescript→csharp');
 
     lines.push(`| ${testCase.id} | ${testCase.shape} | ${testCase.algorithm} | ${recipients} | ` +
-               `${published.length === 0 ? '—' : `${published.filter(v => v.pass).length}/${published.length}`} | ` +
+               `${published.length === 0 ? '—' : `${published.filter(v => v.pass).length}/${published.length}${computed}`} | ` +
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCS)} |`);
 
 }
