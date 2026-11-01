@@ -523,21 +523,23 @@ recipient structure does not depend on the body's context.
 means the same thing: AES-CBC-MAC (see §10), AES-CCM, ChaCha20/Poly1305, and
 ECDH key agreement with the HKDF-based key derivations. The last of those is
 filed with its reasons in §12, because it is the one omission here that is a
-decision rather than a gap.
+decision rather than a gap. *(Since 2026-11-01 ECDH-ES is built on both sides;
+§12 records how its conditions were met, and which one was not.)*
 
 The suite now stands at **454 (C#) / 418 (TypeScript) normative passes, 223
 cross-implementation agreements, zero failures**.
 
 
-## 12. ECDH-ES and the HKDF derivations: filed, with reasons (recorded 2026-08-19)
+## 12. ECDH-ES and the HKDF derivations: filed 2026-08-19, built 2026-11-01
 
-Not built, deliberately. Both implementations omit ECDH key agreement and the
-HKDF-based key derivations *identically*, which is what makes the omission
-honest: no row in the report is green because one side quietly agreed with the
-other about something neither of them performed.
-
-The reasons belong on the record, because "not yet" and "not worth it" look
-alike from outside and this is neither.
+Filed on 2026-08-19 as not built, deliberately, with the conditions that would
+change that. Built on 2026-11-01, on both sides at once: ECDH-ES + HKDF-256
+and + HKDF-512 (the agreed key *is* the content key), ECDH-ES + A128KW,
++ A192KW and + A256KW (the agreed key wraps it), on every EC2 curve both
+implementations compute with and on X25519 and X448 — in COSE.TS (`f561b5f`)
+and in Styx's `Illias/COSE` (`d438b6ee`), pinned here since `cc0361a`. Below,
+the reasoning of the original entry stands where it still holds, and each of
+its conditions is answered separately — one of them is not answered at all.
 
 ### The structure is derived, not transmitted
 
@@ -553,22 +555,18 @@ how many bits it should be, who is PartyU and who is PartyV. None of it
 travels. Both sides construct it independently, and the derivation succeeds
 when they happen to construct the same thing.
 
-Two consequences follow, and together they are this entry.
-
 **A mistake is self-consistent.** Sender and recipient run the same code, so a
-wrong field is wrong on both sides and the message opens perfectly. The
-implementation then interoperates with exactly one other implementation:
-itself. Vectors generated from the same lineage do not catch it, because they
-carry the same mistake. This is precisely the failure class this repository
-exists to find, and the only instrument that finds it is a second, independent
-implementation — which means implementing it *badly twice* would be worse than
-not implementing it at all.
+wrong field is wrong on both sides and the message opens perfectly. Vectors
+generated from the same lineage do not catch it, because they carry the same
+mistake. The only instrument that finds it is an independent party — which is
+why agreement between the two implementations here was never going to be
+enough on its own, and is not what the cases rest on.
 
-**A mistake is silent.** A wrong `Sig_structure` reports "signature invalid".
-A wrong KDF context reports "AEAD tag mismatch": two layers from the cause, and
-indistinguishable from a corrupted message, a wrong key or a flipped bit on the
-wire. AEAD is built to reveal nothing about why it failed, and it reveals
-nothing to the implementer either.
+**A mistake is silent.** A wrong KDF context reports "AEAD tag mismatch": two
+layers from the cause, and indistinguishable from a corrupted message, a wrong
+key or a flipped bit on the wire. The cases therefore record the context, the
+agreed secret and the derived key as values of their own, not only the message
+they end in.
 
 ### The fields that go wrong
 
@@ -585,73 +583,91 @@ every plausible misreading is a different eighteen bytes:
 | `keyDataLength` counted in bytes | `…83f6f6f682`**`10`**`44a1013818` |
 
 - **`AlgorithmID` names the algorithm the derived key will be used *for*, not
-  the recipient algorithm that derived it.** For `direct+HKDF-SHA-256`
-  protecting content with A128GCM the field holds `1`; for `ECDH-ES+A128KW` it
-  holds `-3`, because what comes out is a key-encryption key. `-25` belongs
-  nowhere in that field — it appears only inside the protected bytes carried
-  further down the same structure. Putting the recipient algorithm in the slot
-  is the most natural mistake available and yields code that looks right and
-  works.
+  the recipient algorithm that derived it**: `1` when ECDH-ES + HKDF-256
+  agrees an A128GCM key, `-3` when ECDH-ES + A128KW agrees a key-encryption
+  key. `-25` belongs only inside the protected bytes further down.
 - **`PartyInfo` is a group of three fields that are always present** and may be
-  `nil`. Reading "not needed" as "omitted" produces `80 80` where the RFC wants
-  `83f6f6f6 83f6f6f6`, and the CDDL does not obviously forbid it.
-- **`protected` is `empty_or_serialized_map`** — a zero-length byte string when
-  the bucket is empty, not the encoded empty map. The same trap as everywhere
-  else in COSE, in the one place with no error message.
+  `nil`.
+- **`protected` is `empty_or_serialized_map`**, the recipient's protected
+  bucket as it travels.
 - **`keyDataLength` counts bits.**
+
+The case `ecdh-direct-p256-cose-wg` pins the first row of that table as
+`expectedContext` — the working group's example uses the very context C.3.1
+prints — and the other two anchored cases pin theirs, including the `-3`-style
+AlgorithmID of key wrap (`A256KW`, `0x24`). Both implementations reproduce all
+three. What a recorded context establishes, and what it does not: it is
+encoded by each library's own encoder from the fields the RFC names, so it
+pins the encoder; that each library's *derivation* puts the same fields into
+it is pinned by the derived key and the message, both checked against the
+published values.
 
 ### The key agreement has edges of its own
 
 - **The shared secret is the x-coordinate alone, through I2OSP, left-padded to
-  the field size.** Not the point, not its DER encoding, not the minimal
-  integer. An implementation taking it from a big-integer library that strips
-  leading zeros is wrong roughly once in 256 messages on P-256 and P-384 — and
-  roughly *every second message* on P-521, whose top byte of sixty-six carries
-  a single bit. A defect that passes 255 of 256 fixed vectors and then fails
-  sporadically in the field, with no pattern, is the worst shape a defect can
-  have. Any vector set here has to include a key pair whose shared x-coordinate
-  begins with a zero byte, chosen on purpose.
-- **Static-Static derives the same secret every time.** Two static keys yield
-  one shared secret, so without a distinguishing input every message gets the
-  same content key — which under AES-GCM is nonce reuse by another route, with
-  correctly fresh nonces. RFC 9053 §6.3.1 makes `salt` or `PartyU nonce` a MUST
-  for exactly this, and permits a counter with the proviso that it be
-  persisted: a power failure at the wrong moment becomes a cryptographic
-  incident.
-- **Invalid-curve attacks.** The recipient key is always static. Without
-  validating the received ephemeral point, the agreement runs on a curve the
-  attacker chose, of smooth order; whether decryption succeeds is the oracle,
-  and the static private key falls out by the Chinese remainder theorem over a
-  few thousand messages. This has been demonstrated against real
-  implementations of JWE's ECDH-ES, COSE's sibling. RFC 9053 §6.3.1.1 says only
-  that *"there is a method of checking that points provided from external
-  entities are valid"* — no MUST — and, for OKP, that *"there is no simple way
-  to perform point validation"*; the substitute there is RFC 7748 §6.1's check
-  for an all-zero output, which catches small-order inputs.
-- **HKDF-AES-MAC cannot be combined with ECDH at all**, because it always skips
-  the extract step and an ECDH secret is not uniformly random. That rule lives
-  in one sentence of RFC 9053 §5.1 and in none of its tables.
+  the field size.** An implementation taking it from a big-integer library that
+  strips leading zeros is wrong roughly once in 256 messages on P-256 and
+  P-384, and roughly every second message on P-521. *Now covered:* two key
+  pairs found by searching — `ecdh-direct-p256-zero-leading-secret` and
+  `ecdh-key-wrap-p521-zero-leading-secret` — whose secrets begin with `00`, and
+  a check that each implementation's secret keeps that byte at full width
+  (32 and 66 bytes). Both do.
+- **Static-Static derives the same secret every time**, so RFC 9053 §6.3.1
+  makes `salt` or a PartyU nonce a MUST for it. *Moot here:* ECDH-SS is
+  implemented on neither side. What it would add is that the recipient learns
+  who sent the message, and a signature inside the envelope says that to
+  everybody. Salt and party information *are* supported for ECDH-ES and
+  covered by `ecdh-direct-salt-and-parties`.
+- **Invalid-curve attacks.** The recipient key is static; without validating
+  the received ephemeral point, the agreement runs on a curve the attacker
+  chose, and whether decryption succeeds is the oracle. RFC 9053 §6.3.1.1
+  names a check without making it a MUST, and for OKP has none; RFC 7748 §6.1's
+  check of the output for all zeroes is the substitute. *Now covered:* three
+  messages both implementations must refuse, each built by
+  `tools/EcdhCases` so that it **opens** for an implementation that skipped
+  the check — an ephemeral point of order two on a curve sharing P-256's `a`
+  but not its `b`, encrypted under the key its secret `x0` derives; and the
+  X25519 points u = 0 and u = 1, encrypted under the key the all-zero secret
+  derives. The second of those is the one an *input* check for zero lets
+  through and the *output* check catches. Both implementations refuse all
+  three, and refuse them at the key agreement — "none of the recipients
+  yielded a content key" — not at the AEAD tag.
+- **HKDF-AES-MAC cannot be combined with ECDH at all.** Not implemented on
+  either side, and not needed by anything implemented.
 
-### What would change the decision
+### The two conditions, one at a time
 
-Not the effort; it is not much code. Two other things:
+The original entry named two things that would change the decision, and said
+the effort was not one of them.
 
-- **A use case.** The metrological record is *signed*, and that is what gives
-  it standing with a third party; no key agreement changes that. Encryption
-  sits on the link beneath, where the parties are already provisioned and a
-  pre-shared secret with `direct` or key wrap covers the ground. ECDH earns its
-  keep when a content key must reach a party with whom nothing was shared in
-  advance — a situation this system does not currently have.
-- **Vectors that can actually falsify it.** Cross-implementation agreement is
-  not sufficient here, because agreement is precisely what a shared mistake
-  produces. It would need published third-party vectors (RFC 9052 Appendix C.3
-  and the COSE working group examples carry the ephemeral keys and the
-  resulting messages), plus the zero-byte x-coordinate case above, plus
-  point-validation cases that have to be *rejected* rather than merely
-  disagreed about.
+**Vectors that can actually falsify it — answered.** Required were published
+third-party vectors, a zero-byte x-coordinate chosen on purpose, and
+point-validation cases that must be *rejected* rather than merely disagreed
+about. All three are in `vectors/cose-ecdh.json`, and the third-party part
+runs twice over: both libraries' own test suites carry all 31
+ephemeral-static ECDH examples of the COSE working group, checked at every
+intermediate they publish; here three of them are anchored with their
+published secret, context, key and message. The generator of the cases depends
+on neither implementation — only on the noble primitives, with the CBOR, the
+KDF context, the COSE structures and the attack points written out by hand —
+and refuses to write anything unless it first reproduces the working group's
+`p256-hkdf-256-01` byte for byte. Beyond the published examples the two
+implementations meet on X448, brainpool, P-384, secp256k1, salt and party
+information and two recipients, and write identical bytes throughout.
 
-Until both hold, the honest position is the one both READMEs already state:
-not implemented, on both sides, for the same stated reason.
+**A use case — open, and not this repository's to answer.** The entry said:
+ECDH earns its keep when a content key must reach a party with whom nothing was
+shared in advance, *a situation this system does not currently have*. Building
+it answers the second condition and not this one. Whether the system has, or
+will have, such a party is a decision about the system rather than about the
+implementations, and it lies with the maintainer, who has said he will take
+it later. Until then the honest position is: implemented and tested, on both
+sides, identically — and not yet called for.
+
+The suite now stands at **568 (C#) / 532 (TypeScript) normative passes, 334
+cross-implementation agreements, zero failures, zero divergences**; the
+thirteen ECDH-ES cases account for 26 of each side's passes and 66 of the
+agreements.
 
 
 ## 13. Symmetry audit of the two implementations (added 2026-08-19)
@@ -677,6 +693,7 @@ authenticated data, `crit`, RFC 9338 countersignatures, `x5chain`/`x5t`,
 several signers, recipients by `direct` and key wrap — and so do the
 deliberate omissions: `COSE_Countersignature0`, `x5bag`, `x5u`, AES-CBC-MAC
 (§10), AES-CCM, ChaCha20/Poly1305, ECDH with the HKDF derivations (§12).
+*(ECDH-ES has since been built on both sides, identically; see §12.)*
 
 One candidate finding did not survive checking. `CoseEncrypt0` and
 `CoseEncrypt` share a source file in the TypeScript implementation, so a

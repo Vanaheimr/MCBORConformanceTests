@@ -83,6 +83,7 @@ for (const name of ['values.json', 'values-invalid.json', 'documents.json', 'jso
 // they are not what a metrological value *is*: COSE is how one is signed, and
 // cbor-robustness is the layer beneath the one the specification describes.
 for (const name of ['cose-sign.json', 'cose-crit.json', 'cose-mac0.json', 'cose-encrypt.json',
+                    'cose-ecdh.json',
                     'cose-x509.json', 'cbor-robustness.json', 'default-encoding.json',
                     'default-readings.json', 'json-escapes.json', 'json-tags.json']) {
     const suite = JSON.parse(readFileSync(join(coseDir, name), 'utf8'));
@@ -152,6 +153,20 @@ function crossVectorsFrom(sourceResults) {
     // the message deliberately does not carry it.
     for (const testCase of vectors['cose-encrypt']) {
         const recorded = sourceResults.results[`cose-encrypt:${testCase.id}`];
+        if (recorded?.message?.status === 'ok')
+            encCases.push({ ...testCase,
+                            id: `xenc-${testCase.id}`,
+                            message: recorded.message.hex,
+                            detachedCiphertext: recorded.ciphertext?.hex });
+    }
+
+    // ECDH-ES rides the same cross-feed: its ids carry an ecdh- prefix, so
+    // they cannot meet the cose-encrypt ones. A case that has to be refused
+    // was never produced by anybody and has nothing to hand over.
+    for (const testCase of vectors['cose-ecdh']) {
+        if (testCase.expected === 'reject')
+            continue;
+        const recorded = sourceResults.results[`cose-ecdh:${testCase.id}`];
         if (recorded?.message?.status === 'ok')
             encCases.push({ ...testCase,
                             id: `xenc-${testCase.id}`,
@@ -950,6 +965,105 @@ for (const testCase of vectors['cose-encrypt']) {
 }
 
 
+// --- suite: cose-ecdh, a content key agreed rather than shared ---
+
+/**
+ * What the ECDH-ES cases add to the agreements of cose-encrypt: the raw
+ * secret, the encoded COSE_KDF_Context and, for direct agreement, the derived
+ * content key. FINDINGS §12 is why: the context is derived rather than
+ * transmitted, so a field built wrongly on both sides still opens, and the
+ * message bytes cannot tell the two causes apart.
+ */
+const ECDH_AGREEMENTS = [
+    ['secret',     'the agreed ECDH secret'],
+    ['kdfContext', 'the derived key-derivation context'],
+    ['agreedKey',  'the directly agreed content key'],
+];
+
+/** What the COSE working group published, which no agreement can supply. */
+const ECDH_PUBLISHED = [
+    ['expectedSecret',  'secret',     'the secret the working group published'],
+    ['expectedContext', 'kdfContext', 'the COSE_KDF_Context the working group published'],
+    ['expectedKey',     'agreedKey',  'the content key the working group published'],
+    ['expectedMessage', 'message',    'the message the working group published'],
+];
+
+for (const testCase of vectors['cose-ecdh']) {
+
+    const key   = `cose-ecdh:${testCase.id}`;
+    const klass = testCase.class ?? 'normative';
+
+    // A message built so that it opens for whoever skipped a check: each
+    // implementation has to refuse it on its own. Failing to read it counts as
+    // refusing; opening it is the one wrong answer.
+    if (testCase.expected === 'reject') {
+        for (const [impl, results] of impls) {
+            const opened = checkOf(results, key, 'open');
+            judge(testCase.id, 'refuses', impl, klass,
+                  opened?.status === 'error' || (opened?.status === 'ok' && opened.verified === false),
+                  `must refuse (${testCase.reason}): ${describe(opened)}`);
+        }
+        continue;
+    }
+
+    for (const [check, what] of [...ENCRYPT_AGREEMENTS, ...ECDH_AGREEMENTS]) {
+
+        const mine  = checkOf(csharp, key, check);
+        const yours = checkOf(ts,     key, check);
+
+        if (mine === undefined && yours === undefined)
+            continue;
+
+        judge(testCase.id, `agree on ${what}`, 'csharp↔typescript', klass,
+              mine?.status === 'ok' && mine.hex !== undefined && mine.hex === yours?.hex,
+              `C#: ${describe(mine)} / TS: ${describe(yours)}`);
+
+    }
+
+    for (const [field, check, what] of ECDH_PUBLISHED) {
+        if (testCase[field] === undefined)
+            continue;
+        for (const [impl, results] of impls) {
+            const recorded = checkOf(results, key, check);
+            judge(testCase.id, what, impl, klass,
+                  recorded?.status === 'ok' && recorded.hex === testCase[field], describe(recorded));
+        }
+    }
+
+    // The I2OSP padding trap: a secret that begins with a zero byte has to keep
+    // it. This is a property of the bytes and needs nobody's published value.
+    if (testCase.secretLeadsWithZero === true) {
+        for (const [impl, results] of impls) {
+            const secret = checkOf(results, key, 'secret');
+            judge(testCase.id, 'keeps the leading zero byte of the secret', impl, klass,
+                  secret?.status === 'ok' && secret.hex.length === testCase.secretLength * 2 && secret.hex.startsWith('00'),
+                  describe(secret));
+        }
+    }
+
+    for (const [impl, own, otherName, otherCross] of [
+             ['csharp', csharp, 'typescript', tsCross],
+             ['typescript', ts, 'csharp', csharpCross]]) {
+
+        const message = checkOf(own, key, 'message');
+
+        if (message?.status !== 'ok') {
+            judge(testCase.id, `cross-open ${impl}→${otherName}`, otherName, klass, false,
+                  `${impl} produced no message to open: ${describe(message)}`);
+            continue;
+        }
+
+        const opened = checkOf(otherCross, `cose-decrypt:xenc-${testCase.id}`, 'open');
+
+        judge(testCase.id, `cross-open ${impl}→${otherName}`, otherName, klass,
+              opened?.status === 'ok' && opened.verified === true,
+              `${otherName} opening the message produced by ${impl}: ${describe(opened)}`);
+
+    }
+
+}
+
+
 // --- suite: cose-x509, the certificate chains ---
 
 /**
@@ -1073,7 +1187,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
-lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), default-readings (${vectors['default-readings'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
+lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-ecdh (${vectors['cose-ecdh'].length}), cose-x509 (${vectors['cose-x509'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), default-readings (${vectors['default-readings'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -1347,6 +1461,48 @@ for (const testCase of vectors['cose-encrypt']) {
     const recipients = (testCase.recipients ?? []).map(each => each.algorithm).join(' + ') || '—';
 
     lines.push(`| ${testCase.id} | ${testCase.shape} | ${testCase.algorithm} | ${recipients} | ` +
+               `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCS)} |`);
+
+}
+
+lines.push('');
+
+// --- COSE ECDH-ES ---
+
+lines.push('## A content key agreed rather than shared: ECDH-ES');
+lines.push('');
+lines.push('ECDH-ES with HKDF (RFC 9053 §6.3): the content key reaches a party whose public');
+lines.push('key is all the sender knows. Beyond the agreements above, each case records the');
+lines.push('agreed secret, the encoded `COSE_KDF_Context` and the derived key, because the');
+lines.push('context is derived rather than transmitted and a field built wrongly on both sides');
+lines.push('still opens (FINDINGS §12). *Published* counts the values of the COSE working');
+lines.push('group\'s examples both implementations reproduced; *refused* means each');
+lines.push('implementation declined, on its own, a message built to open for one that skipped');
+lines.push('the check.');
+lines.push('');
+lines.push('| Case | Shape | Algorithm | Recipients | Published | Bytes agree | C#→TS | TS→C# |');
+lines.push('|---|---|---|---|---|---|---|---|');
+
+for (const testCase of vectors['cose-ecdh']) {
+
+    const own        = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
+    const mark       = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    const recipients = (testCase.recipients ?? []).map(each => `${each.algorithm} (${each.curve})`).join(' + ');
+
+    if (testCase.expected === 'reject') {
+        const refused = own.filter(v => v.check === 'refuses');
+        lines.push(`| ${testCase.id} | must refuse | ${testCase.algorithm} | ${recipients} | — | — | ` +
+                   `refused by ${refused.filter(v => v.pass).length}/${refused.length} | |`);
+        continue;
+    }
+
+    const agreed    = own.filter(v => v.check.startsWith('agree'));
+    const published = own.filter(v => v.check.includes('working group published'));
+    const toTS      = own.find(v => v.check === 'cross-open csharp→typescript');
+    const toCS      = own.find(v => v.check === 'cross-open typescript→csharp');
+
+    lines.push(`| ${testCase.id} | ${testCase.shape} | ${testCase.algorithm} | ${recipients} | ` +
+               `${published.length === 0 ? '—' : `${published.filter(v => v.pass).length}/${published.length}`} | ` +
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ${mark(toTS)} | ${mark(toCS)} |`);
 
 }

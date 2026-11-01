@@ -91,6 +91,13 @@ foreach (var vectorFile in vectorFiles)
                 case "cose-verify":    RunCoseVerify   (testCase, checks); break;
 
                 case "cose-encrypt":     RunCoseEncrypt   (testCase, checks); break;
+
+                // ECDH-ES runs through the same machinery; a case that has to
+                // be refused carries the message and is only ever opened.
+                case "cose-ecdh":
+                    if (testCase["expected"]?.GetValue<String>() == "reject") RunCoseDecrypt(testCase, checks);
+                    else                                                      RunCoseEncrypt(testCase, checks);
+                    break;
                 case "cose-decrypt":     RunCoseDecrypt   (testCase, checks); break;
                 case "cose-mac0":        RunCoseMac0      (testCase, checks); break;
                 case "cose-mac0-verify": RunCoseMac0Verify(testCase, checks); break;
@@ -706,6 +713,154 @@ static COSEKey SymmetricKeyOf(String KeyHex, String? AlgorithmName = null, Strin
 }
 
 
+// One recipient as a vector describes it. For "direct" and key wrap the key is
+// the symmetric key the recipient holds; for ECDH-ES it is the recipient's
+// private key on the named curve, and "ephemeral" the sender's private key made
+// for the one message, given rather than drawn so that the bytes stay
+// comparable.
+
+static Boolean IsECDH(JsonNode? Entry)
+
+    => Entry?["algorithm"]?.GetValue<String>().StartsWith("ECDH-ES") == true;
+
+/// <summary>
+/// A private key on the curve a vector names, from its raw private key.
+/// </summary>
+static COSEKey ECDHKeyOf(String CurveName, String KeyHex, String? KeyIdentifier = null)
+{
+
+    var curve = COSECurve.Parse(CurveName);
+    var d     = Convert.FromHexString(KeyHex);
+    var kid   = KeyIdentifier is not null ? Convert.FromHexString(KeyIdentifier) : null;
+
+    return curve == COSECurve.X25519 ? COSEKey.From(new X25519PrivateKeyParameters(d, 0), kid)
+         : curve == COSECurve.X448   ? COSEKey.From(new X448PrivateKeyParameters  (d, 0), kid)
+         :                             COSEKey.From(new ECPrivateKeyParameters("ECDH", new BigInteger(1, d), curve.DomainParameters!), kid);
+
+}
+
+static COSEPartyInfo? PartyOf(JsonNode? Party)
+{
+
+    if (Party is null)
+        return null;
+
+    var nonce = Party["nonce"];
+
+    return new COSEPartyInfo(
+               Party["identity"] is not null ? Convert.FromHexString(Party["identity"]!.GetValue<String>()) : null,
+               nonce is null                                    ? (CBORValue?) null
+             : nonce.GetValueKind() == JsonValueKind.Number     ? CBORValue.FromInt64(nonce.GetValue<Int64>())
+             :                                                    CBORValue.FromBytes(Convert.FromHexString(nonce.GetValue<String>())),
+               Party["other"]    is not null ? Convert.FromHexString(Party["other"]!.GetValue<String>())    : null
+           );
+
+}
+
+static Byte[]? SaltOf(JsonNode Entry)
+
+    => Entry["salt"] is not null ? Convert.FromHexString(Entry["salt"]!.GetValue<String>()) : null;
+
+/// <summary>
+/// The recipient's public key and the sender's ephemeral private key of an
+/// ECDH-ES entry.
+/// </summary>
+static (COSEKey Recipient, COSEKey Ephemeral) ECDHPartiesOf(JsonNode Entry)
+{
+
+    var recipient = ECDHKeyOf(Entry["curve"]!.GetValue<String>(),
+                              Entry["key"]!.GetValue<String>(),
+                              Entry["keyIdentifier"]?.GetValue<String>());
+
+    return (COSEKey.From(recipient.ToPublicKey(), recipient.KeyIdentifier),
+            ECDHKeyOf(Entry["curve"]!.GetValue<String>(), Entry["ephemeral"]!.GetValue<String>()));
+
+}
+
+/// <summary>
+/// The key a party opening the message holds for a recipient entry.
+/// </summary>
+static COSEKey OpeningKeyOf(JsonNode Entry)
+
+    => IsECDH(Entry)
+           ? ECDHKeyOf(Entry["curve"]!.GetValue<String>(), Entry["key"]!.GetValue<String>(), Entry["keyIdentifier"]?.GetValue<String>())
+           : SymmetricKeyOf(Entry["key"]!.GetValue<String>());
+
+/// <summary>
+/// The content key and the recipients of an enveloped case. With a direct
+/// ECDH-ES recipient the content key is not given but agreed, so it comes out
+/// of the recipient rather than going into it.
+/// </summary>
+static (COSEKey ContentKey, List<COSERecipient> Recipients) ContentKeyAndRecipientsOf(JsonObject TestCase)
+{
+
+    var first = TestCase["recipients"]?.AsArray().FirstOrDefault();
+
+    if (IsECDH(first) &&
+        COSEAlgorithm.Parse(first!["algorithm"]!.GetValue<String>()).Family == COSEAlgorithmFamily.ECDHDirect)
+    {
+
+        var (recipient, ephemeral) = ECDHPartiesOf(first);
+
+        var (structure, agreedKey) = COSERecipient.ECDHDirect(recipient,
+                                                              ephemeral,
+                                                              COSEAlgorithm.Parse(TestCase["algorithm"]!.GetValue<String>()),
+                                                              COSEAlgorithm.Parse(first["algorithm"]!.GetValue<String>()),
+                                                              SaltOf(first),
+                                                              PartyOf(first["partyU"]),
+                                                              PartyOf(first["partyV"]));
+
+        return (agreedKey, [structure]);
+
+    }
+
+    var contentKey = SymmetricKeyOf(TestCase["key"]!.GetValue<String>(),
+                                    TestCase["algorithm"]!.GetValue<String>(),
+                                    TestCase["keyIdentifier"]?.GetValue<String>());
+
+    return (contentKey, RecipientsOf(TestCase, contentKey.K!));
+
+}
+
+/// <summary>
+/// What an ECDH-ES recipient adds to the record: the raw secret, the encoded
+/// COSE_KDF_Context and - for direct agreement - the derived content key.
+///
+/// The message bytes alone cannot isolate these. COSE_KDF_Context is derived
+/// rather than transmitted, so a field built wrongly on both sides opens
+/// perfectly, and where it does break it reports an AEAD failure two layers
+/// from the cause (FINDINGS §12). The context is encoded by the library's own
+/// encoder from what the RFC says goes into it; that the library's derivation
+/// puts the same into it is what the derived key and the published bytes
+/// establish.
+/// </summary>
+static void RecordECDH(JsonObject TestCase, COSEKey ContentKey, List<COSERecipient> Recipients, JsonObject Checks)
+{
+
+    var first = TestCase["recipients"]?.AsArray().FirstOrDefault();
+
+    if (!IsECDH(first))
+        return;
+
+    var algorithm              = COSEAlgorithm.Parse(first!["algorithm"]!.GetValue<String>());
+    var direct                 = algorithm.Family == COSEAlgorithmFamily.ECDHDirect;
+    var (recipient, ephemeral) = ECDHPartiesOf(first);
+
+    Checks["secret"]     = Capture(() => OkHex(Convert.ToHexString(COSEKeyAgreement.SharedSecret(ephemeral, recipient))));
+
+    Checks["kdfContext"] = Capture(() => OkHex(Convert.ToHexString(COSEKeyAgreement.KDFContext(
+                               direct ? COSEAlgorithm.Parse(TestCase["algorithm"]!.GetValue<String>())
+                                      : COSEAlgorithm.ForKeyWrap(algorithm.KeySizeInBytes!.Value),
+                               direct ? ContentKey.K!.Length : algorithm.KeySizeInBytes!.Value,
+                               Recipients[0].ProtectedHeaderBytes,
+                               PartyOf(first["partyU"]),
+                               PartyOf(first["partyV"])))));
+
+    if (direct)
+        Checks["agreedKey"] = Capture(() => OkHex(Convert.ToHexString(ContentKey.K!)));
+
+}
+
 static List<COSERecipient> RecipientsOf(JsonObject TestCase, Byte[] ContentKey)
 {
 
@@ -719,6 +874,18 @@ static List<COSERecipient> RecipientsOf(JsonObject TestCase, Byte[] ContentKey)
 
         var recipient  = entry!.AsObject();
         var algorithm  = recipient["algorithm"]!.GetValue<String>();
+
+        if (IsECDH(recipient))
+        {
+
+            var (theirs, ephemeral) = ECDHPartiesOf(recipient);
+
+            recipients.Add(COSERecipient.ECDHKeyWrap(ContentKey, theirs, ephemeral, COSEAlgorithm.Parse(algorithm),
+                                                     SaltOf(recipient), PartyOf(recipient["partyU"]), PartyOf(recipient["partyV"])));
+
+            continue;
+
+        }
 
         var key = SymmetricKeyOf(recipient["key"]!.GetValue<String>(),
                                  null,
@@ -748,10 +915,6 @@ static void RunCoseEncrypt(JsonObject TestCase, JsonObject Checks)
 {
 
     var shape        = TestCase["shape"]!.GetValue<String>();
-    var contentKey   = SymmetricKeyOf(TestCase["key"]!.GetValue<String>(),
-                                      TestCase["algorithm"]!.GetValue<String>(),
-                                      TestCase["keyIdentifier"]?.GetValue<String>());
-
     var payload      = Convert.FromHexString(TestCase["payload"]!.GetValue<String>());
     var externalAAD  = TestCase["externalAad"] is null
                            ? null
@@ -765,6 +928,9 @@ static void RunCoseEncrypt(JsonObject TestCase, JsonObject Checks)
         case "encrypt0":
         {
 
+            var contentKey = SymmetricKeyOf(TestCase["key"]!.GetValue<String>(),
+                                            TestCase["algorithm"]!.GetValue<String>(),
+                                            TestCase["keyIdentifier"]?.GetValue<String>());
             var iv       = Convert.FromHexString(TestCase["iv"]!.GetValue<String>());
             var message  = COSEEncrypt0.Encrypt(payload, contentKey, iv, externalAAD, detached, tagged);
 
@@ -781,8 +947,11 @@ static void RunCoseEncrypt(JsonObject TestCase, JsonObject Checks)
         case "encrypt":
         {
 
-            var iv          = Convert.FromHexString(TestCase["iv"]!.GetValue<String>());
-            var recipients  = RecipientsOf(TestCase, contentKey.K!);
+            var iv                       = Convert.FromHexString(TestCase["iv"]!.GetValue<String>());
+            var (contentKey, recipients) = ContentKeyAndRecipientsOf(TestCase);
+
+            RecordECDH(TestCase, contentKey, recipients, Checks);
+
             var message     = COSEEncrypt.Encrypt(payload, contentKey, recipients, iv, externalAAD, detached, tagged);
 
             Checks["toBeEncrypted"] = Capture(() => OkHex(Convert.ToHexString(message.ToBeEncrypted(externalAAD))));
@@ -797,7 +966,10 @@ static void RunCoseEncrypt(JsonObject TestCase, JsonObject Checks)
         case "mac":
         {
 
-            var recipients  = RecipientsOf(TestCase, contentKey.K!);
+            var (contentKey, recipients) = ContentKeyAndRecipientsOf(TestCase);
+
+            RecordECDH(TestCase, contentKey, recipients, Checks);
+
             var message     = COSEMac.Create(payload, contentKey, recipients, externalAAD, detached, tagged);
 
             Checks["toBeEncrypted"] = Capture(() => OkHex(Convert.ToHexString(
@@ -841,7 +1013,7 @@ static void RunCoseDecrypt(JsonObject TestCase, JsonObject Checks)
         // Whoever opens the message holds a recipient key, or - for the bare
         // form - the content key itself.
         var recipientKey = TestCase["recipients"] is not null && TestCase["recipients"]!.AsArray().Count > 0
-                               ? SymmetricKeyOf(TestCase["recipients"]![0]!["key"]!.GetValue<String>())
+                               ? OpeningKeyOf(TestCase["recipients"]![0]!)
                                : SymmetricKeyOf(TestCase["key"]!.GetValue<String>(), TestCase["algorithm"]!.GetValue<String>());
 
         if (shape == "mac")

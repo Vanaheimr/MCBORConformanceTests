@@ -39,9 +39,20 @@ migrated, and neither half of it can be tested by one implementation alone.
 
 A third strand is **message authentication and encryption** — `COSE_Mac0` and
 `COSE_Mac` with HMAC, `COSE_Encrypt0` and `COSE_Encrypt` with AES-GCM, and the
-recipient structures that carry a content key by `direct` or AES key wrap.
-These need no arrangement to be compared beyond the vector supplying the key
-and the nonce: everything about them is deterministic once those are fixed.
+recipient structures that carry a content key by `direct`, by AES key wrap, or
+by ECDH-ES with HKDF — agreed with a recipient whose public key is all the
+sender knows. These need no arrangement to be compared beyond the vector
+supplying the key and the nonce, and for ECDH-ES the sender's ephemeral key:
+everything about them is deterministic once those are fixed.
+
+ECDH-ES gets more than agreement, for the reason FINDINGS §12 gives: its
+`COSE_KDF_Context` is derived rather than transmitted, so a mistake made on both
+sides opens perfectly. Its cases therefore also record the agreed secret, the
+context and the derived key; check them against the COSE working group's
+published examples; include a key pair whose shared secret begins with a zero
+byte, found on purpose; and carry three messages that both implementations must
+*refuse*, each built so that it opens for an implementation which skipped the
+point check.
 
 They are included for what they make visible rather than for what they protect.
 A tag proves nothing to anyone who cannot also produce it; an encrypted message
@@ -71,6 +82,7 @@ misreading.
 | `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
 | `vectors/` | the suites that are not what a metrological value *is*, and so do not belong in the specification's annex: COSE cross-signing, authentication, encryption, `crit` and certificate chains — COSE is how a value is signed — plus `cbor-robustness` (the layer beneath the one the specification describes) `default-encoding` (what each library writes with its own default options, which is the one path every other suite bypasses) `json-escapes` (string escapes, which no JSON-carrying vector had ever contained) and `json-tags` (one case per row of the conversion table that nothing had reached) |
 | `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — fifteen certificates, deterministically, so it can be regenerated and diffed rather than believed |
+| `tools/EcdhCases/` | generates `vectors/cose-ecdh.json` from the noble primitives alone, independently of both implementations under test, and refuses to write anything unless it first reproduces a published working-group example byte for byte |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |
@@ -120,6 +132,11 @@ draw and is deterministic whether or not anybody asks — and the variant of
 FIPS 204 whose per-signature randomness is 32 zero bytes for ML-DSA, where
 RFC 9964 declines to choose. Randomized signing is exercised by the
 cross-verification instead, which accepts either.
+
+The second departure is ECDH-ES's ephemeral key, which the vectors give rather
+than letting each side draw one, for the same reason: a key drawn per message
+would make the bytes incomparable. Both libraries take it from the caller for
+that purpose, as they take the nonce and the content key.
 
 ## Continuous integration
 

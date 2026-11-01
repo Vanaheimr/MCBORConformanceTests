@@ -45,11 +45,14 @@ import {
     CoseSign,
     CoseSign1,
     curveByName,
+    ecdhSharedSecret,
     HeaderLabel,
+    kdfContext,
+    keyWrapAlgorithmFor,
     label,
     X509Certificate,
 } from '../../libs/COSE.TS/src/index.ts';
-import type { CborEntry, CoseSignature, Verification } from '../../libs/COSE.TS/src/index.ts';
+import type { CborEntry, CoseSignature, PartyInfo, Verification } from '../../libs/COSE.TS/src/index.ts';
 
 
 type Check = Record<string, unknown>;
@@ -133,7 +136,7 @@ interface VectorCase {
 
     // cose-encrypt / cose-decrypt
     iv?:               string;
-    recipients?:       { algorithm: string; key: string; keyIdentifier?: string }[];
+    recipients?:       RecipientEntry[];
     expectedTag?:      string;
     expectedWrapped?:  string;
     detachedCiphertext?: string;
@@ -679,10 +682,95 @@ function symmetricKeyOf(keyHex: string, algorithmName?: string, keyIdentifier?: 
 }
 
 
+/**
+ * One recipient as a vector describes it. For "direct" and key wrap the key is
+ * the symmetric key the recipient holds; for ECDH-ES it is the recipient's
+ * private key on the named curve, and `ephemeral` the sender's private key
+ * made for the one message, given rather than drawn so that the bytes stay
+ * comparable.
+ */
+interface RecipientEntry {
+    algorithm:       string;
+    key:             string;
+    keyIdentifier?:  string;
+    curve?:          string;
+    ephemeral?:      string;
+    salt?:           string;
+    partyU?:         { identity?: string; nonce?: string | number; other?: string };
+    partyV?:         { identity?: string; nonce?: string | number; other?: string };
+}
+
+const isEcdh = (entry: RecipientEntry | undefined): boolean =>
+    entry?.algorithm.startsWith('ECDH-ES') === true;
+
+/** A private key on the curve a vector names, from its raw private key. */
+function ecdhKeyOf(curveName: string, keyHex: string, keyIdentifier?: string): CoseKey {
+
+    const curve = curveByName(curveName);
+
+    if (curve === null)
+        throw new Error(`Unknown curve '${curveName}'`);
+
+    return CoseKey.fromPrivateScalar(curve, hexToBytes(keyHex),
+                                     keyIdentifier !== undefined ? { keyIdentifier: hexToBytes(keyIdentifier) } : {});
+
+}
+
+function partyOf(party: RecipientEntry['partyU']): PartyInfo | undefined {
+
+    if (party === undefined)
+        return undefined;
+
+    return {
+        identity:  party.identity !== undefined ? hexToBytes(party.identity) : null,
+        nonce:     typeof party.nonce === 'number' ? party.nonce
+                 : party.nonce !== undefined       ? hexToBytes(party.nonce)
+                 :                                   null,
+        other:     party.other !== undefined ? hexToBytes(party.other) : null,
+    };
+
+}
+
+function ecdhOptionsOf(entry: RecipientEntry) {
+    return {
+        ...(entry.salt   !== undefined ? { salt:   hexToBytes(entry.salt) } : {}),
+        ...(entry.partyU !== undefined ? { partyU: partyOf(entry.partyU)! } : {}),
+        ...(entry.partyV !== undefined ? { partyV: partyOf(entry.partyV)! } : {}),
+    };
+}
+
+/** The recipient's public key and the sender's ephemeral private key of an ECDH-ES entry. */
+function ecdhPartiesOf(entry: RecipientEntry): { recipient: CoseKey; ephemeral: CoseKey } {
+    return {
+        recipient:  ecdhKeyOf(entry.curve!, entry.key, entry.keyIdentifier).publicKey(),
+        ephemeral:  ecdhKeyOf(entry.curve!, entry.ephemeral!),
+    };
+}
+
+/** The key a party opening the message holds for a recipient entry. */
+function openingKeyOf(entry: RecipientEntry): CoseKey {
+    return isEcdh(entry)
+               ? ecdhKeyOf(entry.curve!, entry.key, entry.keyIdentifier)
+               : symmetricKeyOf(entry.key);
+}
+
 /** The recipient structures a case describes. */
 function recipientsOf(testCase: VectorCase, contentKey: Uint8Array): CoseRecipient[] {
 
     return (testCase.recipients ?? []).map(entry => {
+
+        if (isEcdh(entry)) {
+
+            const algorithm = algorithmByName(entry.algorithm);
+
+            if (algorithm === null)
+                throw new Error(`Unknown algorithm '${entry.algorithm}'`);
+
+            const { recipient, ephemeral } = ecdhPartiesOf(entry);
+
+            return CoseRecipient.ecdhKeyWrap(contentKey, recipient, ephemeral, algorithm, ecdhOptionsOf(entry));
+
+        }
 
         const key = symmetricKeyOf(entry.key, undefined, entry.keyIdentifier);
 
@@ -691,6 +779,76 @@ function recipientsOf(testCase: VectorCase, contentKey: Uint8Array): CoseRecipie
                    : CoseRecipient.keyWrap(contentKey, key);
 
     });
+
+}
+
+/**
+ * The content key and the recipients of an enveloped case. With a direct
+ * ECDH-ES recipient the content key is not given but agreed, so it comes out
+ * of the recipient rather than going into it.
+ */
+function contentKeyAndRecipientsOf(testCase: VectorCase): { contentKey: CoseKey; recipients: CoseRecipient[] } {
+
+    const first = testCase.recipients?.[0];
+
+    if (first !== undefined && isEcdh(first) && algorithmByName(first.algorithm)?.family === 'ecdh-direct') {
+
+        const content = algorithmByName(testCase.algorithm!);
+
+        if (content === null)
+            throw new Error(`Unknown algorithm '${testCase.algorithm!}'`);
+
+        const { recipient, ephemeral } = ecdhPartiesOf(first);
+        const agreed = CoseRecipient.ecdhDirect(recipient, ephemeral, content,
+                                                { ...ecdhOptionsOf(first), algorithm: algorithmByName(first.algorithm)! });
+
+        return { contentKey: agreed.contentKey, recipients: [agreed.recipient] };
+
+    }
+
+    const contentKey = symmetricKeyOf(testCase.key!, testCase.algorithm, testCase.keyIdentifier);
+
+    return { contentKey, recipients: recipientsOf(testCase, contentKey.privateKeyBytes()) };
+
+}
+
+/**
+ * What an ECDH-ES recipient adds to the record: the raw secret, the encoded
+ * COSE_KDF_Context and — for direct agreement — the derived content key.
+ *
+ * The message bytes alone cannot isolate these. COSE_KDF_Context is derived
+ * rather than transmitted, so a field built wrongly on both sides opens
+ * perfectly, and where it does break it reports an AEAD failure two layers
+ * from the cause (FINDINGS §12). The context is encoded by the library's own
+ * encoder from what the RFC says goes into it; that the library's derivation
+ * puts the same into it is what the derived key and the published bytes
+ * establish.
+ */
+function recordEcdh(testCase: VectorCase, contentKey: CoseKey, recipients: CoseRecipient[],
+                    checks: Record<string, Check>): void {
+
+    const first = testCase.recipients?.[0];
+
+    if (first === undefined || !isEcdh(first))
+        return;
+
+    const algorithm = algorithmByName(first.algorithm)!;
+    const direct    = algorithm.family === 'ecdh-direct';
+    const { recipient, ephemeral } = ecdhPartiesOf(first);
+
+    checks['secret']     = capture(() => okHex(bytesToHex(
+        ecdhSharedSecret(recipient.curve!, ephemeral.privateKeyBytes(), recipient.publicKeyBytes()))));
+
+    checks['kdfContext'] = capture(() => okHex(bytesToHex(kdfContext({
+        algorithmId:     direct ? algorithmByName(testCase.algorithm!)!.id : keyWrapAlgorithmFor(algorithm.keySize!).id,
+        keyLength:       direct ? contentKey.privateKeyBytes().length : algorithm.keySize!,
+        protectedBytes:  recipients[0]!.protectedHeaderBytes,
+        ...(first.partyU !== undefined ? { partyU: partyOf(first.partyU)! } : {}),
+        ...(first.partyV !== undefined ? { partyV: partyOf(first.partyV)! } : {}),
+    }))));
+
+    if (direct)
+        checks['agreedKey'] = capture(() => okHex(bytesToHex(contentKey.privateKeyBytes())));
 
 }
 
@@ -706,7 +864,6 @@ function recipientsOf(testCase: VectorCase, contentKey: Uint8Array): CoseRecipie
  */
 function runCoseEncrypt(testCase: VectorCase, checks: Record<string, Check>): void {
 
-    const contentKey = symmetricKeyOf(testCase.key!, testCase.algorithm, testCase.keyIdentifier);
     const payload    = hexToBytes(testCase.payload!);
     const external   = optionalBytes(testCase.externalAad);
     const detached   = testCase.detached === true;
@@ -715,6 +872,8 @@ function runCoseEncrypt(testCase: VectorCase, checks: Record<string, Check>): vo
     switch (testCase.shape) {
 
         case 'encrypt0': {
+
+            const contentKey = symmetricKeyOf(testCase.key!, testCase.algorithm, testCase.keyIdentifier);
 
             const message = CoseEncrypt0.encrypt(payload, contentKey, {
                                 iv:            hexToBytes(testCase.iv!),
@@ -735,7 +894,9 @@ function runCoseEncrypt(testCase: VectorCase, checks: Record<string, Check>): vo
 
         case 'encrypt': {
 
-            const recipients = recipientsOf(testCase, contentKey.privateKeyBytes());
+            const { contentKey, recipients } = contentKeyAndRecipientsOf(testCase);
+
+            recordEcdh(testCase, contentKey, recipients, checks);
 
             const message = CoseEncrypt.encrypt(payload, contentKey, recipients, {
                                 iv:            hexToBytes(testCase.iv!),
@@ -755,7 +916,9 @@ function runCoseEncrypt(testCase: VectorCase, checks: Record<string, Check>): vo
 
         case 'mac': {
 
-            const recipients = recipientsOf(testCase, contentKey.privateKeyBytes());
+            const { contentKey, recipients } = contentKeyAndRecipientsOf(testCase);
+
+            recordEcdh(testCase, contentKey, recipients, checks);
 
             const message = CoseMac.create(payload, contentKey, recipients, {
                                 externalAad:   external,
@@ -793,7 +956,7 @@ function runCoseDecrypt(testCase: VectorCase, checks: Record<string, Check>): vo
         // Whoever opens the message holds a recipient key, or — for the bare
         // form — the content key itself.
         const key = testCase.recipients !== undefined && testCase.recipients.length > 0
-                        ? symmetricKeyOf(testCase.recipients[0]!.key)
+                        ? openingKeyOf(testCase.recipients[0]!)
                         : symmetricKeyOf(testCase.key!, testCase.algorithm);
 
         if (testCase.shape === 'mac')
@@ -956,6 +1119,12 @@ for (const vectorFile of vectorFiles) {
                 case 'cose-crit':      runCoseCrit     (testCase, checks); break;
                 case 'cose-verify':    runCoseVerify   (testCase, checks); break;
                 case 'cose-encrypt':   runCoseEncrypt  (testCase, checks); break;
+                // ECDH-ES runs through the same machinery; a case that has to
+                // be refused carries the message and is only ever opened.
+                case 'cose-ecdh':
+                    if (testCase.expected === 'reject') runCoseDecrypt(testCase, checks);
+                    else                                runCoseEncrypt(testCase, checks);
+                    break;
                 case 'cose-decrypt':   runCoseDecrypt  (testCase, checks); break;
                 case 'cose-mac0':      runCoseMac0     (testCase, checks); break;
                 case 'cose-mac0-verify': runCoseMac0Verify(testCase, checks); break;
