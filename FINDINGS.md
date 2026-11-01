@@ -747,6 +747,71 @@ a vulnerability, and the description of both cases says so.
 The suite now stands at **587 (C#) / 551 (TypeScript) normative passes, 356
 cross-implementation agreements, zero failures, zero divergences**.
 
+### What a recipient's unprotected bucket proves: nothing (added 2026-11-01)
+
+The same principle has now come up three times in this section, so it is
+stated once here, with the three cases under it. **Nothing in a recipient's
+unprotected bucket is authenticated.** The `Enc_structure` covers the body's
+protected bucket, and `COSE_KDF_Context` covers the recipient's *protected*
+one. The ephemeral key, `kid`, `x5t` and the party information all travel
+uncovered, and anybody who relays the message can rewrite them.
+
+- **`x5t` is a selector.** It says which key to try and proves nothing about
+  the certificate it names. `ecdh-refuses-recipient-naming-another-certificate`
+  exists because of this: the message names the renewed certificate and is
+  encrypted for the old key, which anybody can arrange.
+- **Party information in the headers binds nothing.** PartyU and PartyV enter
+  the derivation, but a recipient that reads them from the message's own
+  headers derives whatever the message says. EVQI Transport first claimed that
+  naming the CSMS and the station there would bind a possession challenge to
+  the station (`ce3915d`), and withdrew the claim the same day (`7d569fb`).
+  Party information binds only what each side supplies from its own context,
+  and neither implementation reads it from anywhere but the message.
+- **The ephemeral key is whatever the sender says it is.** That is why three
+  of this section's refusals are built from ephemeral keys chosen by an
+  attacker, and why the point checks matter.
+
+What does authenticate a message lies elsewhere: a signature inside the
+envelope, or, for a protocol, a request identifier together with the signature
+on the answer.
+
+### The possession challenge: filed, with reasons (added 2026-11-01)
+
+EVQI Transport §6.8 has an X25519 key prove possession by decrypting a
+challenge: a `COSE_Encrypt` by `ECDH-ES + HKDF-256` to the requested key, named
+by `kid` = SHA-256 of its `SubjectPublicKeyInfo`, carrying a 32-byte nonce.
+A case for it was proposed and **not built**, at the maintainer's decision of
+2026-11-01, for three reasons:
+
+- **The wire format is already covered.** `ecdh-direct-x25519-chacha20poly1305`
+  has the same shape: X25519, ChaCha20/Poly1305, a `kid`, no `x5t`, no party
+  information, generator-computed values, cross-opened. A challenge would
+  differ in the *value* of the `kid` and the *content* of the payload, and
+  COSE treats neither as behaviour. A `kid` is an opaque byte string, and a
+  nonce is a payload like any other.
+- **The derivation worth pinning is computed by nobody here.** `kid =
+  SHA-256(SPKI)` is the kind of rule §12 was written against. It is derived
+  rather than transmitted, and if both sides got it wrong in the same way,
+  nothing would show, because the `kid` selects nothing. Hashing the bare
+  32-byte key instead of the RFC 8410 structure would interoperate with
+  exactly one implementation. But neither implementation computes the hash,
+  neither exports a parser for an OKP `SubjectPublicKeyInfo`, and the runners
+  copy the `kid` from the vector. A row judging it would compare the input
+  with itself. Such a row cannot fail, which is worse than having no row,
+  because it looks like coverage.
+- **The refusals the flow needs are not COSE behaviour.** A wrong, late or
+  reused nonce, a `requestId` that does not match, an unsigned answer: all of
+  that is the CSMS's protocol logic. It belongs to the tests of work package
+  D6 in WWCP, not to a suite of the COSE libraries. The one COSE-level
+  refusal, a wrong `kid`, cannot be built so that it opens for whoever
+  ignores it. Both implementations try every recipient regardless of `kid`,
+  and such a message fails at the AEAD tag whichever way the check goes.
+
+A case here would start to measure something under either of two conditions:
+an implementation derives `kid = SHA-256(SPKI)` itself, and the derivation is
+then pinned; or a refusal can be built that opens for an implementation which
+skips the check.
+
 
 ## 13. Symmetry audit of the two implementations (added 2026-08-19)
 
