@@ -786,7 +786,7 @@ const SOURCES = [
         chain:       true,
         critical:    true,
         expected:    'reject',
-        class:       'survey',
+        class:       'normative',
         carries:     'x5bag with one certificate, beside the chain, with crit [32]',
         reason:      'crit names label 32 and neither implementation understands x5bag, and RFC ' +
                      '9052 §3.1 gives a verifier that cannot process a critical header nothing ' +
@@ -801,10 +801,16 @@ const SOURCES = [
                      'name as a label it understands, verifies here. `cose-crit:crit-unknown-' +
                      'label` asks this with label 32767, which nobody can ever understand; this ' +
                      'asks it with a registered label both implementations have a name for, ' +
-                     'which is the version a verifier gets wrong by accident. `survey`, because ' +
-                     'the premise is a property of these two implementations and not a rule: one ' +
-                     'that implemented x5bag would understand label 32 and would be right to ' +
-                     'accept.',
+                     'which is the version a verifier gets wrong by accident. `normative` since ' +
+                     '2026-11-02: the message meets every structural requirement RFC 9052 §3.1 ' +
+                     'makes of a crit — the label and the crit itself are in the protected ' +
+                     'bucket, the array holds a value — so what is left of §3.1 here is its ' +
+                     'demand that a listed label be *processed*, and neither of these two ' +
+                     'processes label 32. For a verifier that does not, refusing is what §3.1 ' +
+                     'prescribes rather than what it prefers. One that grew a reader for x5bag ' +
+                     'would understand the label and would be right to accept: this row is to be ' +
+                     'read again on that day, and until then it fails the run for the accident ' +
+                     'above rather than writing it down.',
     },
     {
         id:          'a-uri-instead-of-a-chain',
@@ -851,16 +857,19 @@ const SOURCES = [
         chain:       true,
         critical:    true,
         expected:    'reject',
-        class:       'survey',
+        class:       'normative',
         carries:     'the same, with crit [35]',
         reason:      'crit names label 35 and neither implementation understands x5u, and RFC ' +
                      '9052 §3.1 gives a verifier that cannot process a critical header nothing ' +
                      'to do but refuse',
         description: 'The bag row\'s question for the other label: `crit: [35]` beside the x5u ' +
                      'and the sound chain. Both refuse, and the row above shows the same message ' +
-                     'verifying without the crit. `survey` for the same reason — an ' +
+                     'verifying without the crit. `normative` since 2026-11-02 on the same ' +
+                     'sentence of RFC 9052 §3.1, and with the cleaner opening of the two: the ' +
+                     'row above is this message minus the crit entry, header for header, and it ' +
+                     'verifies, so what is refused here is the demand and nothing else. An ' +
                      'implementation that fetched certificates would understand label 35 and ' +
-                     'would be right to accept.',
+                     'would be right to accept, and would make this a row to read again.',
     },
 ];
 

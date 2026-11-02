@@ -2220,10 +2220,13 @@ red, because the rows no longer ask what the two of them do and then write it
 down. That the agreement row passes is the point rather than a flaw: agreement
 was never what was wrong.
 
-§26's four label rows stay `survey`, for the reason this section first gave for
-these eight: their premise is that a label has no reader, which is a property
-of these two implementations rather than a rule anybody must follow. Fourteen
-of the eighteen cases in the file are normative now, and four are not.
+Two of §26's six label rows stay `survey`, for the reason this section first
+gave for these eight: their premise is that a label has no reader, which is a
+property of these two implementations rather than a rule anybody must follow.
+The other two, the pair whose sender marked the label critical, were promoted
+the same day on a premise that is a rule — RFC 9052, Section 3.1 — and §26 ends
+with that decision. Sixteen of the eighteen cases in the file are normative
+now, and two are not.
 
 Green on both sides after the change: 601 (C#) / 565 (TypeScript) / 36 (the
 third reader) normative, 370 agreements, zero failures, zero divergences, 50
@@ -2265,10 +2268,10 @@ write the file unless the chain in them is still the one the corpus minted.
 |---|---|---|---|
 | `a-bag-instead-of-a-chain` | survey | reject | refuse: *"This COSE_Sign1 message carries no certificate chain!"* |
 | `a-bag-that-contradicts-the-chain` | normative | accept | verify, naming `CN=Meter 1ISA0000000042` |
-| `a-bag-the-sender-made-critical` | survey | reject | refuse: *"The "crit" header parameter demands that 'x5bag' be understood, which this implementation does not!"* |
+| `a-bag-the-sender-made-critical` | normative | reject | refuse: *"The "crit" header parameter demands that 'x5bag' be understood, which this implementation does not!"* |
 | `a-uri-instead-of-a-chain` | survey | reject | refuse: *"This COSE_Sign1 message carries no certificate chain!"* |
 | `a-uri-beside-the-chain` | normative | accept | verify, naming the same meter |
-| `a-uri-the-sender-made-critical` | survey | reject | refuse, the same sentence with `'x5u'` in it |
+| `a-uri-the-sender-made-critical` | normative | reject | refuse, the same sentence with `'x5u'` in it |
 
 Six for six, and the two implementations' texts are identical character for
 character — which no row judges, and which is worth noting all the same.
@@ -2316,14 +2319,16 @@ refusal belongs to the `crit`. The `x5u` pair needs no such probe:
 header for header.
 
 What a flip *costs* is the second measurement, and it is §25's lesson again.
-The two normative rows fail the run: one normative failure plus the agreement
-row beside it. The four survey rows fail nothing — the third falsification
-flipped two of them and `npm test` exited **0**, with both flips visible only
-as cross-implementation divergences and as emphasised cells in the report,
+The two accept rows fail the run: one normative failure plus the agreement row
+beside it. The third falsification flipped the two `crit` rows, and what that
+cost depended on their class — nothing at all until the decision at the end of
+this section, where both halves of it are measured. The two rows that remain
+`survey` fail nothing whatever happens to them: a flip there shows up only as a
+cross-implementation divergence and as an emphasised cell in the report,
 because `process.exit` reads the failure count and a divergence is not a
 failure.
 
-### Why four of the six are survey
+### Why two of the six are survey
 
 The two accept rows are normative because their rule holds whoever implements
 what: a header parameter that is neither critical nor understood is ignored
@@ -2331,34 +2336,92 @@ what: a header parameter that is neither critical nor understood is ignored
 substitute for it. Those two stay right the day either implementation grows a
 reader for label 32 or 35.
 
-The four refusals rest on a premise that is a property of these two
-implementations rather than a rule: that the label has no reader. RFC 9360
-Section 2 constrains a verifier that does read it hardly at all — it describes
-building a path from a bag rather than requiring it, in words that are not BCP
-14 keywords; it gives no rule for which certificate in a bag signed; and it
-does not require an `x5t` beside a bag, mentioning one only as an example of
-the one thing it does require, that the end-entity certificate be integrity
-protected by COSE. These messages satisfy that: the bag is in the protected
-bucket, so none of these rows can be refused on that ground. An implementation
-that read label 32 would therefore be within the specification walking the bag
-of the first row, and within it accepting the `crit` of the third. The rows
-record both verdicts and require nothing of either side — §25's second option,
-applied without having to be asked for again.
+`a-bag-instead-of-a-chain` and `a-uri-instead-of-a-chain` rest on a premise
+that is a property of these two implementations rather than a rule: that the
+label has no reader. RFC 9360 Section 2 constrains a verifier that does read it
+hardly at all — it describes building a path from a bag rather than requiring
+it, in words that are not BCP 14 keywords; it gives no rule for which
+certificate in a bag signed; and it does not require an `x5t` beside a bag,
+mentioning one only as an example of the one thing it does require, that the
+end-entity certificate be integrity protected by COSE. These messages satisfy
+that: the bag is in the protected bucket, so neither row can be refused on that
+ground. On `x5u` the same section says nothing whatever about what a verifier
+does when the resource cannot be retrieved — fetching is permitted, TLS, DTLS
+or OSCORE SHOULD be used for it, and a retrieved certificate that does not
+chain to an existing trust anchor MUST NOT be trusted, and that is the whole of
+it. So an implementation that read label 32 would be within the specification
+walking the bag of the first row, and one that fetched would be within it
+trying the second. The two rows record both verdicts and require nothing of
+either side — §25's second option, applied without having to be asked for
+again.
 
-The general rule they might look like they pin is pinned already, and
-normatively: `cose-crit.json` holds seven normative rows, among them
-`crit-unknown-label` with label 32767, which nobody can ever understand. A
-verifier that stopped honouring `crit` fails there. What §26's two `crit` rows
-add is the version a verifier gets wrong by accident — a *registered* label it
-has a name for — and that nuance is recorded rather than demanded.
+The other two refusals, the pair whose sender marked the label critical, stood
+in that paragraph until the decision at the end of this section. What they rest
+on is not a property of these two implementations but RFC 9052, Section 3.1.
 
 ### Where it leaves the suite
 
 Eighteen cases in `vectors/cose-x509-messages.json` across three families, and
 both sides green: 593 (C#) / 557 (TypeScript) normative, 362 agreements, zero
 failures, zero divergences, 58 survey observations each and 22 on the agreement
-rows. The two RFC 9360 header parameters that had no vector anywhere now have
-six, and `x5bag` and `x5u` are no longer labels this suite is silent about.
+rows — as this section was written, and before the decision at the end of §25
+and the one below moved ten of those rows from `survey` to `normative`. The
+counts at the end of the next subsection are the ones that hold. The two RFC
+9360 header parameters that had no vector anywhere now have six, and `x5bag`
+and `x5u` are no longer labels this suite is silent about.
+
+### Required, not recorded: the two `crit` rows (decided 2026-11-02)
+
+`a-bag-the-sender-made-critical` and `a-uri-the-sender-made-critical` are
+`normative` since the day this section was written. Not one byte of either
+message moved and no verdict changed; what changed is where their premise comes
+from.
+
+RFC 9052, Section 3.1 makes three structural demands of a `crit`, and these two
+messages meet all three: the array holds at least one value, the `crit` is in
+the protected bucket, and so is every label it lists. `cose-crit.json` has a
+normative row for each of those three ways to get it wrong, so what is refused
+here is not a malformed `crit`. What is left of Section 3.1 is its demand — a
+label listed in `crit` must be *processed* — and neither implementation
+processes label 32 or label 35. For a verifier that does not, refusing is what
+the section prescribes and not what it prefers. That is the difference from the
+two rows above: a rule rather than a property.
+
+What puts these two on that side of the rule is still a published decision, and
+the rows say so. COSE.TS writes it down beside the two parameters it does read;
+Styx writes nothing and has no reader. An implementation that grew one would
+understand the label and would be right to accept — which makes these rows ones
+to read again on that day, out loud rather than in silence.
+
+What the class buys, with both falsifications measured under both classes:
+
+| the falsification | as `survey` | as `normative` |
+|---|---|---|
+| `x5bag` and `x5u` counted among the labels the call understands — COSE.TS `sign1.ts`, `verifyWithCertificateChain` | 0 failures, 2 divergences, `npm test` exit **0** | 2 TypeScript failures and 2 on the agreement rows, 2 divergences, exit **1** |
+| the same change in both implementations at once — Styx `COSESign1.cs` as well | 0 failures, **0 divergences**, the summary identical to the green run, exit **0** | 2 C# and 2 TypeScript failures, the agreement rows **passing**, exit **1** |
+
+The second line is why the decision was taken, and it is §25's lesson in this
+family rather than in that one. Both implementations verified a message whose
+`crit` demands a label neither of them processes; they agreed with each other
+about it; the divergence pass had nothing to report, because there was no
+divergence; and the summary `npm test` printed was the green one, number for
+number — 601 and 565 normative, 370 agreements, zero failures, zero
+divergences. The only trace anywhere was four emphasised cells in one table of
+`results/report.md`. As `normative` the same run is red.
+
+`cose-crit.json` would not have caught it either, though it looks like it
+should. Its seven normative rows include `crit-unknown-label` with label 32767,
+which nobody can ever understand, so a verifier that stopped honouring `crit`
+fails there. What these two rows add is the accident that leaves that one
+green: a *registered* label both implementations have a name for, counted as a
+label they understand.
+
+Green on both sides after the change: 603 (C#) / 567 (TypeScript) / 36 (the
+third reader) normative, 372 agreements, zero failures, zero divergences, zero
+messages verified against what the third reader refuses, 48 survey observations
+each and 12 on the agreement rows. Sixteen of the eighteen cases in the file
+are normative now, and the two that are not are the two RFC 9360 Section 2 does
+not speak to.
 
 ## 27. The gap §25 left, and a third reader that is not allowed to close all of it (added 2026-11-02)
 
@@ -2464,8 +2527,8 @@ makes the other redundant. A tampering that had quietly become valid DER would
 leave eight normative rows asking nothing at all, and the arbiter is what
 notices; two implementations lenient at once would agree with each other, and
 the class is what fails. The counted line keeps its job for whatever stays on
-`survey` — §26's four rows today, and any row a later decision does not
-promote.
+`survey` — §26's two remaining rows today, and any row a later decision does
+not promote.
 
 ### Falsification
 

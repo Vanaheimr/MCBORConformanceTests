@@ -1224,11 +1224,13 @@ for (const testCase of vectors['cose-x509']) {
  * The class is per case and each case carries its own. `normative` where the
  * rule holds whoever implements what: x5t carries a hash algorithm and nothing
  * else [RFC 9360, Section 2]; a header that is neither critical nor understood
- * is ignored rather than fatal [RFC 9052, Section 3]; and a certificate that is
- * not DER is refused, which since 2026-11-02 is required rather than recorded,
- * for the reasons §25 sets out. `survey` where it does not hold whoever
- * implements what — §26's four rows, whose premise is that a label has no reader
- * rather than a rule anybody must follow.
+ * is ignored rather than fatal [RFC 9052, Section 3]; a label listed in `crit`
+ * is processed or the message is refused [RFC 9052, Section 3.1]; and a
+ * certificate that is not DER is refused. The last two of those are required
+ * rather than recorded since 2026-11-02, for the reasons §25 and §26 set out.
+ * `survey` where it does not hold whoever implements what — §26's two remaining
+ * rows, whose premise is that a label has no reader rather than a rule anybody
+ * must follow.
  *
  * A survey row is recorded and fails nothing, so what still catches a
  * regression there is the divergence pass below, which compares the two
@@ -1818,12 +1820,15 @@ lines.push('verdict or as a failure to read the message at all, and no error tex
 lines.push('The class is per row and the table names it. Normative where the rule holds');
 lines.push('whoever implements what: x5t carries a hash algorithm and nothing else (RFC');
 lines.push('9360 §2), a header that is neither critical nor understood is ignored rather');
-lines.push('than fatal (RFC 9052 §3), and a certificate that is not DER is refused - which');
-lines.push('since 2026-11-02 is required rather than recorded, because the two');
-lines.push('implementations no longer disagree about it and a third reader agrees with both');
-lines.push('(FINDINGS.md §25). Survey where the premise is a property of these two rather');
-lines.push('than a rule: a label neither of them reads, which a verifier that read it would');
-lines.push('be right to answer differently about. A verdict against its own expectation is');
+lines.push('than fatal (RFC 9052 §3), a label listed in crit is processed or the message is');
+lines.push('refused (RFC 9052 §3.1), and a certificate that is not DER is refused. The last');
+lines.push('two of those are required rather than recorded since 2026-11-02: the DER rows');
+lines.push('because the two implementations no longer disagree and a third reader agrees');
+lines.push('with both, the crit rows because what they rest on turned out to be a rule and');
+lines.push('not a property of these two (FINDINGS.md §25, §26). Survey where the premise is');
+lines.push('a property of them rather than a rule: a message whose only certificate source');
+lines.push('is a label neither of them reads, which a verifier that read it would be right');
+lines.push('to answer differently about. A verdict against its own expectation is');
 lines.push('emphasised below whichever class it belongs to; for a survey row that is the');
 lines.push('only place it shows, since it fails nothing.');
 lines.push('');
