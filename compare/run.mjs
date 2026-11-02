@@ -1200,6 +1200,13 @@ for (const testCase of vectors['cose-x509']) {
  * implementation really can give. Every refusal row was measured opening on an
  * implementation with the relevant check removed, which is what keeps `reject`
  * from meaning `nobody could read this anyway`.
+ *
+ * The classes differ between the two families, and each case carries its own:
+ * the thumbprint rows are `normative`, the DER rows `survey`. A survey row is
+ * recorded and fails nothing, so what still catches a regression there is the
+ * divergence pass below, which compares the two implementations' records for
+ * every key regardless of class - and what it cannot catch is both sides
+ * becoming lenient together. §25 says so in those words.
  */
 const verdictOf = check => check?.status === 'ok' && check.verified === true ? 'verifies' : 'refuses';
 
@@ -1705,17 +1712,28 @@ lines.push('control of each family is byte for byte a message both implementatio
 lines.push('above, and the generator refuses to write the file unless it reproduces them.');
 lines.push('');
 lines.push('There is nothing to agree on byte for byte, since neither side wrote the bytes,');
-lines.push('so what is judged is the verdict: a refusal counts whether it comes back as a');
+lines.push('so what is recorded is the verdict: a refusal counts whether it comes back as a');
 lines.push('verdict or as a failure to read the message at all, and no error text is judged.');
+lines.push('The thumbprint family is normative, because RFC 9360 gives x5t a hash algorithm');
+lines.push('and nothing else. The DER family is survey: both verdicts recorded every run and');
+lines.push('nothing required of either side, because what a reader must do with an encoding');
+lines.push('that is not DER is for the specification to say. A verdict against its own');
+lines.push('expectation is emphasised below whichever class it belongs to - for a survey row');
+lines.push('that is the only place it shows, since it fails nothing.');
 lines.push('');
-lines.push('| Case | Expected | What it carries | C# | TS | Agree |');
-lines.push('|---|---|---|---|---|---|');
+lines.push('| Case | Class | Expected | What it carries | C# | TS | Verdicts |');
+lines.push('|---|---|---|---|---|---|---|');
 
 for (const testCase of vectors['cose-x509-messages']) {
 
-    const own      = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
-    const mark     = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
-    const validate = impl => own.find(v => v.impl === impl && v.check.startsWith('validate'));
+    const key      = `cose-x509-messages:${testCase.id}`;
+    const own      = verdicts.filter(v => v.caseId === testCase.id);
+    const agreed   = own.find(v => v.check.startsWith('agree'));
+    const mark     = (word, pass) => pass ? word : `**${word}**`;
+    const cell     = (impl, results) => {
+        const v = own.find(x => x.impl === impl && x.check.startsWith('validate'));
+        return v === undefined ? '—' : mark(verdictOf(checkOf(results, key, 'validate')), v.pass);
+    };
     const carries  = testCase.thumbprintAlgorithm !== undefined
                          ? `x5t ${testCase.thumbprintAlgorithm}`
                          : testCase.encoding +
@@ -1723,9 +1741,9 @@ for (const testCase of vectors['cose-x509-messages']) {
                                 ? `, x5t over ${testCase.thumbprintOver}`
                                 : '');
 
-    lines.push(`| ${testCase.id} | ${testCase.expected} | ${carries} | ` +
-               `${mark(validate('csharp'))} | ${mark(validate('typescript'))} | ` +
-               `${mark(own.find(v => v.check.startsWith('agree')))} |`);
+    lines.push(`| ${testCase.id} | ${testCase.class ?? 'normative'} | ${testCase.expected} | ` +
+               `${carries} | ${cell('csharp', csharp)} | ${cell('typescript', ts)} | ` +
+               `${agreed === undefined ? '—' : mark(agreed.pass ? 'agree' : 'differ', agreed.pass)} |`);
 
 }
 

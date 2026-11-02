@@ -1968,8 +1968,9 @@ will produce.
 Filed open, with nothing in `vectors/` deciding it: a normative row would say
 which implementation is right, and that was the maintainer's call and probably
 an upstream change rather than a line in this repository. It was put to him
-with the measurements below and three ways to carry it. He took the third, and
-the correction with it.
+with the measurements below and three ways to carry it here. He took the
+correction, and the second of the three ways: the rows record what each side
+does with an encoding that is not DER, and require it of neither.
 
 ### What was measured
 
@@ -2060,12 +2061,12 @@ parsed form. Three ways to carry it were offered:
 3. `normative` rows once one behaviour is decided to be the right one — which
    turns the other side red until it changes.
 
-The third, and with it the one correction that closes both stages at once:
-after `ReadCertificate`, `GetEncoded()` must equal the input byte for byte or
-the certificate is refused. Bouncy Castle encodes DER canonically, so bytes
-that survive that comparison *were* DER — and `GetEncoded()` is then exactly
-what travelled, which makes the thumbprint cover the right string without a
-second change.
+The correction first, which is upstream and not a line here: after
+`ReadCertificate`, `GetEncoded()` must equal the input byte for byte or the
+certificate is refused. Bouncy Castle encodes DER canonically, so bytes that
+survive that comparison *were* DER — and `GetEncoded()` is then exactly what
+travelled, which makes the thumbprint cover the right string without a second
+change.
 
 Styx `f1057ea8` is that check, at every position of the chain rather than only
 the first, refusing with *"The certificate at position {n} of the COSE_X509 is
@@ -2076,11 +2077,21 @@ check. The README of `Styx/Illias/COSE` now states the rule, which is also
 what makes its sentence about *"the x5t thumbprint against the certificate that
 actually travelled"* true.
 
-### The rows that hold it
+And then option 2 rather than option 3 for this repository. The two readers now
+agree, but what a reader *must* do with an encoding that is not DER is for the
+specification to say and not for this suite to decide by turning a row red: RFC
+5280 §4.1 is where the requirement lives, and this suite executes the
+metrological specification's annex. So the rows record both verdicts every run
+and require nothing of either side — which is a weaker claim than the
+measurements above support, deliberately, and the next subsection but one says
+exactly what it costs.
 
-Eight rows in `vectors/cose-x509-messages.json`, beside §24's four and built by
-the same generator, because neither implementation will send a certificate its
-own library did not encode. One verifies, seven refuse:
+### The rows that record it
+
+Eight `survey` rows in `vectors/cose-x509-messages.json`, beside §24's four
+normative ones and built by the same generator, because neither implementation
+will send a certificate its own library did not encode. One verifies, seven
+refuse:
 
 | row | what is in the message |
 |---|---|
@@ -2114,14 +2125,15 @@ refused, which is established without matching any error text.
 
 Each side's check was removed in turn and the suite re-run:
 
-| the check that was removed | what turns red |
+| the check that was removed | which rows come back *verified* |
 |---|---|
-| Styx: the `GetEncoded().SequenceEqual` comparison, leaving `8410073a`'s code | all five encodings **and** `…over-the-re-encoding` — 599 → 593, six divergences |
-| COSE.TS: the leading-zero, minimal-form and `expectEnd` checks of `src/asn1.ts` | four encodings **and** `…over-what-travelled` — 563 → 558, five divergences |
+| Styx: the `GetEncoded().SequenceEqual` comparison, leaving `8410073a`'s code | all five encodings **and** `…over-the-re-encoding` — six, and six divergences |
+| COSE.TS: the leading-zero, minimal-form and `expectEnd` checks of `src/asn1.ts` | four encodings **and** `…over-what-travelled` — five, and five divergences |
 
-In both the word in the red cell is *verified*, not an error: the messages do
-open for an implementation that does not check. And the two sets are not the
-same set, which is the part worth keeping:
+The word that comes back is *verified*, not an error: the messages do open for
+an implementation that does not check, which is what keeps `reject` from
+meaning *nobody could read this anyway*. And the two sets are not the same set,
+which is the part worth keeping:
 
 - `an-indefinite-outer-length` stays green on a mutilated COSE.TS, because
   reading BER is not a check it could leave out — it would have to implement
@@ -2137,5 +2149,37 @@ same set, which is the part worth keeping:
 
 So each implementation's leniency opens the row the other's cannot, and the
 pair closes under both designs rather than under the one that happened to be
-measured. Both sides green at 599 / 563 / 368: §25 is no longer a divergence,
-and the cases exist to be passed rather than to record a disagreement for ever.
+measured.
+
+### What `survey` costs, measured rather than argued
+
+The falsifications above were first run while these rows were `normative`, and
+then they moved the counts: 599 → 593 with six failures, 563 → 558 with five.
+As `survey` they move no count at all. The Styx falsification was re-run after
+the change:
+
+```
+csharp       normative: 591 pass, 0 fail; survey: 54
+typescript   normative: 555 pass, 0 fail; survey: 54
+cross-implementation divergences: 6
+npm test exit code: 0
+```
+
+Zero failures, and the run passes. What is lost is the gate; what remains is
+the record, in three places at once — the family's own table prints
+**verifies** against an `expected` of `reject`, the survey table prints *"must
+refuse (…): verified"* beside the other side's refusal and its reason, and the
+divergence pass lists the row, because that pass compares the two
+implementations' records for every key whatever a row's class is.
+
+So a regression on *one* side stays loud, in a report nobody has to be told to
+read. What survey cannot catch is both sides going lenient together: the
+verdicts would agree, the divergence count would stay at zero, and only the
+`expected` beside the printed verdict would say anything is wrong. Turning that
+into a gate again is one word per case in `tools/X509Cases/generate.mjs`, and
+these rows were measured as a gate before they were made a record — which is
+why that is a decision and not a risk.
+
+Both sides green: 591 (C#) / 555 (TypeScript) normative, 360 agreements, 54
+survey observations each and 18 on the agreement rows. §25 is no longer a
+divergence.
