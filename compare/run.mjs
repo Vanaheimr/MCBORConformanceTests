@@ -59,18 +59,35 @@ function runTypeScript(outputFile, ...inputs) {
     sh('npx', ['tsx', 'runner.ts', outputFile, ...inputs], { cwd: tsRunnerDir });
 }
 
-const phase1CSharp = join(resultsDir, 'csharp.json');
-const phase1TS     = join(resultsDir, 'typescript.json');
+/**
+ * The third reader of FINDINGS.md §27.
+ *
+ * It answers one question about the certificates of cose-x509-messages — is
+ * each of them a single DER encoding — with System.Formats.Asn1, which is
+ * neither of the two readers under test and belongs to neither project. It
+ * references nothing: see tools/DerArbiter for why that is the whole point.
+ */
+function runArbiter(outputFile, ...inputs) {
+    sh('dotnet', ['run', '--project', join('tools', 'DerArbiter'), '-c', 'Release', '--',
+        outputFile, ...inputs], { cwd: root });
+}
+
+const phase1CSharp  = join(resultsDir, 'csharp.json');
+const phase1TS      = join(resultsDir, 'typescript.json');
+const phase1Arbiter = join(resultsDir, 'arbiter.json');
 
 if (!skipRun) {
     runCSharp(phase1CSharp, vectorsDir, coseDir);
     runTypeScript(phase1TS, vectorsDir, coseDir);
+    runArbiter(phase1Arbiter, join(coseDir, 'cose-x509-messages.json'));
 }
 
 const loadResults = file => JSON.parse(readFileSync(file, 'utf8'));
 
 let csharp = loadResults(phase1CSharp);
 let ts     = loadResults(phase1TS);
+
+const arbiter = loadResults(phase1Arbiter);
 
 // ------------------------------------------------------------- cross-feeds --
 
@@ -1246,6 +1263,73 @@ for (const testCase of vectors['cose-x509-messages']) {
 
 }
 
+// --- suite: cose-x509-messages, a reader outside both implementations ---
+
+/**
+ * What §25 left open, and what a third reader can and cannot do about it.
+ *
+ * §25's eight rows are `survey`: both verdicts recorded, nothing required of
+ * either side, because what a reader must do with an encoding that is not DER
+ * was the maintainer's call and not this suite's. The divergence pass below
+ * catches the two implementations disagreeing about such a certificate. It
+ * cannot catch them going lenient together — two readers that agree with each
+ * other agree whatever they do — and §25 says so in those words.
+ *
+ * tools/DerArbiter answers the same question with System.Formats.Asn1, which is
+ * neither of them. Two things follow, and it is worth being exact about which:
+ *
+ * 1. The premise of those rows stops being this repository's own claim. That
+ *    the four tamperings really are not DER, and that every other certificate
+ *    in the file really is, is now measured by a reader that has no stake in
+ *    it — and measured on every run, normatively, because a tampering that
+ *    quietly became valid DER would leave eight rows asking nothing.
+ *
+ * 2. Both implementations going lenient together becomes visible: the third
+ *    reader refuses the certificate, they verified the message, and that is a
+ *    disagreement with something outside both. It is counted and reported
+ *    below.
+ *
+ * What it does not do is fail the run. Requiring an implementation to refuse a
+ * certificate the third reader refuses is exactly the normative row §25
+ * declined to write, and it is still not this suite's to write. So these rows
+ * require something of the vectors and of the arbiter, and nothing of Styx or
+ * COSE.TS.
+ */
+const arbiterDisagreements = [];
+
+for (const testCase of vectors['cose-x509-messages']) {
+
+    const key      = `cose-x509-messages:${testCase.id}`;
+    const recorded = checkOf(arbiter, key, 'der');
+
+    judge(testCase.id, `a third reader counts the certificates (${testCase.certificates})`,
+          'arbiter', 'normative',
+          recorded?.status === 'ok' && recorded.certificates === testCase.certificates,
+          recorded === undefined
+              ? 'not recorded'
+              : `${String(recorded.certificates)} certificates in the message`);
+
+    judge(testCase.id, `a third reader on their encoding (DER: ${String(testCase.der)})`,
+          'arbiter', 'normative',
+          recorded?.status === 'ok' && recorded.verified === testCase.der,
+          recorded === undefined     ? 'not recorded'
+              : recorded.verified    ? 'every certificate is a single DER encoding'
+              :                        recorded.reason);
+
+    if (recorded?.status !== 'ok' || recorded.verified !== false)
+        continue;
+
+    for (const [impl, results] of impls)
+        if (verdictOf(checkOf(results, key, 'validate')) === 'verifies')
+            arbiterDisagreements.push({
+                key,
+                impl,
+                detail: `${impl} verified this message; the third reader refuses the ` +
+                        `certificate in it — ${recorded.reason}`,
+            });
+
+}
+
 // --- cross-implementation agreement on every shared check ---
 
 const divergences = [];
@@ -1301,6 +1385,7 @@ lines.push('# Metrological CBOR conformance report');
 lines.push('');
 lines.push(`- C# implementation: Vanaheimr Styx (assembly ${csharp.version})`);
 lines.push(`- TypeScript implementation: MetrologicalCBOR.TS ${ts.version}`);
+lines.push(`- Third reader for certificate DER, under test for nothing: ${arbiter.implementation} ${arbiter.version} (tools/DerArbiter)`);
 lines.push(`- Vector suites: values (${vectors['values'].length}), values-invalid (${vectors['values-invalid'].length}), documents (${vectors['documents'].length}), json-to-cbor (${vectors['json-to-cbor'].length}), cose-sign (${vectors['cose-sign'].length}), cose-crit (${vectors['cose-crit'].length}), cose-mac0 (${vectors['cose-mac0'].length}), cose-encrypt (${vectors['cose-encrypt'].length}), cose-ecdh (${vectors['cose-ecdh'].length}), cose-x509 (${vectors['cose-x509'].length}), cose-x509-messages (${vectors['cose-x509-messages'].length}), cbor-robustness (${vectors['cbor-robustness'].length}), default-encoding (${vectors['default-encoding'].length}), default-readings (${vectors['default-readings'].length}), json-escapes (${vectors['json-escapes'].length}), json-tags (${vectors['json-tags'].length})`);
 lines.push('');
 lines.push('## Summary');
@@ -1734,8 +1819,8 @@ lines.push('nothing required of either side. A verdict against its own expectati
 lines.push('emphasised below whichever class it belongs to; for a survey row that is the');
 lines.push('only place it shows, since it fails nothing.');
 lines.push('');
-lines.push('| Case | Class | Expected | What it carries | C# | TS | Verdicts |');
-lines.push('|---|---|---|---|---|---|---|');
+lines.push('| Case | Class | Expected | What it carries | Third reader | C# | TS | Verdicts |');
+lines.push('|---|---|---|---|---|---|---|---|');
 
 for (const testCase of vectors['cose-x509-messages']) {
 
@@ -1755,13 +1840,58 @@ for (const testCase of vectors['cose-x509-messages']) {
                                 ? `, x5t over ${testCase.thumbprintOver}`
                                 : '');
 
+    // The third reader's own column, emphasised when it contradicts what the
+    // case claims rather than when it says `not DER` - for eight of these rows
+    // `not DER` is the claim.
+    const onDer    = checkOf(arbiter, key, 'der');
+    const third    = onDer === undefined || onDer.status !== 'ok'
+                         ? '—'
+                         : mark(onDer.verified ? 'DER' : 'not DER', onDer.verified === testCase.der);
+
     lines.push(`| ${testCase.id} | ${testCase.class ?? 'normative'} | ${testCase.expected} | ` +
-               `${carries} | ${cell('csharp', csharp)} | ${cell('typescript', ts)} | ` +
+               `${carries} | ${third} | ${cell('csharp', csharp)} | ${cell('typescript', ts)} | ` +
                `${agreed === undefined ? '—' : mark(agreed.pass ? 'agree' : 'differ', agreed.pass)} |`);
 
 }
 
 lines.push('');
+
+lines.push('## A reader outside both implementations');
+lines.push('');
+lines.push('§25\'s rows record what each implementation does with a certificate that is not');
+lines.push('DER and require it of neither, which leaves one thing uncatchable: two readers');
+lines.push('that go lenient together agree with each other, and agreement is all the');
+lines.push('divergence pass above can see. tools/DerArbiter asks the same question of');
+lines.push('System.Formats.Asn1, which is neither of them and is under test for nothing.');
+lines.push('Its answers below are normative about the *vectors* - that a tampering really is');
+lines.push('not DER, and that every other certificate in the file really is - and require');
+lines.push('nothing of either implementation, because requiring that is the normative row');
+lines.push('§25 declined to write.');
+lines.push('');
+lines.push('| Case | Third reader | Why |');
+lines.push('|---|---|---|');
+
+for (const testCase of vectors['cose-x509-messages']) {
+
+    const onDer = checkOf(arbiter, `cose-x509-messages:${testCase.id}`, 'der');
+
+    if (onDer === undefined || onDer.status !== 'ok' || onDer.verified)
+        continue;
+
+    lines.push(`| ${testCase.id} | not DER | ${onDer.reason.replace(/\|/g, '\\|')} |`);
+
+}
+
+lines.push('');
+lines.push(`Messages an implementation verified whose certificate the third reader refuses: ` +
+           `**${arbiterDisagreements.length}**`);
+lines.push('');
+
+if (arbiterDisagreements.length > 0) {
+    for (const each of arbiterDisagreements)
+        lines.push(`- ${each.detail}`);
+    lines.push('');
+}
 
 lines.push('## Survey observations');
 lines.push('');
@@ -1774,13 +1904,15 @@ for (const v of surveys)
 lines.push('');
 
 writeFileSync(join(resultsDir, 'report.md'), lines.join('\n'), 'utf8');
-writeFileSync(join(resultsDir, 'verdicts.json'), JSON.stringify({ verdicts, divergences }, null, 2), 'utf8');
+writeFileSync(join(resultsDir, 'verdicts.json'),
+              JSON.stringify({ verdicts, divergences, arbiterDisagreements }, null, 2), 'utf8');
 
 console.log('');
 console.log('==============================================================');
 for (const [impl, counts] of Object.entries(perImpl))
     console.log(`${impl.padEnd(12)} normative: ${counts.pass} pass, ${counts.fail} fail; survey: ${counts.info}`);
 console.log(`cross-implementation divergences: ${divergences.length}`);
+console.log(`messages verified against what a third reader refuses: ${arbiterDisagreements.length}`);
 console.log(`report: ${join(resultsDir, 'report.md')}`);
 console.log('==============================================================');
 

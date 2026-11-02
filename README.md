@@ -83,8 +83,17 @@ about, and no number of certificates in it can expose the leniency of the
 library that minted them. Closing that took the certificates of a third
 encoder — `tools/X509Cases` writes certificate DER itself, and the encodings it
 writes that are *not* DER are what found the divergence
-[FINDINGS.md](FINDINGS.md) §25 records. A corpus minted by one of the parties
+[FINDINGS.md](FINDINGS.md) §25. A corpus minted by one of the parties
 under test is blind in exactly the direction that party is blind.
+
+Reading those encodings has a third party too, since §25's rows require nothing
+of either implementation and two readers that go lenient together agree with
+each other: `tools/DerArbiter` answers the one question they turn on — is this
+certificate a single DER encoding — with `System.Formats.Asn1`, which is
+Microsoft's ASN.1 reader, is neither of the two under test and is itself under
+test for nothing. It makes §25's premise a measurement rather than this
+repository's claim, and it is what notices both implementations going lenient
+at the same time ([FINDINGS.md](FINDINGS.md) §27).
 
 ## Layout
 
@@ -98,6 +107,7 @@ under test is blind in exactly the direction that party is blind.
 | `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — 18 certificates, deterministically, so it can be regenerated and diffed rather than believed |
 | `tools/EcdhCases/` | generates `vectors/cose-ecdh.json` from the noble primitives alone, independently of both implementations under test, and refuses to write anything unless it first reproduces a published working-group example byte for byte |
 | `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying what neither implementation will construct: a thumbprint labelled with an algorithm that is not a hash algorithm, a certificate written down in an encoding that is not DER, and a certificate source neither of them reads, `x5bag` and `x5u` ([FINDINGS.md](FINDINGS.md) §26). Rules both sides enforce on the way out, or header parameters neither of them writes at all, which is why only a third encoder can compare them |
+| `tools/DerArbiter/` | a third reader, not a third encoder: for every message of `vectors/cose-x509-messages.json` it says how many certificates it carries and whether each is a single DER encoding, using `System.Formats.Asn1` and referencing nothing else. Normative about the vectors, and about neither implementation ([FINDINGS.md](FINDINGS.md) §27) |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |

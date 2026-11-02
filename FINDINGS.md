@@ -2295,3 +2295,121 @@ both sides green: 593 (C#) / 557 (TypeScript) normative, 362 agreements, zero
 failures, zero divergences, 58 survey observations each and 22 on the agreement
 rows. The two RFC 9360 header parameters that had no vector anywhere now have
 six, and `x5bag` and `x5u` are no longer labels this suite is silent about.
+
+## 27. The gap §25 left, and a third reader that is not allowed to close all of it (added 2026-11-02)
+
+§25 ends with what its own rows cannot do. The eight DER rows are `survey`:
+both verdicts recorded every run, nothing required of either implementation,
+because what a reader must do with an encoding that is not DER was the
+maintainer's call and not this suite's. That catches the two of them
+disagreeing — the divergence pass does, whatever class a row carries — and it
+does not catch them going lenient together. Two readers that agree with each
+other agree whatever they do.
+
+`tools/DerArbiter` asks the same question of a third one.
+
+### Which third
+
+Not a third encoder: `tools/X509Cases` already holds that place, it writes the
+bytes that are not DER, and the README says why a corpus minted by a party
+under test is blind in exactly the direction that party is blind. This is a
+third **reader**, and it answers one question about the certificates of
+`vectors/cose-x509-messages.json` — is each of them a single DER encoding of
+something — with `System.Formats.Asn1`, Microsoft's ASN.1 reader. It is neither
+of the two under test, it belongs to neither project, and the project that uses
+it references nothing at all: no Styx, no Bouncy Castle, no COSE.TS.
+
+`AsnEncodingRules.DER` refuses an indefinite length and a length not written in
+the fewest octets that hold it. That a record must be one TLV with nothing
+after it is asked in the tool's own loop — the same question COSE.TS's
+`DerReader.expectEnd` asks, with different code answering it. Nothing else is
+checked: not the signature, not the validity dates, not the chain, not whether
+the structure is an X.509 certificate at all. A reader that judged those would
+be a third implementation of this suite rather than a third opinion about an
+encoding.
+
+The CBOR walk that finds the certificates in a message is the tool's own and
+deliberately minimal. It is held to it: every case states how many certificates
+it carries, and the count is one of the two things judged.
+
+### What it answered
+
+| the certificate's encoding | COSE.TS | Styx | System.Formats.Asn1 |
+|---|---|---|---|
+| as `tools/CertificateCorpus` minted it | reads | reads | DER |
+| the outer length as `83 00 01 4E` | refuses | refuses | *"The encoded length is not valid under the requested encoding rules, the value may be valid under the BER encoding."* |
+| the outer length indefinite, `30 80` … `00 00` | refuses | refuses | the same sentence |
+| one byte appended after the certificate | refuses | refuses | *"1 octets follow the structure"* |
+| the `signatureAlgorithm` length as `81 0A` | refuses | refuses | the length sentence again |
+
+Three for three on all four, and the eleven other messages in the file carry
+certificates it calls DER, with the counts the cases claim — 2, 3, 4 and, for
+`a-uri-instead-of-a-chain`, none. So §25's premise stops being this
+repository's own claim: that those four encodings are not DER is now measured
+every run by a reader with no stake in the answer, and measured
+**normatively** — 36 checks, two per case — because a tampering that quietly
+became valid DER would leave eight rows asking nothing at all.
+
+### The gap, reproduced and then caught
+
+Both implementations were made lenient at the same time: COSE.TS with the
+leading-zero check removed from `src/asn1.ts`, Styx with the comparison of
+`GetEncoded()` against the bytes that arrived removed from
+`COSECertificateChain.cs` — which is Styx as it shipped before `f1057ea8`.
+
+    csharp       normative: 593 pass, 0 fail; survey: 58
+    typescript   normative: 557 pass, 0 fail; survey: 58
+    csharp↔typescript normative: 362 pass, 0 fail; survey: 22
+    arbiter      normative: 36 pass, 0 fail; survey: 0
+    cross-implementation divergences: 6
+    messages verified against what a third reader refuses: 8
+
+Zero normative failures, as §25 said: a survey row that flips fails nothing.
+Six of the seven rows diverged, because the two leniencies are not symmetric —
+and one did not:
+
+| | C# | TS | divergence | third reader |
+|---|---|---|---|---|
+| `a-leading-zero-in-the-outer-length` | verifies | verifies | **none** | refuses the certificate |
+
+That row is the gap. Both implementations verified a message whose certificate
+is not DER, they agreed with each other about it, and before this section the
+whole suite would have said so in one bold table cell and in no number
+anywhere. It now accounts for two of the eight counted disagreements, naming
+both implementations.
+
+### What it is still not allowed to do
+
+Fail the run. "The third reader refuses this certificate, therefore an
+implementation must refuse this message" is precisely the normative row §25
+declined to write, and §25's reason has not changed: it is the maintainer's
+call and probably an upstream change rather than a line in this repository. So
+the arbiter's rows require something of the vectors and of the arbiter, and
+nothing of Styx or COSE.TS. What `npm test` gains is a number that goes
+non-zero — printed, reported, written to `results/verdicts.json` — where
+previously there was nothing to read.
+
+The remaining lever is the one §25 named and left alone: making those eight
+rows `normative`. The case for it is stronger than it was, because the
+disagreement that made it the maintainer's call is settled — Styx `f1057ea8`
+refuses all four, COSE.TS refused them from the start, and a third reader now
+agrees with both — so such a row would pin behaviour both sides already have
+rather than declare a winner. It is still not this suite's to decide.
+
+### Falsification
+
+| what was changed | what happened |
+|---|---|
+| both implementations lenient at once | the run above: zero failures, six divergences, eight disagreements, and `a-leading-zero-in-the-outer-length` verified by both with no divergence at all |
+| the arbiter's recursive walk removed, outer header only | `a-long-form-length-inside-the-certificate` reported as DER, and its normative row fails — the one row that needs the recursion, failing without it |
+| the arbiter asking `AsnEncodingRules.BER` instead of DER | five of the seven rows reported as DER; the two trailing-byte rows still refused, because "one TLV and nothing after it" is the tool's own loop and not the library's rules |
+
+The second and third are the tool measuring itself: the recursion is not
+decoration, and the verdicts come from the DER rules rather than from a reader
+that would refuse anything.
+
+### Where it leaves the suite
+
+593 (C#) / 557 (TypeScript) / 36 (the third reader) normative, 362 agreements,
+zero failures, zero divergences, zero messages verified against what the third
+reader refuses, 58 survey observations each and 22 on the agreement rows.
