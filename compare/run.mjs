@@ -1221,15 +1221,21 @@ for (const testCase of vectors['cose-x509']) {
  * itself states, `a-uri-instead-of-a-chain`, which a suite without a network
  * cannot open.
  *
- * The class is per case and each case carries its own: `normative` where the
- * rule holds whoever implements what — x5t carries a hash algorithm and nothing
- * else [RFC 9360, Section 2], and a header that is neither critical nor
- * understood is ignored rather than fatal [RFC 9052, Section 3] — and `survey`
- * where it does not. A survey row is recorded and fails nothing, so what still
- * catches a regression there is the divergence pass below, which compares the
- * two implementations' records for every key regardless of class - and what it
- * cannot catch is both sides becoming lenient together. §25 says so in those
- * words.
+ * The class is per case and each case carries its own. `normative` where the
+ * rule holds whoever implements what: x5t carries a hash algorithm and nothing
+ * else [RFC 9360, Section 2]; a header that is neither critical nor understood
+ * is ignored rather than fatal [RFC 9052, Section 3]; and a certificate that is
+ * not DER is refused, which since 2026-11-02 is required rather than recorded,
+ * for the reasons §25 sets out. `survey` where it does not hold whoever
+ * implements what — §26's four rows, whose premise is that a label has no reader
+ * rather than a rule anybody must follow.
+ *
+ * A survey row is recorded and fails nothing, so what still catches a
+ * regression there is the divergence pass below, which compares the two
+ * implementations' records for every key regardless of class - and what it
+ * cannot catch is both sides becoming lenient together, two readers that agree
+ * with each other being agreed whatever they do. That is why §25's rows stopped
+ * relying on it.
  */
 const verdictOf = check => check?.status === 'ok' && check.verified === true ? 'verifies' : 'refuses';
 
@@ -1266,34 +1272,34 @@ for (const testCase of vectors['cose-x509-messages']) {
 // --- suite: cose-x509-messages, a reader outside both implementations ---
 
 /**
- * What §25 left open, and what a third reader can and cannot do about it.
+ * The gap §25 left, and the two halves it took to close.
  *
- * §25's eight rows are `survey`: both verdicts recorded, nothing required of
- * either side, because what a reader must do with an encoding that is not DER
- * was the maintainer's call and not this suite's. The divergence pass below
- * catches the two implementations disagreeing about such a certificate. It
- * cannot catch them going lenient together — two readers that agree with each
- * other agree whatever they do — and §25 says so in those words.
+ * §25's eight rows were `survey` while which implementation was right about an
+ * encoding that is not DER was still the maintainer's call: both verdicts
+ * recorded, nothing required of either side. The divergence pass below catches
+ * the two of them disagreeing about such a certificate. It cannot catch them
+ * going lenient together — two readers that agree with each other agree
+ * whatever they do.
  *
- * tools/DerArbiter answers the same question with System.Formats.Asn1, which is
- * neither of them. Two things follow, and it is worth being exact about which:
+ * Two things answer that now, and they answer different halves of it.
  *
- * 1. The premise of those rows stops being this repository's own claim. That
- *    the four tamperings really are not DER, and that every other certificate
- *    in the file really is, is now measured by a reader that has no stake in
- *    it — and measured on every run, normatively, because a tampering that
- *    quietly became valid DER would leave eight rows asking nothing.
+ * 1. Those rows are `normative` since 2026-11-02, so both implementations
+ *    verifying a message whose certificate is not DER fails the run. That half
+ *    needed a decision, and it was taken after the measurement — see §25.
  *
- * 2. Both implementations going lenient together becomes visible: the third
- *    reader refuses the certificate, they verified the message, and that is a
- *    disagreement with something outside both. It is counted and reported
- *    below.
+ * 2. tools/DerArbiter asks the same question of System.Formats.Asn1, which is
+ *    neither of them. That half nobody can decide: whether those four encodings
+ *    really are not DER, and whether every other certificate in the file really
+ *    is. It is measured every run, normatively, by a reader with no stake in the
+ *    answer — because a tampering that had quietly become valid DER would leave
+ *    eight rows asking nothing at all, and their class would not help in the
+ *    slightest.
  *
- * What it does not do is fail the run. Requiring an implementation to refuse a
- * certificate the third reader refuses is exactly the normative row §25
- * declined to write, and it is still not this suite's to write. So these rows
- * require something of the vectors and of the arbiter, and nothing of Styx or
- * COSE.TS.
+ * So the arbiter's rows require something of the vectors, §25's rows require
+ * something of the implementations, and the count below says how often an
+ * implementation verified a message whose certificate the third reader refuses.
+ * For those eight rows that is a failure as well now; for any row a decision
+ * leaves on `survey`, it is still the only signal there is.
  */
 const arbiterDisagreements = [];
 
@@ -1811,11 +1817,13 @@ lines.push('so what is recorded is the verdict: a refusal counts whether it come
 lines.push('verdict or as a failure to read the message at all, and no error text is judged.');
 lines.push('The class is per row and the table names it. Normative where the rule holds');
 lines.push('whoever implements what: x5t carries a hash algorithm and nothing else (RFC');
-lines.push('9360 §2), and a header that is neither critical nor understood is ignored rather');
-lines.push('than fatal (RFC 9052 §3). Survey where it does not - an encoding that is not');
-lines.push('DER, and a label a verifier would be right to answer differently about once it');
-lines.push('had a reader for it - and there both verdicts are recorded every run with');
-lines.push('nothing required of either side. A verdict against its own expectation is');
+lines.push('9360 §2), a header that is neither critical nor understood is ignored rather');
+lines.push('than fatal (RFC 9052 §3), and a certificate that is not DER is refused - which');
+lines.push('since 2026-11-02 is required rather than recorded, because the two');
+lines.push('implementations no longer disagree about it and a third reader agrees with both');
+lines.push('(FINDINGS.md §25). Survey where the premise is a property of these two rather');
+lines.push('than a rule: a label neither of them reads, which a verifier that read it would');
+lines.push('be right to answer differently about. A verdict against its own expectation is');
 lines.push('emphasised below whichever class it belongs to; for a survey row that is the');
 lines.push('only place it shows, since it fails nothing.');
 lines.push('');
@@ -1858,15 +1866,16 @@ lines.push('');
 
 lines.push('## A reader outside both implementations');
 lines.push('');
-lines.push('§25\'s rows record what each implementation does with a certificate that is not');
-lines.push('DER and require it of neither, which leaves one thing uncatchable: two readers');
-lines.push('that go lenient together agree with each other, and agreement is all the');
-lines.push('divergence pass above can see. tools/DerArbiter asks the same question of');
-lines.push('System.Formats.Asn1, which is neither of them and is under test for nothing.');
-lines.push('Its answers below are normative about the *vectors* - that a tampering really is');
-lines.push('not DER, and that every other certificate in the file really is - and require');
-lines.push('nothing of either implementation, because requiring that is the normative row');
-lines.push('§25 declined to write.');
+lines.push('§25\'s rows require both implementations to refuse a certificate that is not');
+lines.push('DER, which is what catches the two of them going lenient together - recording');
+lines.push('alone never could, since agreement is all the divergence pass above can see.');
+lines.push('What no decision can settle is whether a certificate in this file is DER in the');
+lines.push('first place, and that is what tools/DerArbiter answers, with System.Formats.Asn1:');
+lines.push('neither of the two under test, under test for nothing itself. Its answers below');
+lines.push('are normative about the *vectors* - that a tampering really is not DER, and that');
+lines.push('every other certificate in the file really is - because a tampering that had');
+lines.push('quietly become valid DER would leave eight rows asking nothing, whatever their');
+lines.push('class. They require nothing of either implementation; §25\'s rows do that now.');
 lines.push('');
 lines.push('| Case | Third reader | Why |');
 lines.push('|---|---|---|');

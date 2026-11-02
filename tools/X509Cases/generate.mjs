@@ -43,10 +43,14 @@
  *    refused by COSE.TS, and the second order besides: which bytes x5t then
  *    covers. Styx f1057ea8 settles it by requiring Bouncy Castle's encoding of
  *    a certificate to be the bytes it arrived as, and COSE.TS refused all four
- *    from the start. These rows are `survey`: both verdicts recorded side by
- *    side every run, nothing required of either side, because what a reader
- *    must do with an encoding that is not DER is the specification's to say and
- *    not this suite's. §25 of FINDINGS.md.
+ *    from the start. These rows were `survey` while the two disagreed: both
+ *    verdicts recorded side by side every run, nothing required of either side,
+ *    because which of them was right was not this suite's to decide. They are
+ *    `normative` since 2026-11-02. The disagreement is settled upstream, the
+ *    third reader of §27 agrees with both, and a row that pins behaviour both
+ *    sides already have declares no winner — while recording alone could not
+ *    catch the one case that matters most, the two of them lenient at once.
+ *    §25 of FINDINGS.md.
  *
  * 3. A certificate source neither implementation reads. RFC 9360 §2 registers
  *    four X.509 header parameters and both sides carry all four names — x5bag
@@ -887,11 +891,14 @@ const cases = [
 
         return {
             id:             entry.id,
-            // `survey`, not `normative`: recorded every run, failing nothing.
-            // §25 says what that catches - a disagreement between the two, which
-            // the divergence pass finds whatever a row's class is - and what it
-            // does not: both sides lenient together passes.
-            class:          'survey',
+            // `normative` since 2026-11-02, by the decision §25 records. While
+            // the two disagreed about these encodings a normative row would have
+            // declared one of them wrong, which was the maintainer's call; now
+            // that Styx f1057ea8 refuses all four, COSE.TS always did and the
+            // third reader of §27 agrees with both, it pins behaviour both sides
+            // have. And it fails the run for the case recording could not catch:
+            // both of them lenient at once, agreeing with each other.
+            class:          'normative',
             message:        upper(sign1({ ...source, chain, thumbprint })),
             trustAnchors:   ['metrologyRoot'],
             expected:       entry.expected,

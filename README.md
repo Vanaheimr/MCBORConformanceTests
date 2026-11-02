@@ -86,14 +86,17 @@ writes that are *not* DER are what found the divergence
 [FINDINGS.md](FINDINGS.md) §25. A corpus minted by one of the parties
 under test is blind in exactly the direction that party is blind.
 
-Reading those encodings has a third party too, since §25's rows require nothing
-of either implementation and two readers that go lenient together agree with
-each other: `tools/DerArbiter` answers the one question they turn on — is this
-certificate a single DER encoding — with `System.Formats.Asn1`, which is
-Microsoft's ASN.1 reader, is neither of the two under test and is itself under
-test for nothing. It makes §25's premise a measurement rather than this
-repository's claim, and it is what notices both implementations going lenient
-at the same time ([FINDINGS.md](FINDINGS.md) §27).
+Reading those encodings has a third party too: `tools/DerArbiter` answers the
+one question they turn on — is this certificate a single DER encoding — with
+`System.Formats.Asn1`, which is Microsoft's ASN.1 reader, is neither of the two
+under test and is itself under test for nothing. It makes §25's premise a
+measurement rather than this repository's claim: a tampering that had quietly
+become valid DER would leave eight rows asking nothing, whatever those rows
+require ([FINDINGS.md](FINDINGS.md) §27). What the two implementations must do
+with such a certificate is required of them since 2026-11-02 rather than
+recorded, which is what fails a run in which both go lenient at once — the one
+thing recording could never catch, since agreement is all a comparison of the
+two can see.
 
 ## Layout
 

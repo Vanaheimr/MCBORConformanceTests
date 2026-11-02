@@ -2184,6 +2184,51 @@ Both sides green: 591 (C#) / 555 (TypeScript) normative, 360 agreements, 54
 survey observations each and 18 on the agreement rows. §25 is no longer a
 divergence.
 
+### Required, not recorded (decided 2026-11-02)
+
+The eight rows are `normative` since the same day §27 was measured. What
+changed is not the measurement but what was left of the objection to a
+normative row.
+
+"What was decided" above is that objection: such a row would have said which
+implementation was right, and that was the maintainer's call. It is no longer a
+choice between two answers. Styx `f1057ea8` refuses all four encodings, COSE.TS
+refused them from the start, and the third reader of §27 — Microsoft's ASN.1
+reader, which has no stake in this repository — calls those four not DER and
+the certificates of the other eleven messages DER. A normative row therefore
+pins behaviour both sides already have, on a point a third party agrees with.
+It declares no winner.
+
+What it buys is what `survey` could not. Both falsifications, measured under
+both classes:
+
+| the falsification | as `survey` | as `normative` |
+|---|---|---|
+| Styx without its comparison of `GetEncoded()` against the bytes that arrived — Styx as it shipped before `f1057ea8` | 0 failures, 6 divergences, `npm test` exit **0** | 6 C# failures and 6 on the agreement rows, exit **1** |
+| both implementations lenient at once, COSE.TS without its leading-zero check as well | 0 failures, 6 divergences, 8 disagreements with the third reader, exit **0** | 6 C# and 2 TypeScript failures, 6 agreement failures, exit **1** |
+
+And the row the second one turns on, which is what this whole section was
+about:
+
+| | C# | TS | divergence | agreement row | normative failures |
+|---|---|---|---|---|---|
+| `a-leading-zero-in-the-outer-length` | verifies | verifies | none | **passes** | **two** |
+
+Both implementations verified a message whose certificate is not DER, they
+agreed with each other about it, their agreement row passed — and the run is
+red, because the rows no longer ask what the two of them do and then write it
+down. That the agreement row passes is the point rather than a flaw: agreement
+was never what was wrong.
+
+§26's four label rows stay `survey`, for the reason this section first gave for
+these eight: their premise is that a label has no reader, which is a property
+of these two implementations rather than a rule anybody must follow. Fourteen
+of the eighteen cases in the file are normative now, and four are not.
+
+Green on both sides after the change: 601 (C#) / 565 (TypeScript) / 36 (the
+third reader) normative, 370 agreements, zero failures, zero divergences, 50
+survey observations each and 14 on the agreement rows.
+
 ## 26. Two header parameters both implementations can name and neither can read (added 2026-11-02)
 
 RFC 9360 registers four X.509 header parameters for COSE, and both
@@ -2376,25 +2421,32 @@ That row is the gap. Both implementations verified a message whose certificate
 is not DER, they agreed with each other about it, and before this section the
 whole suite would have said so in one bold table cell and in no number
 anywhere. It now accounts for two of the eight counted disagreements, naming
-both implementations.
+both implementations — and, since the decision at the end of §25, for two
+normative failures as well.
 
-### What it is still not allowed to do
+### What it does not do, and what became of the lever
 
-Fail the run. "The third reader refuses this certificate, therefore an
-implementation must refuse this message" is precisely the normative row §25
-declined to write, and §25's reason has not changed: it is the maintainer's
-call and probably an upstream change rather than a line in this repository. So
-the arbiter's rows require something of the vectors and of the arbiter, and
-nothing of Styx or COSE.TS. What `npm test` gains is a number that goes
-non-zero — printed, reported, written to `results/verdicts.json` — where
-previously there was nothing to read.
+It does not fail the run on an implementation's behalf. "The third reader
+refuses this certificate, therefore an implementation must refuse this message"
+would be a normative row about Styx and COSE.TS inferred from a reader neither
+of them chose, and that is not how a row in this file gets its class. The
+arbiter's rows require something of the vectors, and nothing of either
+implementation. What `npm test` gains from them is a number that goes non-zero
+— printed, reported, written to `results/verdicts.json` — where previously
+there was nothing to read.
 
-The remaining lever is the one §25 named and left alone: making those eight
-rows `normative`. The case for it is stronger than it was, because the
-disagreement that made it the maintainer's call is settled — Styx `f1057ea8`
-refuses all four, COSE.TS refused them from the start, and a third reader now
-agrees with both — so such a row would pin behaviour both sides already have
-rather than declare a winner. It is still not this suite's to decide.
+The lever this section named was the other one: making §25's eight rows
+`normative`. It was pulled the same day, on the measurement above — the
+decision, and what it is worth measured both ways, are at the end of §25. So
+the two halves stand side by side now: those eight rows require both
+implementations to refuse a certificate that is not DER, and the arbiter
+requires of the vectors that such a certificate really is not DER. Neither
+makes the other redundant. A tampering that had quietly become valid DER would
+leave eight normative rows asking nothing at all, and the arbiter is what
+notices; two implementations lenient at once would agree with each other, and
+the class is what fails. The counted line keeps its job for whatever stays on
+`survey` — §26's four rows today, and any row a later decision does not
+promote.
 
 ### Falsification
 
@@ -2412,4 +2464,7 @@ that would refuse anything.
 
 593 (C#) / 557 (TypeScript) / 36 (the third reader) normative, 362 agreements,
 zero failures, zero divergences, zero messages verified against what the third
-reader refuses, 58 survey observations each and 22 on the agreement rows.
+reader refuses, 58 survey observations each and 22 on the agreement rows — as
+this section was written, and before the decision at the end of §25 moved eight
+of those rows from `survey` to `normative`. The counts there are the ones that
+hold.
