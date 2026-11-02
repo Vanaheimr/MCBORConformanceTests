@@ -1186,17 +1186,20 @@ for (const testCase of vectors['cose-x509']) {
 // --- suite: cose-x509-messages, a header neither side will write ---
 
 /**
- * Four messages a third party assembled, because the implementations under
- * test refuse to assemble them: a certificate thumbprint labelled with an
- * algorithm that is not a hash algorithm. Both sides enforce that rule, each
- * in its own unit tests, and until this suite existed nothing compared the two.
+ * Messages a third party assembled, because the implementations under test
+ * refuse to assemble them: a certificate thumbprint labelled with an algorithm
+ * that is not a hash algorithm (§24), and a certificate written down in an
+ * encoding that is not DER (§25). Both sides enforce both rules when they
+ * write, each in its own unit tests, and until this suite existed nothing
+ * compared the two.
  *
  * There is nothing to agree on byte for byte — neither side wrote the bytes —
  * so what is judged is the verdict. A refusal counts whether it comes back as
  * a verdict or as a failure to read the message at all, and no error text is
  * judged: verifying the message is the one wrong answer, and it is an answer an
- * implementation really can give, because the digest beside the wrong label is
- * the true hash of the certificate.
+ * implementation really can give. Every refusal row was measured opening on an
+ * implementation with the relevant check removed, which is what keeps `reject`
+ * from meaning `nobody could read this anyway`.
  */
 const verdictOf = check => check?.status === 'ok' && check.verified === true ? 'verifies' : 'refuses';
 
@@ -1664,7 +1667,10 @@ lines.push('bucket, and asks both implementations to trace it to a trust anchor 
 lines.push('their own message, then on the message the other one produced. The');
 lines.push('certificates come from a corpus minted by Bouncy Castle rather than by either');
 lines.push('party being tested, because a DER parser checked against certificates its own');
-lines.push('package produced would agree with itself about any misreading.');
+lines.push('package produced would agree with itself about any misreading. That holds for');
+lines.push('COSE.TS and not for Styx, whose parser *is* Bouncy Castle, which is why the');
+lines.push('encodings that are not DER are in cose-x509-messages below, written by a third');
+lines.push('encoder (tools/X509Cases) rather than by this corpus.');
 lines.push('');
 lines.push('| Case | Expected | Bytes agree | C# | TS | C#→TS | TS→C# |');
 lines.push('|---|---|---|---|---|---|---|');
@@ -1681,6 +1687,45 @@ for (const testCase of vectors['cose-x509']) {
                `${agreed.filter(v => v.pass).length}/${agreed.length} | ` +
                `${mark(validate('csharp'))} | ${mark(validate('typescript'))} | ` +
                `${mark(cross('typescript'))} | ${mark(cross('csharp'))} |`);
+
+}
+
+lines.push('');
+
+// --- what neither implementation will write ---
+
+lines.push('## What neither implementation will write');
+lines.push('');
+lines.push('Messages tools/X509Cases assembled from the noble primitives, because each of');
+lines.push('them breaks a rule both implementations enforce when they write a message, and');
+lines.push('a rule enforced on the way out cannot be violated on the way in. Two families:');
+lines.push('a certificate thumbprint labelled with an algorithm that is not a hash');
+lines.push('algorithm, and a certificate written down in an encoding that is not DER. The');
+lines.push('control of each family is byte for byte a message both implementations produce');
+lines.push('above, and the generator refuses to write the file unless it reproduces them.');
+lines.push('');
+lines.push('There is nothing to agree on byte for byte, since neither side wrote the bytes,');
+lines.push('so what is judged is the verdict: a refusal counts whether it comes back as a');
+lines.push('verdict or as a failure to read the message at all, and no error text is judged.');
+lines.push('');
+lines.push('| Case | Expected | What it carries | C# | TS | Agree |');
+lines.push('|---|---|---|---|---|---|');
+
+for (const testCase of vectors['cose-x509-messages']) {
+
+    const own      = verdicts.filter(v => v.caseId === testCase.id && v.klass === 'normative');
+    const mark     = v => v === undefined ? '—' : v.pass ? 'yes' : '**NO**';
+    const validate = impl => own.find(v => v.impl === impl && v.check.startsWith('validate'));
+    const carries  = testCase.thumbprintAlgorithm !== undefined
+                         ? `x5t ${testCase.thumbprintAlgorithm}`
+                         : testCase.encoding +
+                           (testCase.thumbprintOver !== undefined
+                                ? `, x5t over ${testCase.thumbprintOver}`
+                                : '');
+
+    lines.push(`| ${testCase.id} | ${testCase.expected} | ${carries} | ` +
+               `${mark(validate('csharp'))} | ${mark(validate('typescript'))} | ` +
+               `${mark(own.find(v => v.check.startsWith('agree')))} |`);
 
 }
 

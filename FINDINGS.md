@@ -1963,7 +1963,7 @@ suite had such a third party for key agreement already, for a different reason
 the opposite reason — a structure that is transmitted, and that neither sender
 will produce.
 
-## 25. The DER readers diverge four ways, and the corpus cannot see it (filed 2026-11-01, decided 2026-11-02)
+## 25. The DER readers diverge four ways, and the corpus cannot see it (filed 2026-11-01, closed 2026-11-02)
 
 Filed open, with nothing in `vectors/` deciding it: a normative row would say
 which implementation is right, and that was the maintainer's call and probably
@@ -2076,7 +2076,66 @@ check. The README of `Styx/Illias/COSE` now states the rule, which is also
 what makes its sentence about *"the x5t thumbprint against the certificate that
 actually travelled"* true.
 
-And option 3 means rows here. The probe that produced both tables — four
-tamperings and two thumbprints over the corpus's own `meter` certificate — is
-what they are built from, beside §24's in `tools/X509Cases`: the cases exist to
-be passed, not to record a disagreement for ever.
+### The rows that hold it
+
+Eight rows in `vectors/cose-x509-messages.json`, beside §24's four and built by
+the same generator, because neither implementation will send a certificate its
+own library did not encode. One verifies, seven refuse:
+
+| row | what is in the message |
+|---|---|
+| `the-certificate-as-it-was-minted` | the chain as the corpus minted it — **verifies** |
+| `a-leading-zero-in-the-outer-length` | the leaf's outer length as `83 00 01 4E` |
+| `an-indefinite-outer-length` | the leaf wrapped in `30 80` … `00 00` |
+| `one-byte-after-the-certificate` | one octet after the leaf, inside the `x5chain` entry |
+| `a-long-form-length-inside-the-certificate` | the leaf's `signatureAlgorithm` length as `81 0A` |
+| `one-byte-after-the-second-certificate` | the same octet, after the certification authority at position 1 |
+| `not-der-with-a-thumbprint-over-what-travelled` | the leading-zero leaf, `x5t` over the bytes in the message |
+| `not-der-with-a-thumbprint-over-the-re-encoding` | the leading-zero leaf, `x5t` over its canonical DER |
+
+The control is not this generator's word for a sound message: its bytes are
+byte for byte the message both implementations produce for
+`cose-x509:chain-to-trusted-root`, and the generator stops rather than write
+the file if it cannot reproduce them — the same anchoring §24's control has in
+`thumbprint-names-the-certificate`. So the seven refusals are refusals of a
+message that is sound but for one certificate's spelling.
+
+Three of the rows earn their place against the other four. The one at position
+1, because a check that runs only on the certificate a message is *about*
+leaves the rest of the chain unread. The long-form length inside the
+certificate, because a reader that validates the record it was handed is not
+yet a reader that validates every record in it. And the last two are the second
+order, which takes both of them: a lenient reader hashes either what it
+received or what it re-encoded, so each of those two designs verifies exactly
+one of the two rows — both green therefore means the certificate itself was
+refused, which is established without matching any error text.
+
+### Both falsifications, and they are mirror images
+
+Each side's check was removed in turn and the suite re-run:
+
+| the check that was removed | what turns red |
+|---|---|
+| Styx: the `GetEncoded().SequenceEqual` comparison, leaving `8410073a`'s code | all five encodings **and** `…over-the-re-encoding` — 599 → 593, six divergences |
+| COSE.TS: the leading-zero, minimal-form and `expectEnd` checks of `src/asn1.ts` | four encodings **and** `…over-what-travelled` — 563 → 558, five divergences |
+
+In both the word in the red cell is *verified*, not an error: the messages do
+open for an implementation that does not check. And the two sets are not the
+same set, which is the part worth keeping:
+
+- `an-indefinite-outer-length` stays green on a mutilated COSE.TS, because
+  reading BER is not a check it could leave out — it would have to implement
+  the end-of-contents marker. That this row opens is measured on a shipped
+  implementation instead: Styx verified this message before `f1057ea8`.
+- `…over-what-travelled` opens for the lenient COSE.TS, which hashes the record
+  as it appeared, and stays refused by the lenient Styx with *"The certificate
+  thumbprint does not belong to the given certificate!"* — the inversion the
+  second table above measured, the honest sender refused.
+- `…over-the-re-encoding` opens for the lenient Styx and stays refused by the
+  lenient COSE.TS: *"The certificate thumbprint of this message does not name
+  the certificate … that travelled with it!"*
+
+So each implementation's leniency opens the row the other's cannot, and the
+pair closes under both designs rather than under the one that happened to be
+measured. Both sides green at 599 / 563 / 368: §25 is no longer a divergence,
+and the cases exist to be passed rather than to record a disagreement for ever.

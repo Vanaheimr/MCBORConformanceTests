@@ -76,7 +76,15 @@ reading with a certified key and then validates the *other* one's message,
 which is where two DER parsers meet. The certificates come from a corpus minted
 by Bouncy Castle rather than by either party being tested — a parser checked
 against certificates its own package produced would agree with itself about any
-misreading.
+misreading. That argument holds for COSE.TS, which reads certificates with a
+DER reader of its own. It does not hold for Styx, whose parser *is* Bouncy
+Castle: for the C# side this corpus is the very self-check the sentence warns
+about, and no number of certificates in it can expose the leniency of the
+library that minted them. Closing that took the certificates of a third
+encoder — `tools/X509Cases` writes certificate DER itself, and the encodings it
+writes that are *not* DER are what found the divergence
+[FINDINGS.md](FINDINGS.md) §25 records. A corpus minted by one of the parties
+under test is blind in exactly the direction that party is blind.
 
 ## Layout
 
@@ -89,7 +97,7 @@ misreading.
 | `vectors/` | the suites that are not what a metrological value *is*, and so do not belong in the specification's annex: COSE cross-signing, authentication, encryption, `crit` and certificate chains — COSE is how a value is signed — plus `cbor-robustness` (the layer beneath the one the specification describes) `default-encoding` (what each library writes with its own default options, which is the one path every other suite bypasses) `json-escapes` (string escapes, which no JSON-carrying vector had ever contained) and `json-tags` (one case per row of the conversion table that nothing had reached) |
 | `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — 18 certificates, deterministically, so it can be regenerated and diffed rather than believed |
 | `tools/EcdhCases/` | generates `vectors/cose-ecdh.json` from the noble primitives alone, independently of both implementations under test, and refuses to write anything unless it first reproduces a published working-group example byte for byte |
-| `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying a header neither implementation will construct, so that a rule both of them enforce can be compared between them at last |
+| `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying what neither implementation will construct: a thumbprint labelled with an algorithm that is not a hash algorithm, and a certificate written down in an encoding that is not DER. Rules both sides enforce on the way out, which is why only a third encoder can compare them |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |
