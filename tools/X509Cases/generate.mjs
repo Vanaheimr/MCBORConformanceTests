@@ -16,8 +16,8 @@
  * ECDSA over the bytes this file builds. Neither implementation contributes
  * anything.
  *
- * Two families, and a control at the head of each whose bytes are not this
- * generator's word for a sound message but byte for byte a message both
+ * Three families. At the head of the first two is a control whose bytes are not
+ * this generator's word for a sound message but byte for byte a message both
  * implementations already produce and agree on:
  *
  * 1. A certificate thumbprint labelled with an algorithm that is not a hash
@@ -47,6 +47,26 @@
  *    side every run, nothing required of either side, because what a reader
  *    must do with an encoding that is not DER is the specification's to say and
  *    not this suite's. §25 of FINDINGS.md.
+ *
+ * 3. A certificate source neither implementation reads. RFC 9360 §2 registers
+ *    four X.509 header parameters and both sides carry all four names — x5bag
+ *    is label 32, x5chain 33, x5t 34, x5u 35 — while reading two of them.
+ *    COSE.TS says why in src/x5chain.ts: "a bag is an unordered heap with no
+ *    path to follow, and a URI is a fetch, which a signature library has no
+ *    business performing". In Styx labels 32 and 35 are constants in
+ *    COSEHeaderLabel that nothing else reads. A name without a reader can go
+ *    wrong in three ways, each of them a verdict and not an error message: to
+ *    take the bag for a chain and walk it, to let a header one does not read
+ *    change the answer on a message whose chain is sound, or to ignore a
+ *    `crit` that names that very label. Those three, once per label. Two rows
+ *    are `normative` — an unread header beside a sound chain must not cost a
+ *    verification, which is RFC 9052 §3 and holds whoever implements what —
+ *    and four are `survey`, because a verifier that did read the label would
+ *    be right to answer differently. §26 of FINDINGS.md.
+ *
+ *    This family needs no control of its own: its two accept rows are the
+ *    second family's control with one header added, and the generator checks
+ *    that the chain in them is still the one the corpus minted.
  *
  * The certificates and the signing key are not written here: the chain, the
  * anchor and the end-entity key come from vectors/cose-x509-corpus.json, which
@@ -96,22 +116,37 @@ const ESB256 = -265;
 
 
 /**
- * One COSE_Sign1 over the metrological value, carrying the chain and, when one
- * is given, a thumbprint.
+ * One COSE_Sign1 over the metrological value, carrying whichever headers a case
+ * asks for, and the signature over all of them.
  *
- * The protected bucket holds the algorithm, the chain and the thumbprint, in
- * that order, and the signature covers all of it — x5chain and x5t sit where
- * the x509 suite puts them, so these messages differ from the ones that suite
- * builds in a certificate's encoding or in the thumbprint's label, and in
- * nothing else.
+ * The chain and the thumbprint are what the first two families vary; `bag`,
+ * `uri` and `critical` are the third family's, and every one of them is
+ * optional, down to the chain itself — two rows carry no x5chain at all. The
+ * labels are written in ascending order, which is where x5chain and x5t sit in
+ * the messages the x509 suite builds, so a case differs from one that suite
+ * already measures in the header it is about and in nothing else.
+ *
+ * A `bag` of several certificates is written as an array and a single one as a
+ * byte string, which is what RFC 9360 §2 gives COSE_X509 for either count.
  */
-function sign1({ payload, chain, signingKey, thumbprint }) {
+function sign1({ payload, chain, signingKey, thumbprint, bag, uri, critical }) {
 
     const protectedBucket = bstr(map([
         [int(1),  int(ESB256)],
-        [int(33), array(chain.map(bstr))],
+        ...(critical
+                ? [[int(2),  array(critical.map(int))]]
+                : []),
+        ...(bag
+                ? [[int(32), Array.isArray(bag) ? array(bag.map(bstr)) : bstr(bag)]]
+                : []),
+        ...(chain
+                ? [[int(33), array(chain.map(bstr))]]
+                : []),
         ...(thumbprint
                 ? [[int(34), array([int(thumbprint.algorithm), bstr(thumbprint.digest)])]]
+                : []),
+        ...(uri
+                ? [[int(35), tstr(uri)]]
                 : []),
     ]));
 
@@ -228,28 +263,39 @@ function protectedHeaders(message) {
 }
 
 
-/** The certificates of the x5chain header (label 33), as they lie in the message. */
-function chainIn(message) {
+/**
+ * The certificates of a COSE_X509 header — x5chain (label 33) or x5bag (32) —
+ * as they lie in the message, or null when the message carries no such header.
+ *
+ * Both of RFC 9360 §2's forms are read, because both are written above: one
+ * certificate as a byte string, several as an array of them.
+ */
+function certificatesIn(message, label) {
 
-    const header = protectedHeaders(message).get(33);
+    const header = protectedHeaders(message).get(label);
 
     if (header === undefined)
-        throw new Error('no x5chain header in the message');
+        return null;
 
-    const asArray = readHead(header, 0);
+    const outer = readHead(header, 0);
 
-    if (asArray.major !== 4)
-        throw new Error('the x5chain header is not an array');
+    if (outer.major === 2)
+        return [header.subarray(outer.next, outer.next + outer.value)];
+
+    if (outer.major !== 4)
+        throw new Error(`the header with label ${String(label)} is neither a byte string nor ` +
+                        'an array of them');
 
     const certificates = [];
-    let   at           = asArray.next;
+    let   at           = outer.next;
 
-    for (let n = 0; n < asArray.value; n++) {
+    for (let n = 0; n < outer.value; n++) {
 
         const entry = readHead(header, at);
 
         if (entry.major !== 2)
-            throw new Error('an x5chain entry is not a byte string');
+            throw new Error(`an entry of the header with label ${String(label)} is not a byte ` +
+                            'string');
 
         certificates.push(header.subarray(entry.next, entry.next + entry.value));
         at = entry.next + entry.value;
@@ -257,6 +303,54 @@ function chainIn(message) {
     }
 
     return certificates;
+
+}
+
+
+/** The x5u header (label 35) as text, or null when the message carries none. */
+function uriIn(message) {
+
+    const header = protectedHeaders(message).get(35);
+
+    if (header === undefined)
+        return null;
+
+    const text = readHead(header, 0);
+
+    if (text.major !== 3)
+        throw new Error('the x5u header is not a text string');
+
+    return Buffer.from(header.subarray(text.next, text.next + text.value)).toString('utf8');
+
+}
+
+
+/** The labels of the crit header (label 2), or null when the message carries none. */
+function criticalIn(message) {
+
+    const header = protectedHeaders(message).get(2);
+
+    if (header === undefined)
+        return null;
+
+    const outer = readHead(header, 0);
+
+    if (outer.major !== 4)
+        throw new Error('the crit header is not an array');
+
+    const labels = [];
+    let   at     = outer.next;
+
+    for (let n = 0; n < outer.value; n++) {
+
+        const entry = readHead(header, at);
+
+        labels.push(entry.major === 1 ? -1 - entry.value : entry.value);
+        at = entry.next;
+
+    }
+
+    return labels;
 
 }
 
@@ -399,6 +493,26 @@ const digest = sha256(source.chain[0]);
 
 if (upper(digest) !== upper(sha256(hex(corpus.certificates.meter))))
     throw new Error('the digest is not the hash of the certificate in the corpus');
+
+/**
+ * A certificate that is not the signer's, for the third family's bag.
+ *
+ * `strangerMeter` and not a random byte string: it chains to the same trusted
+ * root through the same authority and certifies a key that did not sign this
+ * message — the certificate `cose-x509:chain-certifies-another-key` is built
+ * from. So a verifier that takes it out of the bag has a valid path to a
+ * trusted anchor in its hands and still must not verify.
+ */
+const stranger = hex(corpus.certificates.strangerMeter);
+
+/**
+ * Where the third family's x5u says a certificate may be found.
+ *
+ * `.invalid` is reserved and resolves for nobody [RFC 2606, Section 2], so no
+ * run of this suite can reach anything, whatever a verifier decides to do with
+ * the header.
+ */
+const URI = 'https://example.invalid/metrology/meter.der';
 
 
 /** The algorithms the first family labels its thumbprint with. */
@@ -594,6 +708,154 @@ const ENCODINGS = [
 ];
 
 
+/**
+ * The third family: a certificate source neither implementation reads.
+ *
+ * `label` is the header the row is about — 32 for x5bag, 35 for x5u. `chain`
+ * says whether the sound x5chain is in the message beside it; where it is not,
+ * the unread header is the message's only certificate source, and a verifier
+ * that reads it verifies. `critical` adds `crit: [label]`, by which the sender
+ * demands that the verifier understand the very header it does not read.
+ *
+ * `bag` names what a bag holds, and all three are COSE_X509 as RFC 9360 §2
+ * writes it: 'the-chain' for the two certificates of the chain, in order,
+ * which asks whether a heap is walked like a path; 'a-stranger-path' for a
+ * complete and valid path that ends in a key which did not sign this message,
+ * which asks what an unread header may cost a sound one; and 'a-stranger' for
+ * a single certificate, written as a byte string rather than an array, which
+ * is the one-certificate form of the same type.
+ */
+const SOURCES = [
+    {
+        id:          'a-bag-instead-of-a-chain',
+        label:       32,
+        bag:         'the-chain',
+        chain:       false,
+        critical:    false,
+        expected:    'reject',
+        class:       'survey',
+        carries:     'x5bag with the chain in it, and no x5chain',
+        reason:      'the certificates are in an x5bag (label 32), which is a heap and not a ' +
+                     'path, and nothing in the message says which of them signed it',
+        description: 'The end-entity certificate and the authority above it in an x5bag, and no ' +
+                     'x5chain anywhere in the message. The bytes in the bag are the chain of the ' +
+                     'control, in the same order, so an implementation that reads label 32 the ' +
+                     'way it reads 33 walks them to the anchor and verifies this message — which ' +
+                     'is what makes a refusal an answer rather than the only possibility. Both ' +
+                     'refuse today, because neither reads the label. `survey` and not ' +
+                     '`normative` for the reason §25 gives: RFC 9360 §2 lets a verifier support ' +
+                     'a bag and identify the signer\'s certificate by other means, so whether an ' +
+                     'unordered heap may serve as evidence is for the specification to say. What ' +
+                     'the row records is how each side reads a label it has a name for and no ' +
+                     'reader for.',
+    },
+    {
+        id:          'a-bag-that-contradicts-the-chain',
+        label:       32,
+        bag:         'a-stranger-path',
+        chain:       true,
+        critical:    false,
+        expected:    'accept',
+        class:       'normative',
+        carries:     'x5bag with a path to the anchor that is not the signer\'s, beside the chain',
+        description: 'The sound chain in x5chain, and in an x5bag beside it a path that is not ' +
+                     'the signer\'s: `strangerMeter` under the same authority, which leads to the ' +
+                     'same trusted root and certifies a key that did not sign this message — the ' +
+                     'certificate `cose-x509:chain-certifies-another-key` is built from. So the ' +
+                     'bag is not nonsense a verifier can dismiss on sight. An implementation that ' +
+                     'prefers it, or that merges it into the chain and starts at the first entry ' +
+                     'it finds, validates a chain beautifully, reaches the anchor, and then holds ' +
+                     'the wrong key: it refuses a message whose own chain is sound. RFC 9052 §3 ' +
+                     'says a header parameter that is neither critical nor understood is ignored, ' +
+                     'so this row is `normative` — and it stays right whoever implements what, ' +
+                     'because a bag beside a chain is extra evidence and never a substitute for ' +
+                     'it.',
+    },
+    {
+        id:          'a-bag-the-sender-made-critical',
+        label:       32,
+        bag:         'a-stranger',
+        chain:       true,
+        critical:    true,
+        expected:    'reject',
+        class:       'survey',
+        carries:     'x5bag with one certificate, beside the chain, with crit [32]',
+        reason:      'crit names label 32 and neither implementation understands x5bag, and RFC ' +
+                     '9052 §3.1 gives a verifier that cannot process a critical header nothing ' +
+                     'to do but refuse',
+        description: 'The sound chain, an x5bag holding the single stranger certificate — the ' +
+                     'one-certificate form of COSE_X509, a byte string and not an array — and ' +
+                     '`crit: [32]`, by which the sender says to refuse this message unless the ' +
+                     'verifier understands x5bag. The message is otherwise sound and the row ' +
+                     'above verifies, which is what makes the refusal ' +
+                     'measurable — a verifier that ignores crit, or that counts a label it can ' +
+                     'name as a label it understands, verifies here. `cose-crit:crit-unknown-' +
+                     'label` asks this with label 32767, which nobody can ever understand; this ' +
+                     'asks it with a registered label both implementations have a name for, ' +
+                     'which is the version a verifier gets wrong by accident. `survey`, because ' +
+                     'the premise is a property of these two implementations and not a rule: one ' +
+                     'that implemented x5bag would understand label 32 and would be right to ' +
+                     'accept.',
+    },
+    {
+        id:          'a-uri-instead-of-a-chain',
+        label:       35,
+        chain:       false,
+        critical:    false,
+        expected:    'reject',
+        class:       'survey',
+        carries:     'x5u with a URI that resolves for nobody, and no x5chain',
+        reason:      'the only certificate source is an x5u (label 35), which is a reference and ' +
+                     'not evidence: nothing in the message certifies the signing key',
+        description: 'An x5u naming a URI, and no x5chain: the message says where its ' +
+                     'certificate may be found instead of carrying it. The URI is under ' +
+                     '`.invalid`, which resolves for nobody [RFC 2606 §2], so no run of this ' +
+                     'suite reaches anything. Both refuse. This is the one row in the family ' +
+                     'with no measured opening — a verifier that fetched would fail here too, so ' +
+                     'the row cannot separate declining to fetch from trying and not arriving. ' +
+                     'What it pins is the verdict, which is worth pinning: an implementation that ' +
+                     'began verifying this message would show up here. The abstention itself is ' +
+                     'argued from the code and not from this row: COSE.TS calls a URI "a fetch, ' +
+                     'which a signature library has no business performing", and in Styx nothing ' +
+                     'reads the label.',
+    },
+    {
+        id:          'a-uri-beside-the-chain',
+        label:       35,
+        chain:       true,
+        critical:    false,
+        expected:    'accept',
+        class:       'normative',
+        carries:     'x5u beside the chain',
+        description: 'The sound chain in x5chain and an x5u beside it, pointing at a URI that ' +
+                     'resolves for nobody. Nothing here needs fetching: every certificate the ' +
+                     'message is about is in it. An implementation that treats a header it does ' +
+                     'not read as fatal refuses this message, and so does one that tries the URI ' +
+                     'and takes the failure for an error — which makes this row the family\'s ' +
+                     'fetch detector, as far as a suite with no network can have one. `normative` ' +
+                     'on RFC 9052 §3, the same sentence as the bag row: what a verifier need not ' +
+                     'understand it must ignore.',
+    },
+    {
+        id:          'a-uri-the-sender-made-critical',
+        label:       35,
+        chain:       true,
+        critical:    true,
+        expected:    'reject',
+        class:       'survey',
+        carries:     'the same, with crit [35]',
+        reason:      'crit names label 35 and neither implementation understands x5u, and RFC ' +
+                     '9052 §3.1 gives a verifier that cannot process a critical header nothing ' +
+                     'to do but refuse',
+        description: 'The bag row\'s question for the other label: `crit: [35]` beside the x5u ' +
+                     'and the sound chain. Both refuse, and the row above shows the same message ' +
+                     'verifying without the crit. `survey` for the same reason — an ' +
+                     'implementation that fetched certificates would understand label 35 and ' +
+                     'would be right to accept.',
+    },
+];
+
+
 const cases = [
 
     ...LABELS.map(entry => ({
@@ -646,6 +908,30 @@ const cases = [
 
     }),
 
+    ...SOURCES.map(entry => ({
+        id:            entry.id,
+        // Per row, and both classes appear: see SOURCES above for which is
+        // which and why. The divergence pass finds a disagreement between the
+        // two implementations whatever a row's class is.
+        class:         entry.class,
+        message:       upper(sign1({
+                           ...source,
+                           chain:    entry.chain ? source.chain : null,
+                           bag:      entry.label !== 32  ? null
+                                     : entry.bag === 'the-chain'       ? source.chain
+                                     : entry.bag === 'a-stranger-path' ? [stranger, source.chain[1]]
+                                     :                                   stranger,
+                           uri:      entry.label === 35 ? URI : null,
+                           critical: entry.critical ? [entry.label] : null,
+                       })),
+        trustAnchors:  ['metrologyRoot'],
+        expected:      entry.expected,
+        ...(entry.reason ? { reason: entry.reason } : {}),
+        headers:       entry.carries,
+        computedBy:    'tools/X509Cases',
+        description:   entry.description,
+    })),
+
 ];
 
 
@@ -697,10 +983,71 @@ for (const [id, pinned] of Object.entries(CONTROLS)) {
 for (const entry of cases) {
 
     const message    = hex(entry.message);
-    const chain      = chainIn(message);
+    const chain      = certificatesIn(message, 33);
     const thumbprint = thumbprintIn(message);
 
-    if (chain.length !== 2)
+    // The third family comes first, because it is the one whose rows may carry
+    // no x5chain at all: two of them put the message's only certificate source
+    // in a header neither implementation reads.
+    const unread = SOURCES.find(candidate => candidate.id === entry.id);
+
+    if (unread !== undefined) {
+
+        const bag      = certificatesIn(message, 32);
+        const uri      = uriIn(message);
+        const critical = criticalIn(message);
+
+        if ((unread.label === 32) !== (bag !== null) ||
+            (unread.label === 35) !== (uri !== null))
+            throw new Error(`${entry.id} does not carry the header its case is about, or ` +
+                            'carries the other one too');
+
+        if (unread.chain !== (chain !== null))
+            throw new Error(`${entry.id} carries an x5chain its case does not claim, or the ` +
+                            'other way round');
+
+        // Where the chain is there, it is the one the corpus minted, so the
+        // only thing at issue in an accept row is the unread header beside it.
+        if (chain !== null &&
+            (chain.length !== 2 ||
+             upper(chain[0]) !== upper(source.chain[0]) ||
+             upper(chain[1]) !== upper(source.chain[1])))
+            throw new Error(`${entry.id} does not carry the chain as it was minted`);
+
+        if (bag !== null) {
+
+            const expected = unread.bag === 'the-chain'       ? source.chain
+                           : unread.bag === 'a-stranger-path' ? [stranger, source.chain[1]]
+                           :                                    [stranger];
+
+            if (bag.length !== expected.length ||
+                bag.some((certificate, n) => upper(certificate) !== upper(expected[n])))
+                throw new Error(`${entry.id} does not carry the certificates its case says are ` +
+                                'in the bag');
+
+            // And a stranger has to be a stranger, or the row would compare a
+            // certificate with itself.
+            if (unread.bag !== 'the-chain' && upper(stranger) === upper(source.chain[0]))
+                throw new Error(`${entry.id} bags the signer's own certificate`);
+
+        }
+
+        if (uri !== null && uri !== URI)
+            throw new Error(`${entry.id} does not carry the URI its case claims`);
+
+        if ((critical !== null) !== unread.critical ||
+            (critical !== null && (critical.length !== 1 || critical[0] !== unread.label)))
+            throw new Error(`${entry.id} does not make its own header critical, or makes ` +
+                            'something else critical');
+
+        if (thumbprint !== null)
+            throw new Error(`${entry.id} carries a thumbprint, which this family does not`);
+
+        continue;
+
+    }
+
+    if (chain === null || chain.length !== 2)
         throw new Error(`${entry.id} does not carry a chain of two certificates`);
 
     if (entry.thumbprintAlgorithm !== undefined) {
@@ -771,13 +1118,16 @@ writeFileSync(join(root, 'vectors', 'cose-x509-messages.json'),
                   suite:       'cose-x509-messages',
                   description: 'Signed messages that carry what neither implementation will ' +
                                'construct: a certificate thumbprint labelled with an algorithm ' +
-                               'that is not a hash algorithm (§24, normative), and a ' +
-                               'certificate written down in an encoding that is not DER (§25, ' +
-                               'survey: recorded, required of nobody). Generated by ' +
-                               'tools/X509Cases from the noble primitives alone; the chain and ' +
-                               'the signing key come from cose-x509-corpus.json, and each ' +
-                               'family\'s control is byte for byte a message both ' +
-                               'implementations produce.',
+                               'that is not a hash algorithm (§24, normative), a certificate ' +
+                               'written down in an encoding that is not DER (§25, survey: ' +
+                               'recorded, required of nobody), and a certificate source neither ' +
+                               'implementation reads — x5bag and x5u (§26, normative where an ' +
+                               'unread header must not cost a sound message its verification, ' +
+                               'survey where a verifier that read the label would be right to ' +
+                               'answer differently). Generated by tools/X509Cases from the noble ' +
+                               'primitives alone; the chain and the signing key come from ' +
+                               'cose-x509-corpus.json, and the first two families\' controls are ' +
+                               'byte for byte messages both implementations produce.',
                   cases,
               }, null, 4) + '\n',
               'utf8');
@@ -789,7 +1139,7 @@ for (const entry of cases)
                 `${String(hex(entry.message).length).padStart(4)} bytes  ` +
                 `${entry.thumbprintAlgorithm !== undefined
                        ? `x5t ${entry.thumbprintAlgorithm}`
-                       : entry.encoding}` +
+                       : entry.encoding ?? entry.headers}` +
                 `${entry.thumbprintOver !== undefined
                        ? `, x5t over ${entry.thumbprintOver}`
                        : ''}`);

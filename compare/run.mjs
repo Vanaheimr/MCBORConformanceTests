@@ -1188,25 +1188,31 @@ for (const testCase of vectors['cose-x509']) {
 /**
  * Messages a third party assembled, because the implementations under test
  * refuse to assemble them: a certificate thumbprint labelled with an algorithm
- * that is not a hash algorithm (§24), and a certificate written down in an
- * encoding that is not DER (§25). Both sides enforce both rules when they
- * write, each in its own unit tests, and until this suite existed nothing
- * compared the two.
+ * that is not a hash algorithm (§24), a certificate written down in an encoding
+ * that is not DER (§25), and a certificate source neither side reads — x5bag
+ * and x5u (§26). The first two are rules both sides enforce when they write,
+ * each in its own unit tests, and until this suite existed nothing compared the
+ * two; the third is a pair of headers neither of them writes at all.
  *
  * There is nothing to agree on byte for byte — neither side wrote the bytes —
- * so what is judged is the verdict. A refusal counts whether it comes back as
- * a verdict or as a failure to read the message at all, and no error text is
+ * so what is judged is the verdict. A refusal counts whether it comes back as a
+ * verdict or as a failure to read the message at all, and no error text is
  * judged: verifying the message is the one wrong answer, and it is an answer an
  * implementation really can give. Every refusal row was measured opening on an
  * implementation with the relevant check removed, which is what keeps `reject`
- * from meaning `nobody could read this anyway`.
+ * from meaning `nobody could read this anyway` — with one exception the row
+ * itself states, `a-uri-instead-of-a-chain`, which a suite without a network
+ * cannot open.
  *
- * The classes differ between the two families, and each case carries its own:
- * the thumbprint rows are `normative`, the DER rows `survey`. A survey row is
- * recorded and fails nothing, so what still catches a regression there is the
- * divergence pass below, which compares the two implementations' records for
- * every key regardless of class - and what it cannot catch is both sides
- * becoming lenient together. §25 says so in those words.
+ * The class is per case and each case carries its own: `normative` where the
+ * rule holds whoever implements what — x5t carries a hash algorithm and nothing
+ * else [RFC 9360, Section 2], and a header that is neither critical nor
+ * understood is ignored rather than fatal [RFC 9052, Section 3] — and `survey`
+ * where it does not. A survey row is recorded and fails nothing, so what still
+ * catches a regression there is the divergence pass below, which compares the
+ * two implementations' records for every key regardless of class - and what it
+ * cannot catch is both sides becoming lenient together. §25 says so in those
+ * words.
  */
 const verdictOf = check => check?.status === 'ok' && check.verified === true ? 'verifies' : 'refuses';
 
@@ -1704,22 +1710,29 @@ lines.push('');
 lines.push('## What neither implementation will write');
 lines.push('');
 lines.push('Messages tools/X509Cases assembled from the noble primitives, because each of');
-lines.push('them breaks a rule both implementations enforce when they write a message, and');
-lines.push('a rule enforced on the way out cannot be violated on the way in. Two families:');
-lines.push('a certificate thumbprint labelled with an algorithm that is not a hash');
-lines.push('algorithm, and a certificate written down in an encoding that is not DER. The');
-lines.push('control of each family is byte for byte a message both implementations produce');
-lines.push('above, and the generator refuses to write the file unless it reproduces them.');
+lines.push('them breaks a rule both implementations enforce when they write a message, or');
+lines.push('carries a header neither of them writes at all. Three families: a certificate');
+lines.push('thumbprint labelled with an algorithm that is not a hash algorithm, a');
+lines.push('certificate written down in an encoding that is not DER, and a certificate');
+lines.push('source neither side reads - x5bag (label 32) and x5u (label 35), whose names');
+lines.push('both of them carry and whose readers neither has. The first two families open');
+lines.push('with a control that is byte for byte a message both implementations produce');
+lines.push('above, and the generator refuses to write the file unless it reproduces them;');
+lines.push('the third needs none, because two of its rows are that control with one header');
+lines.push('added and have to verify all the same.');
 lines.push('');
 lines.push('There is nothing to agree on byte for byte, since neither side wrote the bytes,');
 lines.push('so what is recorded is the verdict: a refusal counts whether it comes back as a');
 lines.push('verdict or as a failure to read the message at all, and no error text is judged.');
-lines.push('The thumbprint family is normative, because RFC 9360 gives x5t a hash algorithm');
-lines.push('and nothing else. The DER family is survey: both verdicts recorded every run and');
-lines.push('nothing required of either side, because what a reader must do with an encoding');
-lines.push('that is not DER is for the specification to say. A verdict against its own');
-lines.push('expectation is emphasised below whichever class it belongs to - for a survey row');
-lines.push('that is the only place it shows, since it fails nothing.');
+lines.push('The class is per row and the table names it. Normative where the rule holds');
+lines.push('whoever implements what: x5t carries a hash algorithm and nothing else (RFC');
+lines.push('9360 §2), and a header that is neither critical nor understood is ignored rather');
+lines.push('than fatal (RFC 9052 §3). Survey where it does not - an encoding that is not');
+lines.push('DER, and a label a verifier would be right to answer differently about once it');
+lines.push('had a reader for it - and there both verdicts are recorded every run with');
+lines.push('nothing required of either side. A verdict against its own expectation is');
+lines.push('emphasised below whichever class it belongs to; for a survey row that is the');
+lines.push('only place it shows, since it fails nothing.');
 lines.push('');
 lines.push('| Case | Class | Expected | What it carries | C# | TS | Verdicts |');
 lines.push('|---|---|---|---|---|---|---|');
@@ -1736,7 +1749,8 @@ for (const testCase of vectors['cose-x509-messages']) {
     };
     const carries  = testCase.thumbprintAlgorithm !== undefined
                          ? `x5t ${testCase.thumbprintAlgorithm}`
-                         : testCase.encoding +
+                         : testCase.headers ??
+                           testCase.encoding +
                            (testCase.thumbprintOver !== undefined
                                 ? `, x5t over ${testCase.thumbprintOver}`
                                 : '');

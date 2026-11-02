@@ -2183,3 +2183,115 @@ why that is a decision and not a risk.
 Both sides green: 591 (C#) / 555 (TypeScript) normative, 360 agreements, 54
 survey observations each and 18 on the agreement rows. §25 is no longer a
 divergence.
+
+## 26. Two header parameters both implementations can name and neither can read (added 2026-11-02)
+
+RFC 9360 registers four X.509 header parameters for COSE, and both
+implementations carry all four *names* while reading two of them: `x5chain`
+(label 33) and `x5t` (34) are implemented, `x5bag` (32) and `x5u` (35) are not.
+Not one vector in this suite mentioned either of the two until now, so nothing
+held anybody to what they do with a certificate source they do not read — and
+"ignore it" is not one answer but three, each of them a verdict rather than an
+error message: whether the heap is walked like a path, whether a header nobody
+reads may cost a sound message its verification, and whether the sender's
+`crit` still binds when it names a label the verifier can name too.
+
+### What is there, and what reads it
+
+| | `x5bag`, label 32 | `x5u`, label 35 |
+|---|---|---|
+| COSE.TS | `src/labels.ts` gives it a name, `src/x5chain.ts` says why it has no reader | the same file, the same sentence |
+| Styx | `COSEHeaderLabel.X5Bag`, a constant nothing else in the library reads | `COSEHeaderLabel.X5U`, likewise |
+
+COSE.TS writes the decision down beside the two parameters it does read:
+*"`x5bag` and `x5u` are not — a bag is an unordered heap with no path to
+follow, and a URI is a fetch, which a signature library has no business
+performing."* Styx states nothing and does the same thing.
+
+### Six messages, three questions, twice
+
+`tools/X509Cases` builds them as it builds §24's and §25's: from the noble
+primitives alone, with the chain and the signing key out of
+`cose-x509-corpus.json`. This family needs no control of its own — two of its
+rows *are* §25's control with one header added, and the generator refuses to
+write the file unless the chain in them is still the one the corpus minted.
+
+| row | class | expected | what both implementations answer |
+|---|---|---|---|
+| `a-bag-instead-of-a-chain` | survey | reject | refuse: *"This COSE_Sign1 message carries no certificate chain!"* |
+| `a-bag-that-contradicts-the-chain` | normative | accept | verify, naming `CN=Meter 1ISA0000000042` |
+| `a-bag-the-sender-made-critical` | survey | reject | refuse: *"The "crit" header parameter demands that 'x5bag' be understood, which this implementation does not!"* |
+| `a-uri-instead-of-a-chain` | survey | reject | refuse: *"This COSE_Sign1 message carries no certificate chain!"* |
+| `a-uri-beside-the-chain` | normative | accept | verify, naming the same meter |
+| `a-uri-the-sender-made-critical` | survey | reject | refuse, the same sentence with `'x5u'` in it |
+
+Six for six, and the two implementations' texts are identical character for
+character — which no row judges, and which is worth noting all the same.
+
+The first row's bag holds the two certificates of the chain, in order, so a
+reader that takes label 32 for label 33 walks them to the anchor and verifies.
+The second and third hold a path that is *not* the signer's: `strangerMeter`
+under the same authority, valid, leading to the same trusted root, certifying
+a key that did not sign this message — the certificate
+`cose-x509:chain-certifies-another-key` is built from. An implementation that
+prefers the bag, or merges it into the chain and starts at the first entry it
+finds, therefore does not stumble over nonsense: it validates a chain
+beautifully, reaches the anchor, and then holds the wrong key. The two URI rows
+point at `https://example.invalid/metrology/meter.der`, and `.invalid` resolves
+for nobody [RFC 2606, Section 2], so no run of this suite reaches anything
+whatever a verifier decides to do with the header.
+
+### Falsification
+
+| what was changed, and where | what flipped |
+|---|---|
+| `x5bag` read as a chain, before `x5chain` — COSE.TS `sign1.ts`, `certificateChain` | `a-bag-instead-of-a-chain` **verifies**, naming the right meter; `a-bag-that-contradicts-the-chain` **refuses**: *"The signature is not valid for this payload and this key!"* |
+| the same change in the other implementation — Styx `COSESign1.cs`, `CertificateChain` | the same two rows with the columns swapped: C# verifies the first and refuses the second, *"The signature is invalid!"* |
+| `x5bag` and `x5u` counted among the labels the call understands — COSE.TS `sign1.ts`, `verifyWithCertificateChain` | both `crit` rows **verify** |
+| an `x5u` fetched and the failure taken for an error — COSE.TS `sign1.ts` | `a-uri-beside-the-chain` **refuses** |
+
+Five of the six rows have a measured opening. `a-uri-instead-of-a-chain` has
+none, and says so in its own description: a verifier that fetched would fail at
+`.invalid` too, so the row cannot separate declining to fetch from trying and
+not arriving. What it pins is the verdict, which is still worth pinning — an
+implementation that began verifying that message would show up here — while the
+abstention rests on the code and not on this row.
+
+What a flip *costs* is the second measurement, and it is §25's lesson again.
+The two normative rows fail the run: one normative failure plus the agreement
+row beside it. The four survey rows fail nothing — the third falsification
+flipped two of them and `npm test` exited **0**, with both flips visible only
+as cross-implementation divergences and as emphasised cells in the report,
+because `process.exit` reads the failure count and a divergence is not a
+failure.
+
+### Why four of the six are survey
+
+The two accept rows are normative because their rule holds whoever implements
+what: a header parameter that is neither critical nor understood is ignored
+[RFC 9052, Section 3], and a bag beside a chain is extra evidence, never a
+substitute for it. Those two stay right the day either implementation grows a
+reader for label 32 or 35.
+
+The four refusals rest on a premise that is a property of these two
+implementations rather than a rule: that the label has no reader. RFC 9360
+Section 2 permits a verifier to support a bag and to identify the signer's
+certificate by other means, so an implementation that did would be right to
+walk the bag of the first row, and right to accept the `crit` of the third. The
+rows record both verdicts and require nothing of either side — §25's second
+option, applied without having to be asked for again.
+
+The general rule they might look like they pin is pinned already, and
+normatively: `cose-crit.json` holds seven normative rows, among them
+`crit-unknown-label` with label 32767, which nobody can ever understand. A
+verifier that stopped honouring `crit` fails there. What §26's two `crit` rows
+add is the version a verifier gets wrong by accident — a *registered* label it
+has a name for — and that nuance is recorded rather than demanded.
+
+### Where it leaves the suite
+
+Eighteen cases in `vectors/cose-x509-messages.json` across three families, and
+both sides green: 593 (C#) / 557 (TypeScript) normative, 362 agreements, zero
+failures, zero divergences, 58 survey observations each and 22 on the agreement
+rows. The two RFC 9360 header parameters that had no vector anywhere now have
+six, and `x5bag` and `x5u` are no longer labels this suite is silent about.
