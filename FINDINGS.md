@@ -2302,6 +2302,19 @@ not arriving. What it pins is the verdict, which is still worth pinning — an
 implementation that began verifying that message would show up here — while the
 abstention rests on the code and not on this row.
 
+One claim in the table above was argued when this section was written and has
+been measured since: that `a-bag-the-sender-made-critical` is refused for its
+`crit` and for nothing else. No row in the suite is that exact message minus
+the crit entry — the row beside it carries a whole stranger path in the bag
+rather than the single certificate — so the message was rebuilt with the entry
+left out and the signature recomputed over the shorter bucket, the rebuild
+reproducing the suite's row byte for byte when the entry is put back. Both
+implementations verify it and name `CN=Meter 1ISA0000000042`. The bag beside a
+sound chain costs nothing, as the normative row of this family says; the
+refusal belongs to the `crit`. The `x5u` pair needs no such probe:
+`a-uri-beside-the-chain` is `a-uri-the-sender-made-critical` minus its crit,
+header for header.
+
 What a flip *costs* is the second measurement, and it is §25's lesson again.
 The two normative rows fail the run: one normative failure plus the agreement
 row beside it. The four survey rows fail nothing — the third falsification
@@ -2320,11 +2333,17 @@ reader for label 32 or 35.
 
 The four refusals rest on a premise that is a property of these two
 implementations rather than a rule: that the label has no reader. RFC 9360
-Section 2 permits a verifier to support a bag and to identify the signer's
-certificate by other means, so an implementation that did would be right to
-walk the bag of the first row, and right to accept the `crit` of the third. The
-rows record both verdicts and require nothing of either side — §25's second
-option, applied without having to be asked for again.
+Section 2 constrains a verifier that does read it hardly at all — it describes
+building a path from a bag rather than requiring it, in words that are not BCP
+14 keywords; it gives no rule for which certificate in a bag signed; and it
+does not require an `x5t` beside a bag, mentioning one only as an example of
+the one thing it does require, that the end-entity certificate be integrity
+protected by COSE. These messages satisfy that: the bag is in the protected
+bucket, so none of these rows can be refused on that ground. An implementation
+that read label 32 would therefore be within the specification walking the bag
+of the first row, and within it accepting the `crit` of the third. The rows
+record both verdicts and require nothing of either side — §25's second option,
+applied without having to be asked for again.
 
 The general rule they might look like they pin is pinned already, and
 normatively: `cose-crit.json` holds seven normative rows, among them

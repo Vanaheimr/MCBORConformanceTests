@@ -747,11 +747,15 @@ const SOURCES = [
                      'way it reads 33 walks them to the anchor and verifies this message — which ' +
                      'is what makes a refusal an answer rather than the only possibility. Both ' +
                      'refuse today, because neither reads the label. `survey` and not ' +
-                     '`normative` for the reason §25 gives: RFC 9360 §2 lets a verifier support ' +
-                     'a bag and identify the signer\'s certificate by other means, so whether an ' +
-                     'unordered heap may serve as evidence is for the specification to say. What ' +
-                     'the row records is how each side reads a label it has a name for and no ' +
-                     'reader for.',
+                     '`normative` for the reason §25 gives: RFC 9360 §2 describes building a ' +
+                     'path from a bag rather than requiring it, gives no rule for which ' +
+                     'certificate in a bag signed, and requires only that the end-entity ' +
+                     'certificate be integrity protected — which the bag here is, by sitting in ' +
+                     'the protected bucket. So an implementation that read label 32 would be ' +
+                     'within the specification verifying this message, and whether an unordered ' +
+                     'heap may serve as evidence is for the specification to settle rather than ' +
+                     'for this suite. What the row records is how each side reads a label it has ' +
+                     'a name for and no reader for.',
     },
     {
         id:          'a-bag-that-contradicts-the-chain',
@@ -790,8 +794,9 @@ const SOURCES = [
         description: 'The sound chain, an x5bag holding the single stranger certificate — the ' +
                      'one-certificate form of COSE_X509, a byte string and not an array — and ' +
                      '`crit: [32]`, by which the sender says to refuse this message unless the ' +
-                     'verifier understands x5bag. The message is otherwise sound and the row ' +
-                     'above verifies, which is what makes the refusal ' +
+                     'verifier understands x5bag. The same message without that one entry ' +
+                     'verifies on both sides, measured rather than argued (§26), which is what ' +
+                     'makes the refusal ' +
                      'measurable — a verifier that ignores crit, or that counts a label it can ' +
                      'name as a label it understands, verifies here. `cose-crit:crit-unknown-' +
                      'label` asks this with label 32767, which nobody can ever understand; this ' +
