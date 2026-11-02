@@ -1963,12 +1963,13 @@ suite had such a third party for key agreement already, for a different reason
 the opposite reason — a structure that is transmitted, and that neither sender
 will produce.
 
-## 25. The DER readers diverge four ways, and the corpus cannot see it (filed 2026-11-01)
+## 25. The DER readers diverge four ways, and the corpus cannot see it (filed 2026-11-01, decided 2026-11-02)
 
-Filed, not built. Nothing in `vectors/` encodes what follows, because a
-normative row here would say which implementation is right, and that is the
-maintainer's call and probably an upstream change rather than a line in this
-repository.
+Filed open, with nothing in `vectors/` deciding it: a normative row would say
+which implementation is right, and that was the maintainer's call and probably
+an upstream change rather than a line in this repository. It was put to him
+with the measurements below and three ways to carry it. He took the third, and
+the correction with it.
 
 ### What was measured
 
@@ -2045,30 +2046,37 @@ code would catch — each is the obvious way to use the library:
   thumbprint is matched. `GetEncoded()` is Bouncy Castle's own DER output, not
   the input, which is the second stage above.
 
-### What is not decided
+### What was decided
 
 RFC 5280 §4.1 requires DER, and RFC 9360 defines `x5t` over the DER encoding,
-so the specifications point one way. The consequence does not follow from this
-repository: it is either a strictness check in Styx ahead of Bouncy Castle, or
+so the specifications pointed one way. The consequence did not follow from this
+repository: it was either a strictness check in Styx ahead of Bouncy Castle, or
 a decision that reading BER is acceptable and `x5t` is understood over the
-parsed form. Three ways to carry it here, in the maintainer's hands:
+parsed form. Three ways to carry it were offered:
 
 1. nothing in `vectors/`, and this section is the record;
 2. `survey` rows that record both verdicts side by side every run and fail
    nothing, which keeps the finding measured while the question is open;
 3. `normative` rows once one behaviour is decided to be the right one — which
-   would turn the other side red until it changes.
+   turns the other side red until it changes.
 
-One correction would close both stages at once, and it is the one to put to
-the maintainer: after `ReadCertificate`, require `GetEncoded()` to equal the
-input byte for byte and refuse otherwise. Bouncy Castle encodes DER
-canonically, so bytes that survive that comparison *were* DER — and
-`GetEncoded()` is then exactly what travelled, which makes the thumbprint
-cover the right string without a second change.
+The third, and with it the one correction that closes both stages at once:
+after `ReadCertificate`, `GetEncoded()` must equal the input byte for byte or
+the certificate is refused. Bouncy Castle encodes DER canonically, so bytes
+that survive that comparison *were* DER — and `GetEncoded()` is then exactly
+what travelled, which makes the thumbprint cover the right string without a
+second change.
 
-The probe that produced both tables is four tamperings and two thumbprints
-over the corpus's own `meter` certificate; it reproduces in minutes from the
-description above, and would become a generator beside `tools/X509Cases` if
-option 2 or 3 is chosen. After a fix in Styx all six would be green on both
-sides, which is the shape to aim for: the cases exist to be passed, not to
-record a disagreement for ever.
+Styx `f1057ea8` is that check, at every position of the chain rather than only
+the first, refusing with *"The certificate at position {n} of the COSE_X509 is
+not a single DER-encoded certificate!"*. Its own
+`Only_a_certificate_in_DER_is_read` builds the four forgeries, each alone and
+each behind a sound certificate, and fails on the first of them without the
+check. The README of `Styx/Illias/COSE` now states the rule, which is also
+what makes its sentence about *"the x5t thumbprint against the certificate that
+actually travelled"* true.
+
+And option 3 means rows here. The probe that produced both tables — four
+tamperings and two thumbprints over the corpus's own `meter` certificate — is
+what they are built from, beside §24's in `tools/X509Cases`: the cases exist to
+be passed, not to record a disagreement for ever.
