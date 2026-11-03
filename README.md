@@ -78,8 +78,15 @@ reading with a certified key and then validates the *other* one's message,
 which is where two DER parsers meet. The certificates come from a corpus minted
 by Bouncy Castle rather than by either party being tested — a parser checked
 against certificates its own package produced would agree with itself about any
-misreading. That argument holds for COSE.TS, which reads certificates with a
-DER reader of its own. It does not hold for Styx, whose parser *is* Bouncy
+misreading. Those certificates are also *signed* with every algorithm the two
+have in common, which is a different question from the keys they certify: the
+signature on a certificate is what gets verified, so a chain signed with ECDSA
+says nothing about RSA however many RSA keys it carries. Two hierarchies of
+four cover the RSA forms — the three identifiers of RFC 4055 Section 5 and the
+three RSASSA-PSS parameter sets of its Section 3.1, which are the one place in
+X.509 where an algorithm identifier does not say what it is
+([FINDINGS.md](FINDINGS.md) §28). That argument holds for COSE.TS, which reads
+certificates with a DER reader of its own. It does not hold for Styx, whose parser *is* Bouncy
 Castle: for the C# side this corpus is the very self-check the sentence warns
 about, and no number of certificates in it can expose the leniency of the
 library that minted them. Closing that took the certificates of a third
@@ -109,7 +116,7 @@ two can see.
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
 | `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
 | `vectors/` | the suites that are not what a metrological value *is*, and so do not belong in the specification's annex: COSE cross-signing, authentication, encryption, `crit` and certificate chains — COSE is how a value is signed — plus `cbor-robustness` (the layer beneath the one the specification describes) `default-encoding` (what each library writes with its own default options, which is the one path every other suite bypasses) `json-escapes` (string escapes, which no JSON-carrying vector had ever contained) and `json-tags` (one case per row of the conversion table that nothing had reached) |
-| `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — 18 certificates, deterministically, so it can be regenerated and diffed rather than believed |
+| `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — 26 certificates, deterministically, so it can be regenerated and diffed rather than believed |
 | `tools/EcdhCases/` | generates `vectors/cose-ecdh.json` from the noble primitives alone, independently of both implementations under test, and refuses to write anything unless it first reproduces a published working-group example byte for byte |
 | `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying what neither implementation will construct: a thumbprint labelled with an algorithm that is not a hash algorithm (or with one that is and that neither of them computes), a certificate written down in an encoding that is not DER, and a certificate source neither of them reads, `x5bag` and `x5u` ([FINDINGS.md](FINDINGS.md) §26). Rules both sides enforce on the way out, or header parameters neither of them writes at all, which is why only a third encoder can compare them |
 | `tools/DerArbiter/` | a third reader, not a third encoder: for every message of `vectors/cose-x509-messages.json` it says how many certificates it carries and whether each is a single DER encoding, using `System.Formats.Asn1` and referencing nothing else. Normative about the vectors, and about neither implementation ([FINDINGS.md](FINDINGS.md) §27) |

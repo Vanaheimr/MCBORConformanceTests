@@ -2941,13 +2941,119 @@ so it answers *"was signed with '1.2.840.113549.1.1.11', which is not a
 signature algorithm this implementation knows"*. Nothing changed there in this
 increment — the gap predates it, and it is in the other registry, X.509's OIDs
 rather than COSE's algorithms, which is why the count above never looked at it.
-It is also not measurable today: `tools/CertificateCorpus` mints EC, EdDSA and
-ML-DSA certificates and no RSA one, so no row can ask. Closing it would be
-three things — the `rsaEncryption` and `sha*WithRSAEncryption` OIDs with the
-`RSAPublicKey` SPKI beside them, an RSA certificate in the corpus, and the
-rows — and the PSS certificate form carries parameters in the
-`AlgorithmIdentifier`, which is its own small specification. Recorded here,
-not done.
+It was also not measurable when this was written: `tools/CertificateCorpus`
+minted EC, EdDSA and ML-DSA certificates and no RSA one, so no row could ask.
+Closing it is three things — the `rsaEncryption` and `sha*WithRSAEncryption`
+OIDs with the `RSAPublicKey` SPKI beside them, an RSA certificate in the
+corpus, and the rows — plus the PSS certificate form, which carries parameters
+in the `AlgorithmIdentifier` and is its own small specification. The
+subsection below is what happened next.
+
+### Decided: the RSA certificates (2026-11-03)
+
+The asymmetry above is closed the same day it was written down, and it took the
+three things that subsection listed plus the one it called its own small
+specification. COSE.TS `687c3c4`; `cose-x509` has four new rows and the corpus
+eight new certificates. Styx needed nothing at all: Bouncy Castle reads both
+forms, which is how the asymmetry arose in the first place.
+
+**Two of the three were small.** The `rsaEncryption` key type, whose bit string
+holds a structure of two integers rather than a value — and which says nothing
+about what the key is *for*, an RSA key being as usable for PSS as for PKCS #1
+v1.5, so no algorithm is attached to it and the certificate's own signature
+algorithm is what a verification goes by. And the three
+`sha*WithRSAEncryption` identifiers of RFC 4055 Section 5, which are three
+lines in the table every other algorithm here is read from.
+
+**The third is RSASSA-PSS, and it is the one identifier in a certificate that
+does not say what it is.** "PSS" is the identifier; the digest, the mask
+generation function, the length of the salt and the trailer field are written
+in the parameters beside it [RFC 4055, Section 3.1], which "MUST be present
+when used in the algorithm identifier associated with a signature value" and
+whose defaults are SHA-1 throughout. So a parameter set has to be read, and
+what is accepted is the shape RFC 8230 Section 2 fixes for the COSE PS*
+algorithms: MGF1 over the same hash, a salt as long as that hash, the trailer
+field that must be 1. That is arithmetic rather than strictness — COSE.TS takes
+the salt length from the hash rather than from the signature, so a certificate
+stating any other width is one it could not verify however leniently it read
+the parameters.
+
+**And it costs a check nothing else in a certificate needs.** A certificate
+states its signature algorithm twice, once within the body it signed and once
+beside it, and the existing agreement check compared the object identifiers.
+For every other algorithm that is the whole statement, the parameters being
+absent or a NULL. For RSASSA-PSS the statement *is* the parameters, so two
+parameter sets that differ are two algorithms wearing one identifier — and they
+are compared as the bytes they are now.
+
+**One ordering is the way it is because of a test.** A minted parameter set
+leaves the trailer field to its default, so the only way to put a wrong one
+there without re-encoding the certificate's lengths is to relabel the salt —
+which leaves no salt, and a default salt length of 20 would then be refused
+first, for something the certificate does not say. The trailer field is
+therefore checked before the salt length, which is also the order the two
+belong in: RFC 4055 requires that value outright, where the width of the salt
+is fixed only by the COSE algorithm the identifier has to map onto.
+
+**The corpus: two hierarchies of four, one per scheme.** The hash varies by
+level rather than by hierarchy — each authority signed with the middle one and
+the two meters beneath it with the outer two — so that walking one chain
+verifies two of the three forms and the two hierarchies cover all six. The
+roots sign themselves, which nothing verifies, so no form is left to a
+self-signature. 3072 bits at each root and 2048 beneath it, because the width
+of an RSA signature is the width of the signer's modulus: whoever checks an
+authority's certificate takes 384 octets from the root's key and 256 from the
+keys below it, and an implementation assuming one width would pass every other
+certificate in this corpus. The keys are generated from a seeded stream rather
+than written into the generator, which 1155 octets of parameters apiece makes
+the obvious choice — what made this corpus reproducible was never that the keys
+are printed in the file but that the primes are searched for deterministically.
+Not one byte of the eighteen certificates already there changed, which was
+checked rather than assumed, and a second run is byte for byte the first.
+
+**The two rows that cross on purpose.** `rsa-chain-signed-with-sha-512` is a
+PKCS #1 v1.5 certificate over a message signed with PSS, and
+`rsassa-pss-chain-signed-with-sha-512` is the mirror. A certificate certifies a
+key and says nothing about what that key will be asked to do, and an
+implementation that read the message's algorithm off the certificate it arrived
+with — or the certificate's off the message — would still pass the two plain
+rows, where the two happen to agree.
+
+### Falsification of the four rows
+
+| what was changed | what happened |
+|---|---|
+| `sha512WithRSAEncryption` dropped from COSE.TS's identifier table | `rsa-chain-signed-with-sha-512` alone fails, in four places and one of them easy to miss: TypeScript cannot *mint* that row either, the signer's own certificate being the one it cannot read, so both byte agreements are "not recorded", its own verdict is missing, and the message C# produced is refused with the sentence naming the identifier. **Zero divergences** — a side that produced nothing has nothing to disagree with. The other three rows stay green |
+| the RSASSA-PSS SHA-384 parameter set resolved to PS512 in COSE.TS | **the bytes still agree.** A parameter set is read to verify a certificate and not to write one, so both messages are identical to the octet; what fails is every verdict TypeScript gives on a PSS chain — 4 failures, 2 divergences, both PSS rows refused with *"The certificate 'CN=RSA-PSS Meter Manufacturer CA' was not signed by 'CN=RSA-PSS Root CA'!"*, the authority being the certificate that parameter set signed. The two PKCS #1 rows stay green, and C# still accepts what TypeScript produced |
+
+The second is the shape of a bug no byte comparison can find on its own: two
+implementations that agree about every octet and disagree about what one of
+them means. It is caught here because the chain rows ask for a verdict as well
+as for bytes, which §25 is the reason for.
+
+### What the four rows do not reach
+
+`id-RSASSA-PSS` as a *key* type [RFC 4055, Section 3.1] restricts a key to one
+scheme where `rsaEncryption` leaves it open. COSE.TS refuses it as a key type
+it does not know. Nothing in the corpus mints one, and nothing would: the
+subject public key info comes from the key rather than from the signature, so
+Bouncy Castle writes `rsaEncryption` in both hierarchies.
+
+A parameter where RFC 4055 allows a NULL or nothing at all is the one that
+*is* measurable, and only by a third encoder. COSE.TS refuses anything else;
+Bouncy Castle does not look at the field for these identifiers, so it accepts
+whatever is there. Patching both of a minted certificate's copies of its
+signature algorithm consistently — a zero-length OCTET STRING in place of the
+NULL fits in the same two octets — would leave a certificate Styx validates and
+COSE.TS refuses. That row belongs in `tools/X509Cases` and would be a `survey`
+row, because neither answer is wrong: the specification says the parameters
+MUST be NULL, and reading past a field nobody interprets is what a certificate
+library does. It would also need RSA signing in that third encoder, for the
+message the chain travels in. Not built; the two COSE.TS tests that patch a
+certificate this way are the only place the refusal is pinned.
+
+The multi-prime form of RFC 8230 is where the subsection above left it: read by
+neither implementation, and asked by nothing.
 
 ### Falsification
 
@@ -2969,13 +3075,15 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Nineteen cases: four signatures, the EdDSA pair, two key wraps, two
-thumbprints, two Partial IV, the SHA-1 thumbprint of §24 and the six RSA rows.
-623 (C#) / 587 (TypeScript) / 38 (the third reader) normative, 440 agreements,
-zero failures, zero divergences, zero messages verified against what the third
-reader refuses, 51 survey observations each and 13 on the agreement rows. The
-promotion of 2026-11-03 moved five rows across: the two cross-open verdicts,
-one per opening implementation, and the three byte agreements of the case.
+Twenty-three cases: four signatures, the EdDSA pair, two key wraps, two
+thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
+the count produced, and the four certificate rows that the asymmetry it turned
+up produced. 631 (C#) / 595 (TypeScript) / 38 (the third reader) normative, 448
+agreements, zero failures, zero divergences, zero messages verified against
+what the third reader refuses, 55 survey observations each and 13 on the
+agreement rows. The promotion of 2026-11-03 moved five rows across: the two
+cross-open verdicts, one per opening implementation, and the three byte
+agreements of the case.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, 11 do: the two that do not are the deprecated counter

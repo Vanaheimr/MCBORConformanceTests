@@ -1291,12 +1291,20 @@ static (AsymmetricKeyParameter PrivateKey, COSEAlgorithm Algorithm) CorpusKeyOf(
 
     // The same shape the cose-sign vectors use, so that one helper reads both.
     var wrapped = new JsonObject {
-                      ["algorithm"] = entry["algorithm"]!.GetValue<String>(),
-                      ["keyD"]      = entry["keyD"]!.GetValue<String>()
+                      ["algorithm"] = entry["algorithm"]!.GetValue<String>()
                   };
 
+    if (entry["keyD"] is not null)
+        wrapped["keyD"]   = entry["keyD"]!.GetValue<String>();
+
     if (entry["curve"] is not null)
-        wrapped["curve"] = entry["curve"]!.GetValue<String>();
+        wrapped["curve"]  = entry["curve"]!.GetValue<String>();
+
+    // An RSA key is eight numbers with no scalar to derive them from, so the
+    // corpus prints an object where it prints a string for everything else.
+    // Cloned rather than handed over, because a JSON node has one parent.
+    if (entry["keyRsa"] is not null)
+        wrapped["keyRsa"] = entry["keyRsa"]!.DeepClone();
 
     var key = CoseKeyOf(wrapped, false);
 

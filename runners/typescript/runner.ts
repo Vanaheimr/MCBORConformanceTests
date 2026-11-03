@@ -186,7 +186,7 @@ interface RsaKeyHex {
 interface Corpus {
     validateAt:   string;
     certificates: Record<string, string>;
-    privateKeys:  Record<string, { algorithm: string; curve?: string; keyD: string }>;
+    privateKeys:  Record<string, { algorithm: string; curve?: string; keyD?: string; keyRsa?: RsaKeyHex }>;
 }
 
 let corpus: Corpus | null = null;
@@ -218,7 +218,11 @@ function corpusKeyOf(name: string): CoseKey {
     if (entry === undefined)
         throw new Error(`The certificate corpus holds no private key for '${name}'!`);
 
-    return keyOf(entry.curve, entry.keyD, entry.algorithm);
+    // An RSA key is eight numbers rather than one, which is why the corpus
+    // prints an object for it and a scalar for everything else.
+    return entry.keyRsa !== undefined
+               ? rsaKeyOf(entry.keyRsa, entry.algorithm)
+               : keyOf(entry.curve, entry.keyD!, entry.algorithm);
 
 }
 

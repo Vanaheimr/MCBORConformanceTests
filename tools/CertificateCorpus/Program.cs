@@ -34,6 +34,7 @@ using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Asn1.X9;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Digests;
+using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Prng;
 using Org.BouncyCastle.Math;
@@ -333,6 +334,136 @@ Issue("stationKeyAgreementRenewed", "CS-0000000001", EllipticCurveKey("secp256r1
       At("2026-06-01T00:00:00Z"), At("2026-08-30T00:00:00Z"), Usage: KeyUsage.KeyAgreement);
 
 RecordKey("stationKeyAgreementRenewed", "ECDH-ES + HKDF-256", "P-256", stationRenewedD);
+
+
+// ------------------------------------------- certificates signed with RSA ---
+
+// Two hierarchies whose certificates are SIGNED with RSA rather than merely
+// carrying an RSA key: RSASSA-PKCS1-v1_5 in the first [RFC 4055, Section 5]
+// and RSASSA-PSS in the second [RFC 4055, Section 3.1]. The signature on a
+// certificate is the thing being verified, so a chain signed with ECDSA says
+// nothing about either, and the second hierarchy is here because RSASSA-PSS is
+// the one algorithm in X.509 whose identifier does not say what it is: the
+// digest, the mask generation function, the length of the salt and the trailer
+// field all live in parameters beside it, where every other algorithm in this
+// corpus is named by an object identifier alone.
+//
+// The hash varies by level rather than by hierarchy. Each authority is signed
+// with the middle one and the two meters beneath it with the outer two, so
+// that walking one chain verifies two of the three identifiers and the two
+// hierarchies together cover all six forms. The roots sign themselves, which
+// nothing verifies - a trust anchor is trusted rather than checked - so no
+// identifier is left to a self-signature.
+//
+// 3072 bits at each root and 2048 beneath it, because the width of an RSA
+// signature is the width of the signer's modulus: whoever checks an
+// authority's certificate takes 384 octets from the root's key and 256 from
+// the keys below it, and an implementation that assumed one width would still
+// pass every other certificate here.
+//
+// Appended after everything else for the same reason the section above is:
+// serial numbers and the seeded random run on from where those left off, so
+// not one byte of them changes.
+
+// The keys are generated rather than written out. A 2048-bit key is 1155
+// octets of parameters where an elliptic curve key is 32, and what makes the
+// corpus reproducible is not that they are printed above but that the search
+// for the primes runs over a seeded stream. One generator per key, seeded with
+// that key's own name, so that adding a key leaves every other one alone - and
+// the parameters of the keys that go on to sign are printed in the corpus,
+// which is where the runners read them from.
+AsymmetricCipherKeyPair RSAKey(Int32 Bits, String Seed)
+{
+
+    var rng = new SecureRandom(new DigestRandomGenerator(new Sha256Digest()));
+    rng.SetSeed(Encoding.ASCII.GetBytes(Seed));
+
+    var generator = new RsaKeyPairGenerator();
+    generator.Init(new RsaKeyGenerationParameters(BigInteger.ValueOf(65537), rng, Bits, 100));
+
+    return generator.GenerateKeyPair();
+
+}
+
+// The eight parameters of RFC 8230 Section 4, each as the fewest octets that
+// hold it, which is what that section asks for and what a COSE key carries.
+// There is no scalar here to derive the rest from, which is why this writes
+// an object where RecordKey writes a string.
+void RecordRSAKey(String Name, String Algorithm, AsymmetricCipherKeyPair Pair)
+{
+
+    var key = (RsaPrivateCrtKeyParameters) Pair.Private;
+
+    String Unsigned(BigInteger Value)
+        => Convert.ToHexString(Value.ToByteArrayUnsigned());
+
+    privateKeys[Name] = new JsonObject {
+                            ["algorithm"]  = Algorithm,
+                            ["keyRsa"]     = new JsonObject {
+                                                 ["n"]     = Unsigned(key.Modulus),
+                                                 ["e"]     = Unsigned(key.PublicExponent),
+                                                 ["d"]     = Unsigned(key.Exponent),
+                                                 ["p"]     = Unsigned(key.P),
+                                                 ["q"]     = Unsigned(key.Q),
+                                                 ["dP"]    = Unsigned(key.DP),
+                                                 ["dQ"]    = Unsigned(key.DQ),
+                                                 ["qInv"]  = Unsigned(key.QInv)
+                                             }
+                        };
+
+}
+
+var rsaRootKey          = RSAKey(3072, "Metrological CBOR conformance RSA root");
+var rsaManufacturerKey  = RSAKey(2048, "Metrological CBOR conformance RSA manufacturer");
+var rsaMeterKey         = RSAKey(2048, "Metrological CBOR conformance RSA meter");
+var rsaMeterWideKey     = RSAKey(2048, "Metrological CBOR conformance RSA meter, SHA-512");
+
+var rsaRoot             = Issue("rsaRoot", "RSA Root CA", rsaRootKey, true,
+                                "SHA256withRSA", null, authorityFrom, authorityUntil);
+
+var rsaManufacturer     = Issue("rsaManufacturerCA", "RSA Meter Manufacturer CA", rsaManufacturerKey, true,
+                                "SHA384withRSA", (rsaRoot, rsaRootKey.Private), authorityFrom, authorityUntil);
+
+Issue("rsaMeter", "Meter 1ISA0000000047", rsaMeterKey, false,
+      "SHA256withRSA", (rsaManufacturer, rsaManufacturerKey.Private));
+
+// The certificate is signed with one RSA scheme and the meter signs with the
+// other, which is not symmetry for its own sake: the two layers are
+// independent, and an implementation that took the message's algorithm from
+// the certificate it arrived with - or the other way round - would still pass
+// a row where both happen to agree.
+RecordRSAKey("rsaMeter", "RS256", rsaMeterKey);
+
+Issue("rsaMeterWideHash", "Meter 1ISA0000000048", rsaMeterWideKey, false,
+      "SHA512withRSA", (rsaManufacturer, rsaManufacturerKey.Private));
+
+RecordRSAKey("rsaMeterWideHash", "PS256", rsaMeterWideKey);
+
+
+var pssRootKey          = RSAKey(3072, "Metrological CBOR conformance RSASSA-PSS root");
+var pssManufacturerKey  = RSAKey(2048, "Metrological CBOR conformance RSASSA-PSS manufacturer");
+var pssMeterKey         = RSAKey(2048, "Metrological CBOR conformance RSASSA-PSS meter");
+var pssMeterWideKey     = RSAKey(2048, "Metrological CBOR conformance RSASSA-PSS meter, SHA-512");
+
+// Bouncy Castle writes the parameter set RFC 8230 Section 2 asks for: MGF1
+// over the same hash, a salt as long as that hash, and the trailer field
+// RFC 4055 Section 3.1 says MUST be 1. The salt is drawn from the seeded
+// random, so these signatures are the same bytes on every run as well.
+var pssRoot             = Issue("rsaPssRoot", "RSA-PSS Root CA", pssRootKey, true,
+                                "SHA256withRSAandMGF1", null, authorityFrom, authorityUntil);
+
+var pssManufacturer     = Issue("rsaPssManufacturerCA", "RSA-PSS Meter Manufacturer CA", pssManufacturerKey, true,
+                                "SHA384withRSAandMGF1", (pssRoot, pssRootKey.Private), authorityFrom, authorityUntil);
+
+Issue("rsaPssMeter", "Meter 1ISA0000000049", pssMeterKey, false,
+      "SHA256withRSAandMGF1", (pssManufacturer, pssManufacturerKey.Private));
+
+RecordRSAKey("rsaPssMeter", "PS256", pssMeterKey);
+
+Issue("rsaPssMeterWideHash", "Meter 1ISA0000000050", pssMeterWideKey, false,
+      "SHA512withRSAandMGF1", (pssManufacturer, pssManufacturerKey.Private));
+
+RecordRSAKey("rsaPssMeterWideHash", "RS256", pssMeterWideKey);
 
 
 // ----------------------------------------------------------------- output ---

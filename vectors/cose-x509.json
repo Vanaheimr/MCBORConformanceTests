@@ -89,6 +89,66 @@
             "expected": "accept"
         },
         {
+            "id": "chain-signed-with-rsa",
+            "class": "normative",
+            "description": "The first chain here whose certificates are SIGNED with RSA rather than merely carrying an RSA key, which is a different question entirely: the signature on a certificate is what gets verified, so a chain signed with ECDSA says nothing about RSA however many RSA keys it certifies. This is the asymmetry the six algorithm rows of cose-sign uncovered rather than closed, recorded in FINDINGS Section 28 on 2026-11-03: Styx validated such a chain, because Bouncy Castle handles sha256WithRSAEncryption like anything else, and COSE.TS answered that \"1.2.840.113549.1.1.11\" is not a signature algorithm it knows. The count that found the other asymmetry never looked at this one, because it is in the other registry \u2014 the object identifiers of X.509 rather than the algorithms of COSE. Two certificates travel and both are verified: the meter's, signed with sha256WithRSAEncryption, and the manufacturer's authority above it, signed with sha384WithRSAEncryption by a root of 3072 bits. So one chain covers two of the three identifiers of RFC 4055 Section 5 and two signature widths, 256 octets and 384 \u2014 because the width of an RSA signature is the width of the signer's modulus, and an implementation that assumed one of them would pass every other certificate in this corpus. The meter signs the reading with RS256.",
+            "signer": "rsaMeter",
+            "chain": [
+                "rsaMeter",
+                "rsaManufacturerCA"
+            ],
+            "trustAnchors": [
+                "rsaRoot"
+            ],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "chain-signed-with-rsassa-pss",
+            "class": "normative",
+            "description": "The same chain in the other scheme, and the one algorithm identifier in X.509 that does not say what it is. \"PSS\" is the identifier; the digest, the mask generation function, the length of the salt and the trailer field are written in the parameters beside it [RFC 4055, Section 3.1], which MUST be present for a signature and whose defaults are SHA-1 throughout. Both implementations therefore have to read a parameter set here rather than look up an identifier, and what this row measures is that two independent readings of those octets pick the same algorithm: the authority is signed with the SHA-384 parameter set and the meter with the SHA-256 one, and the meter signs the reading with PS256. Both sides accept only the shape RFC 8230 Section 2 fixes for the COSE PS* algorithms \u2014 MGF1 over the same hash, a salt as long as that hash \u2014 which is less a strictness than an arithmetic: a PSS verifier that takes the salt length from the hash cannot verify a signature that used another one, whatever it accepts.",
+            "signer": "rsaPssMeter",
+            "chain": [
+                "rsaPssMeter",
+                "rsaPssManufacturerCA"
+            ],
+            "trustAnchors": [
+                "rsaPssRoot"
+            ],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "rsa-chain-signed-with-sha-512",
+            "class": "normative",
+            "description": "The third identifier of RFC 4055 Section 5, and the crossing: this certificate is signed with RSASSA-PKCS1-v1_5 and SHA-512, and the meter beneath it signs the reading with RSASSA-PSS. The two layers have nothing to do with one another \u2014 a certificate certifies a key and says nothing about what the key will be asked to do \u2014 and an implementation that read the message's algorithm off the certificate it arrived with, or the certificate's off the message, would still pass the two rows above, where the two happen to agree. It is also the row where an RSA key does both jobs in one message: verifying 256 octets of certificate signature with the authority's key, and 256 octets of message signature with the key the certificate carries.",
+            "signer": "rsaMeterWideHash",
+            "chain": [
+                "rsaMeterWideHash",
+                "rsaManufacturerCA"
+            ],
+            "trustAnchors": [
+                "rsaRoot"
+            ],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "rsassa-pss-chain-signed-with-sha-512",
+            "class": "normative",
+            "description": "The mirror of the row above: a certificate signed with the widest RSASSA-PSS parameter set over a message signed with RSASSA-PKCS1-v1_5. It completes the six forms \u2014 three identifiers of RFC 4055 Section 5 and three parameter sets of its Section 3.1, each one verified by both implementations. The widest set is also where the padding nearly runs out: 64 octets of digest, 64 of salt, eight zero octets and a trailer leave 126 of the 256 octets of the encoded block, and in a 1024-bit modulus it would not fit at all. Which is one way of reading the key size RFC 8230 Section 6.1 requires: the widest of these algorithms has no room in a narrow key.",
+            "signer": "rsaPssMeterWideHash",
+            "chain": [
+                "rsaPssMeterWideHash",
+                "rsaPssManufacturerCA"
+            ],
+            "trustAnchors": [
+                "rsaPssRoot"
+            ],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
             "id": "unknown-root",
             "class": "normative",
             "description": "A chain that is internally perfect and leads somewhere the recipient has never heard of. This is the ordinary failure and the one that must not be confused with a broken signature.",
