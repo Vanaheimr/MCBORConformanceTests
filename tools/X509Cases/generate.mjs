@@ -608,10 +608,11 @@ const LABELS = [
                      'wrong answer; silently ignoring the thumbprint is the dangerous one, ' +
                      'because a verifier that skips a check it cannot perform accepts the chain ' +
                      'the thumbprint was there to pin. Measured: both refuse, and both say the ' +
-                     'same thing - that SHA-1 is not a hash algorithm, which is false. Their ' +
-                     'predicates ask for a digest they have rather than for a hash algorithm, ' +
-                     'and no error text is judged in this family, so the verdict is the row and ' +
-                     'the wording is recorded in FINDINGS §24. ' +
+                     'same thing. Until this row existed that sentence was that SHA-1 is not a ' +
+                     'hash algorithm, which is false; since COSE.TS 87264c2 and Styx 59211b99 it ' +
+                     'is that SHA-1 is a hash algorithm they do not compute. No error text is ' +
+                     'judged in this family either way - the verdict is the row, and FINDINGS ' +
+                     '§24 keeps the record of the wording. ' +
                      '`survey`, because the premise is a reading ' +
                      'and a property of these two rather than a rule: RFC 9054 keeps SHA-1 ' +
                      'registered for the situations that still need it, naming historic HSMs and ' +

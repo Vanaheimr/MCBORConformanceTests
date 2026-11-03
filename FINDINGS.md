@@ -1983,22 +1983,38 @@ compute, so the third encoder computes it. RFC 9054 Section 3.1 registers
 SHA-1 for exactly this field and recommends it "Filter Only", which the
 registry defines as not for purposes that require collision resistance.
 
-Both refuse, and both say the same thing: Styx *"The certificate thumbprint of
+Both refuse, and both said the same thing: Styx *"The certificate thumbprint of
 this COSE_Sign1 message is invalid: The COSE algorithm 'SHA-1' of the
 COSE_CertHash is not a hash algorithm!"* and COSE.TS the same sentence without
 the outer clause.
 
-**That sentence is false.** SHA-1 is a hash algorithm, and RFC 9054 registers it
-as one. What is true is that neither library computes it, because both
+**That sentence was false.** SHA-1 is a hash algorithm, and RFC 9054 registers
+it as one. What is true is that neither library computes it, because both
 predicates ask for a digest they *have* rather than for a hash algorithm:
 `Family == None` with a non-null `HashAlgorithmName` on one side,
-`family === 'none'` with a non-null `hash` on the other. The verdict is
-defensible — a verifier that cannot perform a check it was asked to perform has
-little else to do — and the reason it gives for the verdict is wrong. By this
-family's own rule no error text is judged, so the row records the verdict and
-this paragraph records the wording. Both libraries can keep the behaviour and
-fix the sentence; that is their maintainers' to do, and it is the kind of thing
-only a message built by a third party ever surfaces.
+`family === 'none'` with a non-null `hash` on the other — and both failures
+came out as the one sentence. The verdict was defensible, since a verifier that
+cannot perform a check it was asked to perform has little else to do, and the
+reason it gave was wrong. By this family's own rule no error text is judged, so
+the row recorded the verdict and this section recorded the wording.
+
+It is fixed in both, the same day and the same way: COSE.TS `87264c2` and Styx
+`59211b99` split the predicate's two failures into two sentences at all three
+sites — computing a thumbprint, reading a `COSE_CertHash`, and matching one
+against a certificate. An algorithm that is no hash algorithm at all keeps the
+wording it had, so the three rows above read exactly as before; a hash
+algorithm the implementation does not compute is now told that it is one and
+that this implementation does not compute it. No verdict moved anywhere, and
+each library's own test now asserts the sentence rather than the verdict, which
+is the only way a wording stops regressing quietly. Styx lost a fourth wording
+in the exchange: `Matches` had said *"not a hash algorithm this implementation
+computes"*, which was true of SHA-1 and misleading about `ES256` — the same
+mistake mirrored.
+
+What produced all of it is a message neither implementation under test will
+write. Neither can construct a SHA-1 thumbprint, which is the whole point, so
+without a third encoder there is nothing to hand either of them — and the
+sentence would have stayed wrong because nothing would ever have printed it.
 
 `survey`, because the premise is a reading rather than a rule. RFC 9054 keeps
 SHA-1 registered for the situations that still need it, naming historic HSMs
@@ -2785,10 +2801,11 @@ thumbprints, two Partial IV and the SHA-1 thumbprint of §24. 616 (C#) / 580
 zero divergences, zero messages verified against what the third reader refuses,
 52 survey observations each and 16 on the agreement rows.
 
-Of the 38 algorithms both implement, all 38 now have a vector. Of the 13 header parameters both name, 11 do: the two that do not
-are the deprecated counter signature of label 7 and `Countersignature0 version
-2` of label 12 — and the second is §26's shape exactly, a registered label both
-can name and neither reads, with COSE.TS's scope block giving the reason. Of
+Of the 38 algorithms both implement, all 38 now have a vector. Of the 13 header
+parameters both name, 11 do: the two that do not are the deprecated counter
+signature of label 7 and `Countersignature0 version 2` of label 12 — and the
+second is §26's shape exactly, a registered label both can name and neither
+reads, with COSE.TS's scope block giving the reason. Of
 the 8 header algorithm parameters both name, `PartyU other` (−23) and `PartyV
 nonce` (−25) are still unexercised; the one case that carries party information
 sets four of the six fields.
