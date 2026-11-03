@@ -33,8 +33,8 @@ RFC 9964 — where a 4627-byte signature over a thirty-byte reading is exactly
 why a signed measurement belongs in CBOR rather than in base64 within JSON —
 and both RSA families, RSASSA-PSS of RFC 8230 and RSASSA-PKCS1-v1_5 of
 RFC 8812 — including a key with three prime factors, the multi-prime form RFC
-8230 offers and requires of nobody, which one side signs with and the other
-declines ([FINDINGS.md](FINDINGS.md) §28).
+8230 offers and requires of nobody, which both sides now sign with, to the same
+bytes ([FINDINGS.md](FINDINGS.md) §28).
 Classical and post-quantum signatures also meet inside single messages: a
 hybrid `COSE_Sign` carrying one of each, and a meter reading signed with the
 key the meter was manufactured with and countersigned post-quantum by the
@@ -110,7 +110,7 @@ RSA of its own, both paddings, from the modular exponentiation up, and
 certificate it mints is the corpus's own leaf with one field written
 differently, which the generator proves by minting it again with the field as
 the corpus has it and refusing to run unless that comes out byte for byte.
-What the two families found is three of the suite's four divergences, and the
+What the two families found is all three of the suite's divergences, and the
 one place where a certificate everybody agrees is correctly encoded is refused
 all the same ([FINDINGS.md](FINDINGS.md) §28).
 

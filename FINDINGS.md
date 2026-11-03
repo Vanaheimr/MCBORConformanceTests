@@ -3324,7 +3324,8 @@ that signature verifies under n and e. And the mistake that refusal guards
 against is caught there too: the two-prime CRT class handed this key's eight
 parameters throws *"RSA engine faulty decryption/signing detected"*, the blinded
 engine's own check of its output. So neither library would have sent the wrong
-signature quietly.
+signature quietly. (Reversed the same day: see *Decided: Styx signs with the
+three primes as well* below.)
 
 **And the instrument needed one change.** The divergence pass compared only the
 checks both sides recorded, so a side that stopped before the first of them left
@@ -3344,6 +3345,71 @@ has nothing to disagree with"* in the falsification table below; that row was
 | COSE.TS reading the form no longer: the further primes ignored in RSASP1 | nothing fails and the divergences go from 4 to 3 — both sides now stop, so the case has no asymmetry left to show, and the agreement row loses its three observations of the signature, the message and the structure. The row is what tells the suite which side reads the form |
 | COSE.TS putting the further primes into the thumbprint | nothing fails, and the divergences go from 4 to 5: the new one is the thumbprint of this row, `0DE18439…` against `311E6D77…`. So the identity claim is held — by the divergence pass, not by a failure, which is the cost of `survey` named above |
 | the public half keeping the array | nothing in the suite: no row reads a public COSE key's bytes. That claim is held by COSE.TS's own test, which fails on it alone, and by Styx's, which already asserted it |
+
+### Decided: Styx signs with the three primes as well (2026-11-03)
+
+The refusal recorded above was the maintainer's to reverse, and it is reversed:
+Styx `244aa8c3` signs with a key of more than two primes. Not by the route
+measured above, `RsaKeyParameters(true, n, d)`, which works but gives up two
+things the two-prime path has — Bouncy Castle blinds the private operation of a
+CRT key only, and checks the result of a CRT key only. Instead by two classes of
+Styx's own:
+
+- `RSAMultiPrimePrivateKeyParameters` extends Bouncy Castle's two-prime CRT
+  key on purpose. Its blinded engine therefore blinds this key as well, which a
+  test asserts rather than assumes: a recording core sees m·r^e, never m, and
+  another r every time. And an engine that knows two primes computes modulo p
+  and q alone, and its check refuses to release that result — the measurement
+  above, *"RSA engine faulty decryption/signing detected"*, is a test now.
+- `RSAMultiPrimeCore` is the `IRsa` that computes with all of the primes: the
+  second form of RSASP1 of RFC 8017 Section 5.1.2, inside the same blinded
+  engine and the same PKCS #1 v1.5 and PSS encodings, with its own result
+  checked against e and n before it is released.
+
+`COSEKey` reads the array when parsing, with the refusals COSE.TS has (no
+array, no prime, an entry that is no map, a field missing) and a leading zero
+besides, and checks each d_i and t_i against d and the primes before it. Styx's
+tests hold its bytes to the first form of RSASP1, m^d mod n, which needs no
+prime at all, and let the RSA of .NET verify them under n and e. COSE.TS's tests
+hold its bytes to OpenSSL's. So what agrees on this row now are two
+implementations that each agree with a third computation already.
+
+What the row measures now:
+
+| check | Styx | COSE.TS |
+|---|---|---|
+| the RFC 9679 thumbprint | `0DE1843997C89C29…` | the same |
+| the structure that was signed, the signature, the message | signed: `0831BDB33843FF41…`, 256 bytes | the same bytes |
+| verifying the other's message | verified | verified |
+
+4/4 on the agreement row, both cross-verifications, and the divergences go from
+four to three: the one this row was built to show has nothing left to show.
+
+**The row stays `survey`.** RFC 8230 still offers the form to whoever wants it,
+and a third implementation that declines it would not be wrong — promoting the
+row would make it wrong in this suite. Both implementations read the form now,
+and a `normative` row would hold them to it; whether that is worth more than
+the specification's own latitude is the maintainer's call, so it is offered
+here and not made.
+
+**Falsified.** In Styx, seven changes, each failing only what it should:
+
+| what was changed in Styx | Styx tests failing |
+|---|---|
+| R in step v not grown by the prime before | 3 — the signatures against the first form, the `COSE_Sign1`, and the blinded computation |
+| no check of the result in `RSAMultiPrimeCore` | 1 — the faulty result that must be withheld |
+| the signer ignoring `RSAMultiPrimeCore` | 3 — Bouncy Castle's own engine refuses every signature |
+| `COSEKey.From` dropping the array | 1 — the round trip |
+| t_i not checked | 1 — the further primes that do not belong to the key |
+| the array not read when parsing | 1 — the malformed arrays |
+| the public half keeping the array | 2 — the one in the two-prime tests and the new one |
+
+In the suite, the third of them — Styx signing through Bouncy Castle's own
+engine — fails nothing and moves the divergences from three back to four. The
+runner error the C# side records is Bouncy Castle's sentence, *"RSA engine
+faulty decryption/signing detected"*, and the cross-verification of COSE.TS's
+message still succeeds. So a regression to two primes is seen, and is seen as
+the safe failure it would be.
 
 ### Falsification
 
@@ -3374,10 +3440,11 @@ that minting made possible, and the key with three primes. 636 (C#) / 600
 zero messages verified against what the third reader refuses, 60 survey
 observations each and 21 on the agreement rows.
 
-And four cross-implementation divergences, where this suite ran at zero for a
+And three cross-implementation divergences, where this suite ran at zero for a
 while. Every one of them is a row built to produce it: a parameter RFC 4055
-does not allow, the two halves of its Section 3.3 that a key restricted to
-RSASSA-PSS asks about, and a key form RFC 8230 offers and one side declines.
+does not allow, and the two halves of its Section 3.3 that a key restricted to
+RSASSA-PSS asks about. The fourth was a key form RFC 8230 offers and one side
+declined, until Styx `244aa8c3` read it too.
 They are the first thing a reader of the report meets, and they are the point. A divergence is what this suite is for, and `survey` is
 how one is written down while which side is right remains the specification's
 question and not this suite's.
