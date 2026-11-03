@@ -2727,25 +2727,28 @@ Two cases, differing by one header entry:
 
 | row | class | expected | what both do |
 |---|---|---|---|
-| `encrypt0-partial-iv-beside-the-iv` | survey | reject | **open it**, by its IV, ignoring label 6 |
-| `encrypt0-partial-iv-the-sender-made-critical` | normative | reject | refuse, for the `crit` |
+| `encrypt0-partial-iv-beside-the-iv` | normative, `survey` until 2026-11-03 | reject | refuse, for the combination — and **open it**, by its IV, until both libraries grew the check |
+| `encrypt0-partial-iv-the-sender-made-critical` | normative | reject | refuse, for a `crit` that names a label the protected bucket does not hold |
 
 Both implementations build both messages byte for byte identically, and the
 first one is `D08343A10101A2054C02D1F7E6F26C43D4868D87CE064261A75824…` — an
 unprotected bucket holding label 5 and label 6 at once.
 
-The second row is green, and rests on the sentence §26's two `crit` rows rest
-on: a label listed in `crit` must be processed, and neither of these processes
-label 6. The first records a message RFC 9052 forbids and both implementations
-accept. It is `survey` for a textual reason rather than a lenient one: that
-sentence binds whoever *builds* the message, and no sentence was found in RFC
-9052 binding a recipient to police it. Where the document wanted both sides
-bound it said both halves — Section 9, on a label used twice as a key in one
-map, forbids generating such a message and forbids parsing and processing one.
-Section 3.1 forbids only the first. So requiring the refusal would be a
-decision about published behaviour rather than a reading of the specification,
-which is §25's question again and the maintainer's to answer. The verdict is
-recorded every run meanwhile.
+The second row is green, and was read when it was written as resting on the
+sentence §26's two `crit` rows rest on: a label listed in `crit` must be
+processed, and neither of these processes label 6. It does not rest on that
+sentence at all — it rests on §3.1's other `crit` rule, which the second
+subsection below is about. The first row recorded a message RFC 9052 forbids
+and both implementations accepted. It was `survey` for a textual reason rather
+than a lenient one: that sentence binds whoever *builds* the message, and no
+sentence was found in RFC 9052 binding a recipient to police it. Where the
+document wanted both sides bound it said both halves — Section 9, on a label
+used twice as a key in one map, forbids generating such a message and forbids
+parsing and processing one. Section 3.1 forbids only the first. So requiring
+the refusal was a decision about published behaviour rather than a reading of
+the specification, which is §25's question again and was the maintainer's to
+answer. It was answered the same day, and the subsection below is what the
+answer cost.
 
 Two things this family does not have. RFC 9052 Appendix C.4.2 publishes a
 Partial IV example and this suite cannot use it: it encrypts with
@@ -2755,6 +2758,89 @@ want — a Partial IV and no IV at all — is absent because an encryptor needs 
 real IV to encrypt with, so that message has to come from a third encoder the
 way §24 to §26's do; what its refusal would measure is the absence of a Context
 IV rather than a rule.
+
+### Required, not recorded: the Partial IV row (decided 2026-11-03)
+
+The subsection above argued itself into `survey` and left the promotion to the
+maintainer, who took it. It is the first row in this suite whose promotion
+neither library could already satisfy, so what it cost is worth the space.
+
+**The flip alone turns the suite red.** 616 pass and **one fail** on the C#
+side, 580 and one on the TypeScript side, exit 1, and the two failing rows name
+a verdict rather than a byte: *typescript opening the message produced by
+csharp: verified*, and the mirror of it. Zero divergences throughout, because
+both sides were lenient in the same way — §25's lesson in one line, and the
+reason a two-way comparison cannot be the judge of this.
+
+**Then both libraries grew the check**: COSE.TS `1c93510`, Styx `9ef6e2dd`. One
+function each, `verifyInitializationVectors` and
+`COSEHeaders.VerifyInitializationVectors`, consulted by the decryption half
+that `COSE_Encrypt0` and `COSE_Encrypt` share, and consulted *after* the `crit`
+check, which the next subsection is about. Both answer with the same sentence,
+word for word:
+
+> The "IV" and "Partial IV" header parameters must not both be present within
+> the same security layer!
+
+Encrypting was not touched, and the half of §3.1 that binds a sender holds by
+construction rather than by a check: neither library's ordinary encrypt call
+can be asked for a Partial IV at all. Only the overload that takes both header
+buckets from its caller can build such a message — which is how this suite
+builds it, and therefore the half no row here can require. A vector family that
+needs both libraries to produce its bytes cannot also demand that they refuse
+to. That is not a gap in this increment but a limit of the shape, and it is
+written down rather than left to be found.
+
+### The sentence the critical row is refused for, which is not the one claimed
+
+The critical row was described — by me, hours earlier the same day — as a
+message that *meets* both of §3.1's `crit` rules and is therefore refused for
+the demand itself. It does not, and both implementations had been saying so all
+along:
+
+> The "crit" header parameter lists 'Partial IV', which is not present within
+> the protected header bucket!
+
+§3.1 states a second rule about `crit`, and that is the one firing: *if the
+"crit" value list includes a label for which the header parameter is not in the
+protected-header-parameters bucket, this is a fatal error in processing the
+message*. The Partial IV of that message sits in the unprotected bucket beside
+the IV, so the `crit` naming it is malformed and the demand is never reached.
+The row stays green, stays normative and still holds both sides to a refusal —
+of a different sentence than its description claimed. Both descriptions say
+what is measured now.
+
+What caught it was a library test written to assert the sentence instead of the
+verdict, which is §24's lesson one layer further in: there the suite caught a
+false sentence in two libraries, here a library test caught a false claim in
+the suite. Both libraries now carry a test that builds the message with the
+Partial IV in each bucket and asserts both sentences — unprotected, the fatal
+error; protected, the demand neither of them can meet.
+
+That is also where the `crit` rule now lives, because this pair of rows has
+stopped isolating it. Either check alone refuses the critical message, so a
+library that dropped its `crit` handling altogether would keep that row green.
+§26's two `crit` rows carry the rule instead, with x5bag and x5u, and they are
+well formed: the label in the protected bucket, and a `crit` beside it naming
+that label. Nothing is left unmeasured — it is measured somewhere else, which
+is worth knowing before reading this row as evidence about `crit`.
+
+One more sentence of §3.1 belongs here, because it binds the sender rather than
+the recipient: integer labels in the range 0 to 7 SHOULD be omitted from
+`crit`, and label 6 is one of them. The critical row is therefore a message the
+specification advises against building and prescribes a fatal error for, which
+is exactly the kind of message a conformance suite has to build itself.
+
+### Falsification of the promotion
+
+| what was changed | what happened |
+|---|---|
+| the new check disabled in COSE.TS alone | `encrypt0-partial-iv-beside-the-iv`: **one failure**, the row where TypeScript opens what C# produced, while C# refusing TypeScript's message keeps its own row green. **Zero divergences** — the divergence pass compares status and bytes, never verdicts, so a one-sided refusal is a failure here and never a divergence |
+| the two checks swapped in COSE.TS alone, the IV check before the `crit` check | **nothing**: 617 / 581 / 416 / 38, zero failures, zero divergences — while the two implementations give different reasons for the same message, C# the fatal error and TypeScript the combination |
+
+The second is a falsification that fails to fail, like the A192KW `keySize`
+below, and it is here for the same reason: the order of the two reasons is held
+by each library's own tests and by nothing at all in `vectors/`.
 
 ### The asymmetry the count turned up
 
@@ -2782,7 +2868,7 @@ libraries grew, and nothing in `npm test` was ever going to notice it ageing.
 | ESP384 resolved to SHA-256 — COSE.TS `algorithm.ts` | `sign1-esp384-fully-specified`: the signature and the message disagree and both cross-verifications fail — 4 failures, 2 divergences |
 | the `x5t` thumbprint computed with SHA-256 whatever the label says — COSE.TS `x5chain.ts`, `CoseCertificateHash.from` | both new thumbprint rows: thumbprint and message disagree, TypeScript refuses its own message and C# refuses TypeScript's — 8 failures, 6 divergences |
 | a 24-byte key-encryption key labelled A128KW — COSE.TS `recipient.ts`, `keyWrapAlgorithmFor` — and the ECDH-ES + A192KW entry sized for 16 bytes | both A192KW rows: the message, the first recipient structure and the `COSE_KDF_Context` disagree, and neither side opens the other's — 7 failures, 4 divergences |
-| the `crit` entry taken out of the critical Partial IV row | that *is* the survey row beside it: both open it, measured rather than argued |
+| the `crit` entry taken out of the critical Partial IV row | that *is* the row beside it, which both implementations opened when this was written and both refuse since 2026-11-03 — so the change no longer separates the two rows, which is a finding of its own above |
 | EdDSA (−8) given a fixed Ed25519 curve — COSE.TS `algorithm.ts` | `sign1-eddsa-ed448` alone: the TypeScript side produces no message at all, so its three agreements fail and both cross-verifications with it — 5 failures, no divergence, because a side that produced nothing has nothing to disagree with. `sign1-eddsa-ed25519` stays green, which is the whole reason the row is a pair |
 
 One falsification caught nothing, and it belongs here for that reason. Changing
@@ -2796,10 +2882,12 @@ has falsified nothing — including itself.
 ### Where it leaves the suite
 
 Thirteen cases: four signatures, the EdDSA pair, two key wraps, two
-thumbprints, two Partial IV and the SHA-1 thumbprint of §24. 616 (C#) / 580
-(TypeScript) / 38 (the third reader) normative, 413 agreements, zero failures,
+thumbprints, two Partial IV and the SHA-1 thumbprint of §24. 617 (C#) / 581
+(TypeScript) / 38 (the third reader) normative, 416 agreements, zero failures,
 zero divergences, zero messages verified against what the third reader refuses,
-52 survey observations each and 16 on the agreement rows.
+51 survey observations each and 13 on the agreement rows. The promotion of
+2026-11-03 moved five rows across: the two cross-open verdicts, one per opening
+implementation, and the three byte agreements of the case.
 
 Of the 38 algorithms both implement, all 38 now have a vector. Of the 13 header
 parameters both name, 11 do: the two that do not are the deprecated counter
