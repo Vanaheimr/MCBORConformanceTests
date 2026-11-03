@@ -158,21 +158,23 @@ interface VectorCase {
 
 /**
  * The eight parameters of an RSA private key [RFC 8230, Section 4], as a case
- * prints them: unsigned big-endian hex, in the fewest octets.
+ * prints them: unsigned big-endian hex, in the fewest octets — and for a key
+ * with more than two primes the further ones, each with its own d_i and t_i.
  *
  * A case carries the whole key rather than naming one, the way every other
  * case here carries its own, and that is what lets the cross-feed hand a
  * message to the other implementation together with the key that signed it.
  */
 interface RsaKeyHex {
-    n:     string;
-    e:     string;
-    d:     string;
-    p:     string;
-    q:     string;
-    dP:    string;
-    dQ:    string;
-    qInv:  string;
+    n:      string;
+    e:      string;
+    d:      string;
+    p:      string;
+    q:      string;
+    dP:     string;
+    dQ:     string;
+    qInv:   string;
+    other?: { r_i: string; d_i: string; t_i: string }[];
 }
 
 
@@ -430,6 +432,11 @@ function rsaKeyOf(parts: RsaKeyHex, algorithmName: string, keyIdentifier?: strin
                    dP:    hexToBytes(parts.dP),
                    dQ:    hexToBytes(parts.dQ),
                    qInv:  hexToBytes(parts.qInv),
+                   other: parts.other?.map(prime => ({
+                              r:  hexToBytes(prime.r_i),
+                              d:  hexToBytes(prime.d_i),
+                              t:  hexToBytes(prime.t_i),
+                          })),
                },
                {
                    algorithm,

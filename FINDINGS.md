@@ -2930,7 +2930,10 @@ The multi-prime form of RFC 8230 — labels −9 to −12, `other`, `r_i`, `d_i`
 unknown ones for the round trip and sign with the two primes they do read.
 COSE.TS at least cannot do that quietly, because it checks that p·q is the
 modulus before it signs. No vector asks, because what this section counts is
-registry rows of the algorithm registry and not shapes of keys.
+registry rows of the algorithm registry and not shapes of keys. (When it was
+measured, the second half of the first sentence turned out wrong for both:
+neither signed with two primes. See *Decided: the key with three primes*
+below.)
 
 The other one is new, and it is an asymmetry rather than a boundary:
 **Styx validates an RSA-signed certificate chain and COSE.TS refuses to parse
@@ -3066,7 +3069,8 @@ candidate here. It was built the same day; the next subsection is what it
 measured.
 
 The multi-prime form of RFC 8230 is where the subsection above left it: read by
-neither implementation, and asked by nothing.
+neither implementation, and asked by nothing. It is the last subsection of this
+section that changes that.
 
 ### Decided: the parameter that had to be minted (2026-11-03)
 
@@ -3250,6 +3254,97 @@ one would make this file different on every run.
 | an absent parameter set defaulting to PS256 in COSE.TS | nothing fails and the divergences go from 3 to 4. The new one is `a-restriction-that-names-no-hash-with-the-other-scheme`, which is the row that exists to record the shared leniency — so it is also the row that notices an implementation inventing a hash the certificate does not name. RFC 4055's own default is SHA-1, which no PS* is, and PS256 would be a guess |
 | a key's salt length read as a width rather than a floor | `a-key-whose-salt-is-a-floor-and-not-a-width` fails in both places — 2 failures, 4 divergences — and every other row stays green, which is the whole reason that row is there. This is the mistake the row was written against, and it was a real one: the first draft of the reader required equality for keys as well |
 
+### Decided: the key with three primes (2026-11-03)
+
+The last gap this section recorded. RFC 8230 Section 4 "also provides support
+for the so-called 'multi-prime' RSA keys, in which the modulus may have more
+than two prime factors": the eight parameters as before, and the primes after
+the second as an array at label −9, each a map of r_i, d_i and t_i at −10,
+−11 and −12. COSE.TS `20a1a64` reads the form; `cose-sign` has one row for it.
+
+**What was measured first, before either side changed.** The sentence above
+that said both implementations "sign with the two primes they do read" was a
+prediction, and it was wrong for both:
+
+| a key with three primes | Styx | COSE.TS before `20a1a64` |
+|---|---|---|
+| parsed, and the array kept for the round trip | yes, 1245 bytes back as they came | yes, as a parameter it did not know |
+| signed with | **refused**: *"Multi-prime RSA keys are not supported by this implementation!"* | **refused**: *"The prime factors of this RSA private key do not multiply to its modulus!"* |
+| its public half | n and e, the array dropped | n and e **and the array** |
+| its RFC 9679 thumbprint | `0DE18439…` | `0DE18439…` |
+
+Styx's position is a decision, documented in its source and held by a test of
+its own; COSE.TS's was an accident with two defects in it. The refusal blamed
+the key for a form the package did not read. And the public half kept the
+array, which is a factor of the modulus handed out under a name promising the
+opposite — RFC 8230 says of a public key that "all other fields defined in the
+following table below MUST be absent", and −9 is in that table. Nothing COSE.TS
+constructed could reach that; a key it parsed could.
+
+**What COSE.TS does now.** RSASP1 runs the steps RFC 8017 Section 5.1.2 adds for
+the form — one more exponentiation per further prime, then the two-prime join
+repeated with R the product of the primes already joined — and a two-prime key
+runs exactly the code it ran before. The fault check that verifies every
+signature before it is returned covers the new steps as well. The public half
+drops the array with the rest. An array that names no prime is refused, because
+for a two-prime key the field "MUST be absent", and so is a prime missing one
+of its three fields. The key is OpenSSL's (`genrsa -primes 3 2048`, three
+primes of 683, 683 and 682 bits), because nothing else in reach generates one,
+and COSE.TS's tests hold the arithmetic to OpenSSL's: RS256, RS384 and RS512
+byte for byte, PS256 both ways, and the CRT result equal to m^d mod n.
+
+**What the row measured**, `sign1-rs256-rsa-three-primes`:
+
+| check | Styx | COSE.TS |
+|---|---|---|
+| the RFC 9679 thumbprint | `0DE1843997C89C29…` | the same |
+| the signature and the message | refused, in the sentence above | signed |
+| verifying the other's message | **verified COSE.TS's** | — (Styx produced none) |
+
+So Styx verifies what it will not sign, which is what one would expect and
+still worth having measured: verifying takes the modulus and the public
+exponent and nothing else, and a key with three primes has one of each.
+
+**Why the row is `survey`.** RFC 8230 offers the form and requires it of
+nobody, so a side that declines it is not wrong, and the refusal is a reasoned
+one. The row records the asymmetry rather than judging it. The cost is that its
+thumbprint agreement is a survey observation too: the class is per case, and the
+one claim on this row that *is* a requirement — RFC 9679 takes kty, n and e,
+so the further primes must not reach the identity — cannot fail a run from
+here. What catches a regression there is the divergence pass, as the second
+falsification below shows. RS256 rather than PS256 because RSASSA-PKCS1-v1_5 has
+no randomness at all, so if both ever sign with this key the bytes are directly
+comparable.
+
+**Styx: measured, not changed.** Its refusal is a decision with a test behind
+it, and reversing it is the maintainer's call. What it would take was measured
+rather than guessed: Bouncy Castle has no multi-prime key class, but it signs
+with `new RsaKeyParameters(true, n, d)` — the first form of RSASP1, no CRT — and
+that signature verifies under n and e. And the mistake that refusal guards
+against is caught there too: the two-prime CRT class handed this key's eight
+parameters throws *"RSA engine faulty decryption/signing detected"*, the blinded
+engine's own check of its output. So neither library would have sent the wrong
+signature quietly.
+
+**And the instrument needed one change.** The divergence pass compared only the
+checks both sides recorded, so a side that stopped before the first of them left
+nothing to compare, and the case read as agreement on its thumbprint: the first
+run of this row reported three divergences, not four. It now counts a case
+exactly one side could not run — a `runner` error on one side and none on the
+other — as a divergence about the whole case. Before the change, this row was
+the only such case in the suite, so nothing else moved. It is also the blind
+spot behind *"5 failures, no divergence, because a side that produced nothing
+has nothing to disagree with"* in the falsification table below; that row was
+`normative` and failed regardless, and a `survey` row would not have.
+
+### Falsification of the one row
+
+| what was changed | what happened |
+|---|---|
+| COSE.TS reading the form no longer: the further primes ignored in RSASP1 | nothing fails and the divergences go from 4 to 3 — both sides now stop, so the case has no asymmetry left to show, and the agreement row loses its three observations of the signature, the message and the structure. The row is what tells the suite which side reads the form |
+| COSE.TS putting the further primes into the thumbprint | nothing fails, and the divergences go from 4 to 5: the new one is the thumbprint of this row, `0DE18439…` against `311E6D77…`. So the identity claim is held — by the divergence pass, not by a failure, which is the cost of `survey` named above |
+| the public half keeping the array | nothing in the suite: no row reads a public COSE key's bytes. That claim is held by COSE.TS's own test, which fails on it alone, and by Styx's, which already asserted it |
+
 ### Falsification
 
 | what was changed | what happened |
@@ -3270,20 +3365,20 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Thirty-two cases: four signatures, the EdDSA pair, two key wraps, two
+Thirty-three cases: four signatures, the EdDSA pair, two key wraps, two
 thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
-produced, the three parameter rows that had to be minted, and the six key-type
-rows that minting made possible. 636 (C#) / 600 (TypeScript) / 56 (the third
-reader) normative, 453 agreements, zero failures, zero messages verified
-against what the third reader refuses, 59 survey observations each and 17 on
-the agreement rows.
+produced, the three parameter rows that had to be minted, the six key-type rows
+that minting made possible, and the key with three primes. 636 (C#) / 600
+(TypeScript) / 56 (the third reader) normative, 453 agreements, zero failures,
+zero messages verified against what the third reader refuses, 60 survey
+observations each and 21 on the agreement rows.
 
-And three cross-implementation divergences, where this suite ran at zero for a
+And four cross-implementation divergences, where this suite ran at zero for a
 while. Every one of them is a row built to produce it: a parameter RFC 4055
-does not allow, and the two halves of its Section 3.3 that a key restricted to
-RSASSA-PSS asks about. They are the first thing a reader of the report meets,
-and they are the point. A divergence is what this suite is for, and `survey` is
+does not allow, the two halves of its Section 3.3 that a key restricted to
+RSASSA-PSS asks about, and a key form RFC 8230 offers and one side declines.
+They are the first thing a reader of the report meets, and they are the point. A divergence is what this suite is for, and `survey` is
 how one is written down while which side is right remains the specification's
 question and not this suite's.
 

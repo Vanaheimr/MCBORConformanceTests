@@ -362,12 +362,19 @@ static void RunParseTexts(JsonObject TestCase, JsonObject Checks)
 /// The key a case signs or verifies with. Both halves are derived from the
 /// private scalar, so a signer and a verifier can never disagree about which
 /// public key belongs to which private one.
+///
+/// The private half may be absent, with the implementation's own sentence for
+/// why in its place: a key this implementation will verify with and not sign
+/// with is a measurement rather than a broken case, and the public half has to
+/// stay usable for the cross-verification. <see cref="SigningKey"/> is where
+/// the sentence surfaces, which is the one place that asks for the private half.
 /// </summary>
-static (AsymmetricKeyParameter PrivateKey,
-        AsymmetricKeyParameter PublicKey,
-        COSEAlgorithm          Algorithm,
-        Byte[]?                KeyIdentifier,
-        COSEKey                Key) CoseKeyOf(JsonObject TestCase, Boolean Secondary)
+static (AsymmetricKeyParameter? PrivateKey,
+        AsymmetricKeyParameter  PublicKey,
+        COSEAlgorithm           Algorithm,
+        Byte[]?                 KeyIdentifier,
+        COSEKey                 Key,
+        String?                 Refusal) CoseKeyOf(JsonObject TestCase, Boolean Secondary)
 {
 
     var suffix         = Secondary ? "2" : "";
@@ -402,6 +409,39 @@ static (AsymmetricKeyParameter PrivateKey,
 
         var rsa = rsaParameters
                       ?? throw new Exception($"The COSE algorithm '{algorithmName}' needs an RSA key!");
+
+        // A key with more than two primes [RFC 8230, Section 4] has no Bouncy
+        // Castle class to be built as: the private key class there is the
+        // two-prime CRT one, and handing it three primes' worth of parameters
+        // describes a key whose p and q do not multiply to its modulus. So
+        // the key is assembled as a COSE key and asked through Styx's own
+        // reader, which is the component that has an opinion about the form -
+        // and whatever it answers is what this suite records.
+        if (rsa["other"] is JsonArray others)
+        {
+
+            var multiPrime = new COSEKey(COSEKeyType.RSA,
+                                         D:                     RSAOctets(rsa, "d"),
+                                         KeyIdentifier:         keyIdentifier,
+                                         Algorithm:             algorithm,
+                                         AdditionalParameters:  [ new (COSEKey.OtherPrimesLabel,
+                                                                       CBORValue.FromArray(others.Select(OtherPrimeOf))) ],
+                                         N:                     RSAOctets(rsa, "n"),
+                                         E:                     RSAOctets(rsa, "e"),
+                                         P:                     RSAOctets(rsa, "p"),
+                                         Q:                     RSAOctets(rsa, "q"),
+                                         DP:                    RSAOctets(rsa, "dP"),
+                                         DQ:                    RSAOctets(rsa, "dQ"),
+                                         QInv:                  RSAOctets(rsa, "qInv"));
+
+            return (multiPrime.TryToPrivateKey(out var signing, out var refusal) ? signing : null,
+                    multiPrime.ToPublicCOSEKey().ToPublicKey(),
+                    algorithm,
+                    keyIdentifier,
+                    multiPrime,
+                    refusal);
+
+        }
 
         privateKey = new RsaPrivateCrtKeyParameters(RSAInteger(rsa, "n"),
                                                     RSAInteger(rsa, "e"),
@@ -451,7 +491,45 @@ static (AsymmetricKeyParameter PrivateKey,
             key.ToPublicCOSEKey().ToPublicKey(),
             algorithm,
             keyIdentifier,
-            key);
+            key,
+            null);
+
+}
+
+
+/// <summary>
+/// The private half of a case's key, or the implementation's own sentence for
+/// not having one.
+/// </summary>
+static AsymmetricKeyParameter SigningKey(AsymmetricKeyParameter? PrivateKey, String? Refusal)
+
+    => PrivateKey ?? throw new Exception(Refusal ?? "This case has no private key to sign with!");
+
+
+/// <summary>
+/// One parameter of an RSA key as the octets it travels as.
+/// </summary>
+static Byte[] RSAOctets(JsonObject Parameters, String Name)
+
+    => Convert.FromHexString(Parameters[Name]?.GetValue<String>()
+                                 ?? throw new Exception($"The RSA key of this case carries no {Name}!"));
+
+
+/// <summary>
+/// One prime after the second, as the map of RFC 8230 Section 4 that carries
+/// it: r_i, d_i and t_i at labels -10, -11 and -12.
+/// </summary>
+static CBORValue OtherPrimeOf(JsonNode? Prime)
+{
+
+    var prime = Prime?.AsObject()
+                    ?? throw new Exception("A further prime of this RSA key is not an object!");
+
+    return CBORValue.FromMap([
+               new (CBORValue.FromInt64(-10), CBORValue.FromBytes(RSAOctets(prime, "r_i"))),
+               new (CBORValue.FromInt64(-11), CBORValue.FromBytes(RSAOctets(prime, "d_i"))),
+               new (CBORValue.FromInt64(-12), CBORValue.FromBytes(RSAOctets(prime, "t_i")))
+           ]);
 
 }
 
@@ -530,7 +608,7 @@ static void RunCOSECrit(JsonObject TestCase, JsonObject Checks)
         else
             protectedHeader = protectedHeader.Set(COSEHeaderLabel.Critical, critical);
 
-        message = COSESign1.Sign(payload, primary.PrivateKey, protectedHeader, unprotectedHeader,
+        message = COSESign1.Sign(payload, SigningKey(primary.PrivateKey, primary.Refusal), protectedHeader, unprotectedHeader,
                                  null, false, true, null, null, true);
 
         return OkHex(Convert.ToHexString(message.ToByteArray()));
@@ -567,9 +645,9 @@ static void RunCoseSign(JsonObject TestCase, JsonObject Checks)
         {
 
             var message = shape == "sign1"
-                              ? COSESign1.Sign(payload, primary.PrivateKey, primary.Algorithm,
+                              ? COSESign1.Sign(payload, SigningKey(primary.PrivateKey, primary.Refusal), primary.Algorithm,
                                                primary.KeyIdentifier, externalAAD, detached, tagged, null, true)
-                              : COSESign1.SignWithApplicationAlgorithm(payload, primary.PrivateKey, primary.Algorithm,
+                              : COSESign1.SignWithApplicationAlgorithm(payload, SigningKey(primary.PrivateKey, primary.Refusal), primary.Algorithm,
                                                primary.KeyIdentifier, externalAAD, detached, tagged, null, true);
 
             Checks["toBeSigned"] = Capture(() => OkHex(Convert.ToHexString(
@@ -586,9 +664,9 @@ static void RunCoseSign(JsonObject TestCase, JsonObject Checks)
 
             var second   = CoseKeyOf(TestCase, true);
 
-            var message  = COSESign.Sign(payload, primary.PrivateKey, primary.Algorithm,
+            var message  = COSESign.Sign(payload, SigningKey(primary.PrivateKey, primary.Refusal), primary.Algorithm,
                                          primary.KeyIdentifier, externalAAD, detached, tagged, null, true).
-                                    AddSignature(second.PrivateKey, second.Algorithm,
+                                    AddSignature(SigningKey(second.PrivateKey, second.Refusal), second.Algorithm,
                                                  second.KeyIdentifier, externalAAD,
                                                  detached ? payload : null, null, true);
 
@@ -612,10 +690,10 @@ static void RunCoseSign(JsonObject TestCase, JsonObject Checks)
 
             var second   = CoseKeyOf(TestCase, true);
 
-            var signed   = COSESign1.Sign(payload, primary.PrivateKey, primary.Algorithm,
+            var signed   = COSESign1.Sign(payload, SigningKey(primary.PrivateKey, primary.Refusal), primary.Algorithm,
                                           primary.KeyIdentifier, externalAAD, detached, tagged, null, true);
 
-            var message  = signed.AddCountersignature(second.PrivateKey, second.Algorithm,
+            var message  = signed.AddCountersignature(SigningKey(second.PrivateKey, second.Refusal), second.Algorithm,
                                                       second.KeyIdentifier, externalAAD,
                                                       detached ? payload : null, null, true);
 
@@ -1308,7 +1386,7 @@ static (AsymmetricKeyParameter PrivateKey, COSEAlgorithm Algorithm) CorpusKeyOf(
 
     var key = CoseKeyOf(wrapped, false);
 
-    return (key.PrivateKey, key.Algorithm);
+    return (SigningKey(key.PrivateKey, key.Refusal), key.Algorithm);
 
 }
 

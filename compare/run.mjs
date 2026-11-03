@@ -1386,6 +1386,22 @@ for (const key of Object.keys(csharp.results)) {
 
     }
 
+    // A case one side could not run at all. The comparison above sees only
+    // the checks both sides recorded, so an implementation that stops before
+    // the first of them leaves nothing for it to compare, and the case would
+    // read as agreement on whatever was recorded before the stop. The runner
+    // error is what says it stopped, and only one side having one is a
+    // divergence about the whole case rather than about any check of it.
+    const stopped = csharp.results[key]['runner'];
+    const tsStop  = tsCase['runner'];
+
+    if ((stopped === undefined) !== (tsStop === undefined))
+        divergences.push({
+            key, check: 'runner',
+            csharp:     stopped === undefined ? 'ran the case' : describe(stopped),
+            typescript: tsStop  === undefined ? 'ran the case' : describe(tsStop),
+        });
+
 }
 
 // ---------------------------------------------------------------- report --
