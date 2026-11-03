@@ -117,6 +117,7 @@ interface VectorCase {
     algorithm?:        string;
     curve?:            string;
     keyD?:             string;
+    keyRsa?:           RsaKeyHex;
     keyIdentifier?:    string;
     algorithm2?:       string;
     curve2?:           string;
@@ -152,6 +153,26 @@ interface VectorCase {
     partialIv?:        string;
     critical?:         boolean;
     expected?:         string;
+}
+
+
+/**
+ * The eight parameters of an RSA private key [RFC 8230, Section 4], as a case
+ * prints them: unsigned big-endian hex, in the fewest octets.
+ *
+ * A case carries the whole key rather than naming one, the way every other
+ * case here carries its own, and that is what lets the cross-feed hand a
+ * message to the other implementation together with the key that signed it.
+ */
+interface RsaKeyHex {
+    n:     string;
+    e:     string;
+    d:     string;
+    p:     string;
+    q:     string;
+    dP:    string;
+    dQ:    string;
+    qInv:  string;
 }
 
 
@@ -383,11 +404,43 @@ function keyOf(curveName: string | undefined, dHex: string,
 
 }
 
+/**
+ * The RSA key a case prints, which is eight numbers rather than one: an RSA
+ * signature needs the modulus and the CRT parameters beside the private
+ * exponent, so there is no scalar to derive the rest from.
+ */
+function rsaKeyOf(parts: RsaKeyHex, algorithmName: string, keyIdentifier?: string): CoseKey {
+
+    const algorithm = algorithmByName(algorithmName);
+
+    if (algorithm === null)
+        throw new Error(`unknown algorithm '${algorithmName}'`);
+
+    return CoseKey.fromRsaPrivateKey(
+               {
+                   n:     hexToBytes(parts.n),
+                   e:     hexToBytes(parts.e),
+                   d:     hexToBytes(parts.d),
+                   p:     hexToBytes(parts.p),
+                   q:     hexToBytes(parts.q),
+                   dP:    hexToBytes(parts.dP),
+                   dQ:    hexToBytes(parts.dQ),
+                   qInv:  hexToBytes(parts.qInv),
+               },
+               {
+                   algorithm,
+                   keyIdentifier: keyIdentifier !== undefined ? hexToBytes(keyIdentifier) : null,
+               });
+
+}
+
 const optionalBytes = (hex?: string): Uint8Array | null =>
     hex !== undefined ? hexToBytes(hex) : null;
 
 const primaryKey   = (testCase: VectorCase): CoseKey =>
-    keyOf(testCase.curve, testCase.keyD!, testCase.algorithm!, testCase.keyIdentifier);
+    testCase.keyRsa !== undefined
+        ? rsaKeyOf(testCase.keyRsa, testCase.algorithm!, testCase.keyIdentifier)
+        : keyOf(testCase.curve, testCase.keyD!, testCase.algorithm!, testCase.keyIdentifier);
 
 const secondaryKey = (testCase: VectorCase): CoseKey =>
     keyOf(testCase.curve2, testCase.keyD2!, testCase.algorithm2!, testCase.keyIdentifier2);

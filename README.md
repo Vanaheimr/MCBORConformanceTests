@@ -28,9 +28,11 @@ test of an encoder there is — a reading encodes to a pure function of its
 value, unit, prefix and uncertainty, so two implementations disagreeing about
 one byte produce signatures that fail at the other, and nothing in either
 implementation's own test suite would show it. It runs over ECDSA on seven
-curves, EdDSA on Ed25519 and Ed448, and the three ML-DSA parameter sets of
+curves, EdDSA on Ed25519 and Ed448, the three ML-DSA parameter sets of
 RFC 9964 — where a 4627-byte signature over a thirty-byte reading is exactly
-why a signed measurement belongs in CBOR rather than in base64 within JSON.
+why a signed measurement belongs in CBOR rather than in base64 within JSON —
+and both RSA families, RSASSA-PSS of RFC 8230 and RSASSA-PKCS1-v1_5 of
+RFC 8812.
 Classical and post-quantum signatures also meet inside single messages: a
 hybrid `COSE_Sign` carrying one of each, and a meter reading signed with the
 key the meter was manufactured with and countersigned post-quantum by the
@@ -156,10 +158,14 @@ The one departure from "default settings" is that both sides sign
 **deterministically** for the COSE suite, which is the only mode in which two
 implementations can be compared byte for byte. What that means differs by
 family: RFC 6979 for ECDSA, nothing at all for EdDSA — which has no nonce to
-draw and is deterministic whether or not anybody asks — and the variant of
+draw and is deterministic whether or not anybody asks — the variant of
 FIPS 204 whose per-signature randomness is 32 zero bytes for ML-DSA, where
-RFC 9964 declines to choose. Randomized signing is exercised by the
-cross-verification instead, which accepts either.
+RFC 9964 declines to choose, and a salt of zero bytes for RSASSA-PSS, where
+the salt is recovered from the signature rather than compared with anything,
+so no verifier can tell. Randomized signing is exercised by the
+cross-verification instead, which accepts either — and FINDINGS §28 measures
+exactly what that costs: with a different PSS salt on one side the three PS
+rows disagree about every byte and every cross-verification still passes.
 
 The second departure is ECDH-ES's ephemeral key, which the vectors give rather
 than letting each side draw one, for the same reason: a key drawn per message

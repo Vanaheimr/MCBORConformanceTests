@@ -2625,7 +2625,7 @@ this section was written, and before the decision at the end of §25 moved eight
 of those rows from `survey` to `normative`. The counts there are the ones that
 hold.
 
-## 28. Counted against the registries, and the ten rows that count produced (added 2026-11-03)
+## 28. Counted against the registries, and the nineteen rows that count produced (added 2026-11-03)
 
 §15 found its vectors by asking which row of a conversion table no vector
 reached. This section asks the same question of COSE, and not the one that
@@ -2647,7 +2647,7 @@ files of `vectors/` or in the specification's annex. By script, not by reading.
 | | |
 |---|---|
 | algorithms both implement | 38 — 28 with a vector, **10 without** |
-| algorithms only one implements | **6**, all of them Styx's: PS256/384/512 [RFC 8230] and RS256/384/512 [RFC 8812] |
+| algorithms only one implements | **6** when this was counted, all of them Styx's: PS256/384/512 [RFC 8230] and RS256/384/512 [RFC 8812] — **none since the same day**, and the last subsections here are why |
 | algorithms neither implements | 42, of which the registry recommends 28 |
 | header parameters both name | 13 of 45 — 10 with a vector, **3 without** |
 | header algorithm parameters both name | 8 of 16 — 6 with a vector, 2 without |
@@ -2853,13 +2853,101 @@ and detect tampering. COSE.TS knows none of the six, its scope block gives a
 reason for every other omission and does not mention RSA, and neither README
 does either. Three of the six the registry recommends.
 
-No vector names them and none can: a cross-implementation vector compares what
-both sides can do, so this is not a gap a row closes. It is a decision — COSE.TS
-grows RSA, or the six are written down as a deliberate asymmetry, or a `survey`
-row records that one side signs what the other cannot read. Nothing was changed
-here. §13's first row is dated in place instead, because the interesting part is
-not the drift but that a hand audit is a photograph: it was taken before both
-libraries grew, and nothing in `npm test` was ever going to notice it ageing.
+No vector named them and none could: a cross-implementation vector compares
+what both sides can do, so this was not a gap a row closes. It was a decision —
+COSE.TS grows RSA, or the six are written down as a deliberate asymmetry, or a
+`survey` row records that one side signs what the other cannot read — and it
+was taken the same day, which the next subsection is about. §13's first row is
+dated in place as well, because the interesting part is not the drift but that
+a hand audit is a photograph: it was taken before both libraries grew, and
+nothing in `npm test` was ever going to notice it ageing.
+
+### Decided: COSE.TS grew RSA (2026-11-03)
+
+The maintainer took the first of those three options, so the count's one
+asymmetry is closed rather than written down. COSE.TS `c7a51f2` has
+`src/rsa.ts`, key type RSA (3) and the six algorithms; `cose-sign` has six new
+rows, `sign1-ps256-rsa` to `sign1-rs512-rsa`, one per registry row and all
+`normative`. The count that found the gap now reads **44 against 44,
+identical**, and its "only one implements" section is empty.
+
+What had to be written rather than installed is the arithmetic. The `@noble`
+family has no RSA at all, and WebCrypto — the other candidate — is
+asynchronous end to end, which would put an `await` into every signature of
+that API and is why COSE.TS touches neither it nor `node:crypto` anywhere in
+`src/`. So EMSA-PSS, EMSA-PKCS1-v1_5 and MGF1 are that package's own, from
+RFC 8017, over noble's modular exponentiation. Three decisions inside are
+worth recording, because each is a place where a different choice would have
+been defensible:
+
+- **Signing goes through the CRT and then verifies its own output.** A CRT
+  exponentiation that goes wrong in one of its two halves hands whoever
+  receives the signature the factorization of the modulus (Boneh, DeMillo and
+  Lipton, 1997). One exponentiation with 65537 turns that into an error.
+- **The PSS salt defaults to zeroes**, and a caller may pass one instead. That
+  keeps the package free of randomness, as ECDSA (RFC 6979) and ML-DSA (the
+  deterministic variant of FIPS 204) already had it, and it is what makes
+  these rows comparable byte for byte at all — the first falsification below
+  is about exactly that. A fixed PSS salt costs nothing: the salt is recovered
+  from the signature and never compared with anything, so no verifier can tell
+  [RFC 8017, Section 9.1.2], which is the opposite of a repeated ECDSA nonce.
+  Styx had already made the same choice for its deterministic mode, which is
+  why no second decision was needed on that side.
+- **Neither the exponentiation nor the padding is constant time**, and a
+  pure-JavaScript RSA cannot be: `BigInt` offers no constant-time multiply,
+  and any square-and-multiply follows the exponent. For a verifier that is no
+  concern, since the public exponent is public; for a signer it is the concern
+  every JavaScript RSA has. It is said in the module, in the README and in the
+  changelog rather than left to be found.
+
+Three implementations check it rather than two. COSE.TS's own tests hand the
+same eight key parameters to `node:crypto`, which is OpenSSL — the only use of
+`node:crypto` in that repository, and `tests/bundle.test.ts` is what keeps it
+out of `src/` — and require that each verifies the other's signatures and that
+RSASSA-PKCS1-v1_5, which has no randomness at all, comes out of both as the
+same bytes. Styx checks its own RSA that way against the RSA of .NET. Only
+then does this suite compare the two, and it finds **all four checks of all
+six rows agreeing**, the RFC 9679 thumbprint over key type, modulus and public
+exponent included — a code path neither library had ever had anything to
+compare against.
+
+### Falsification of the six rows
+
+| what was changed | what happened |
+|---|---|
+| COSE.TS's default PSS salt filled with `0x01` instead of zeroes | the three PS rows: `signature` and `message` disagree — 6 agreement failures, 6 divergences — while **every cross-verification still passes**, because PSS verification recovers whatever salt it finds. That is the deterministic arrangement earning its place: without it these rows could only ask whether each side accepts the other's bytes |
+| one byte of COSE.TS's SHA-256 `DigestInfo` prefix: the last byte of the hash OID, `01` → `02` | `sign1-rs256-rsa` alone fails four ways — the signature and the message disagree, *and* both cross-verifications fail, because the other side is handed a block whose ASN.1 says SHA-384 over a 32-byte digest. RS384 and RS512 stay green, which is what localizes it to one constant |
+
+Both are one-sided changes and both have the shape a real bug has here: the
+first is a mode nobody notices until two implementations meet, and the second
+a typo in a 19-byte constant that no single implementation can catch, because
+it signs and verifies with the same constant.
+
+### What the six rows do not reach, and one asymmetry they uncovered
+
+The multi-prime form of RFC 8230 — labels −9 to −12, `other`, `r_i`, `d_i`,
+`t_i` — is read by neither implementation: both keep those parameters as
+unknown ones for the round trip and sign with the two primes they do read.
+COSE.TS at least cannot do that quietly, because it checks that p·q is the
+modulus before it signs. No vector asks, because what this section counts is
+registry rows of the algorithm registry and not shapes of keys.
+
+The other one is new, and it is an asymmetry rather than a boundary:
+**Styx validates an RSA-signed certificate chain and COSE.TS refuses to parse
+one.** Styx verifies a certificate with Bouncy Castle's
+`Certificate.Verify(publicKey)`, which handles `sha256WithRSAEncryption` like
+anything else; COSE.TS reads certificates itself and its OID table has no RSA,
+so it answers *"was signed with '1.2.840.113549.1.1.11', which is not a
+signature algorithm this implementation knows"*. Nothing changed there in this
+increment — the gap predates it, and it is in the other registry, X.509's OIDs
+rather than COSE's algorithms, which is why the count above never looked at it.
+It is also not measurable today: `tools/CertificateCorpus` mints EC, EdDSA and
+ML-DSA certificates and no RSA one, so no row can ask. Closing it would be
+three things — the `rsaEncryption` and `sha*WithRSAEncryption` OIDs with the
+`RSAPublicKey` SPKI beside them, an RSA certificate in the corpus, and the
+rows — and the PSS certificate form carries parameters in the
+`AlgorithmIdentifier`, which is its own small specification. Recorded here,
+not done.
 
 ### Falsification
 
@@ -2881,15 +2969,15 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Thirteen cases: four signatures, the EdDSA pair, two key wraps, two
-thumbprints, two Partial IV and the SHA-1 thumbprint of §24. 617 (C#) / 581
-(TypeScript) / 38 (the third reader) normative, 416 agreements, zero failures,
-zero divergences, zero messages verified against what the third reader refuses,
-51 survey observations each and 13 on the agreement rows. The promotion of
-2026-11-03 moved five rows across: the two cross-open verdicts, one per opening
-implementation, and the three byte agreements of the case.
+Nineteen cases: four signatures, the EdDSA pair, two key wraps, two
+thumbprints, two Partial IV, the SHA-1 thumbprint of §24 and the six RSA rows.
+623 (C#) / 587 (TypeScript) / 38 (the third reader) normative, 440 agreements,
+zero failures, zero divergences, zero messages verified against what the third
+reader refuses, 51 survey observations each and 13 on the agreement rows. The
+promotion of 2026-11-03 moved five rows across: the two cross-open verdicts,
+one per opening implementation, and the three byte agreements of the case.
 
-Of the 38 algorithms both implement, all 38 now have a vector. Of the 13 header
+Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, 11 do: the two that do not are the deprecated counter
 signature of label 7 and `Countersignature0 version 2` of label 12 — and the
 second is §26's shape exactly, a registered label both can name and neither

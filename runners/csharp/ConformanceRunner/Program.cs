@@ -372,7 +372,8 @@ static (AsymmetricKeyParameter PrivateKey,
 
     var suffix         = Secondary ? "2" : "";
     var algorithmName  = TestCase[$"algorithm{suffix}"]!.GetValue<String>();
-    var d              = TestCase[$"keyD{suffix}"]!.GetValue<String>();
+    var rsaParameters  = TestCase[$"keyRsa{suffix}"]?.AsObject();
+    var d              = TestCase[$"keyD{suffix}"]?.GetValue<String>();
 
     if (!COSEAlgorithm.TryParse(algorithmName, out var algorithm))
         throw new Exception($"Unknown COSE algorithm '{algorithmName}'!");
@@ -389,8 +390,28 @@ static (AsymmetricKeyParameter PrivateKey,
         // the 32-byte seed rather than the expanded secret key [RFC 9964].
         privateKey = MLDsaPrivateKeyParameters.FromSeed(
                          algorithm.MLDsaParameterSet!,
-                         Convert.FromHexString(d)
+                         Convert.FromHexString(d ?? throw new Exception($"The COSE algorithm '{algorithmName}' needs a private key!"))
                      );
+    }
+
+    // An RSA key is eight numbers rather than one, and the case prints all
+    // eight, because a COSE key carries all eight [RFC 8230, Section 4].
+    else if (algorithm.Family is COSEAlgorithmFamily.RSAPSS or
+                                 COSEAlgorithmFamily.RSAPKCS1)
+    {
+
+        var rsa = rsaParameters
+                      ?? throw new Exception($"The COSE algorithm '{algorithmName}' needs an RSA key!");
+
+        privateKey = new RsaPrivateCrtKeyParameters(RSAInteger(rsa, "n"),
+                                                    RSAInteger(rsa, "e"),
+                                                    RSAInteger(rsa, "d"),
+                                                    RSAInteger(rsa, "p"),
+                                                    RSAInteger(rsa, "q"),
+                                                    RSAInteger(rsa, "dP"),
+                                                    RSAInteger(rsa, "dQ"),
+                                                    RSAInteger(rsa, "qInv"));
+
     }
 
     else
@@ -399,6 +420,9 @@ static (AsymmetricKeyParameter PrivateKey,
         var curveName = TestCase[$"curve{suffix}"]?.GetValue<String>()
                             ?? throw new Exception($"The COSE algorithm '{algorithmName}' needs a curve!");
 
+        var scalar    = d
+                            ?? throw new Exception($"The COSE algorithm '{algorithmName}' needs a private key!");
+
         if (!COSECurve.TryParse(curveName, out var curve))
             throw new Exception($"Unknown COSE curve '{curveName}'!");
 
@@ -406,13 +430,13 @@ static (AsymmetricKeyParameter PrivateKey,
 
             // EdDSA keys are fixed-width octet strings rather than scalars.
             COSEAlgorithmFamily.EdDSA when curve == COSECurve.Ed448
-                => new Ed448PrivateKeyParameters  (Convert.FromHexString(d), 0),
+                => new Ed448PrivateKeyParameters  (Convert.FromHexString(scalar), 0),
 
             COSEAlgorithmFamily.EdDSA
-                => new Ed25519PrivateKeyParameters(Convert.FromHexString(d), 0),
+                => new Ed25519PrivateKeyParameters(Convert.FromHexString(scalar), 0),
 
             _   => new ECPrivateKeyParameters(
-                       new BigInteger(d, 16),
+                       new BigInteger(scalar, 16),
                        curve.DomainParameters
                            ?? throw new Exception($"The COSE curve '{curveName}' has no domain parameters!")
                    )
@@ -430,6 +454,19 @@ static (AsymmetricKeyParameter PrivateKey,
             key);
 
 }
+
+
+/// <summary>
+/// One parameter of an RSA key as a case prints it: unsigned big-endian hex in
+/// the fewest octets [RFC 8230, Section 4]. Bouncy Castle wants integers, the
+/// vector carries octets, and the first nibble is never zero, so the reading
+/// is unambiguous in both directions.
+/// </summary>
+static BigInteger RSAInteger(JsonObject Parameters, String Name)
+
+    => new (Parameters[Name]?.GetValue<String>()
+                ?? throw new Exception($"The RSA key of this case carries no {Name}!"),
+            16);
 
 
 /// <summary>
