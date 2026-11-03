@@ -1970,6 +1970,57 @@ suite had such a third party for key agreement already, for a different reason
 the opposite reason — a structure that is transmitted, and that neither sender
 will produce.
 
+### A fifth message, and a sentence that is not true (added 2026-11-03)
+
+The count of §28 found SHA-1 (−14) named by both implementations and computed
+by neither, and that turns this family's question into a different one: not
+whether an implementation checks that the label names a hash algorithm, but
+what it does with a hash algorithm it does not have.
+`thumbprint-labelled-with-sha-1` asks it. The same chain, an `x5t` naming
+SHA-1, and beside it the correct **SHA-1** of the end-entity certificate rather
+than the SHA-256 the other four carry — a digest neither implementation can
+compute, so the third encoder computes it. RFC 9054 Section 3.1 registers
+SHA-1 for exactly this field and recommends it "Filter Only", which the
+registry defines as not for purposes that require collision resistance.
+
+Both refuse, and both say the same thing: Styx *"The certificate thumbprint of
+this COSE_Sign1 message is invalid: The COSE algorithm 'SHA-1' of the
+COSE_CertHash is not a hash algorithm!"* and COSE.TS the same sentence without
+the outer clause.
+
+**That sentence is false.** SHA-1 is a hash algorithm, and RFC 9054 registers it
+as one. What is true is that neither library computes it, because both
+predicates ask for a digest they *have* rather than for a hash algorithm:
+`Family == None` with a non-null `HashAlgorithmName` on one side,
+`family === 'none'` with a non-null `hash` on the other. The verdict is
+defensible — a verifier that cannot perform a check it was asked to perform has
+little else to do — and the reason it gives for the verdict is wrong. By this
+family's own rule no error text is judged, so the row records the verdict and
+this paragraph records the wording. Both libraries can keep the behaviour and
+fix the sentence; that is their maintainers' to do, and it is the kind of thing
+only a message built by a third party ever surfaces.
+
+`survey`, because the premise is a reading rather than a rule. RFC 9054 keeps
+SHA-1 registered for the situations that still need it, naming historic HSMs
+where only SHA-1 exists and filtering, where collision resistance is not
+needed. An implementation that computed SHA-1 and took an `x5t` for a filter
+would be within the specification verifying this message. Whether a thumbprint
+beside a sound chain is a filter or a binding check is the question underneath,
+and it is the specification's to settle rather than this suite's.
+
+**Falsified** by giving COSE.TS a SHA-1 to compute — `DigestAlgorithm`,
+`HASHES` and the `hash` field of the −14 entry, which is what an implementation
+in one of those HSM situations would have: COSE.TS then **verifies** the
+message and names `CN=Meter 1ISA0000000042`, Styx still refuses, and the run
+reports one cross-implementation divergence, zero failures and exit **0**. That
+is the survey class doing exactly what §26 says it does: the flip is visible as
+a divergence and in one emphasised table cell, and in no number that fails
+anything.
+
+Suite with the fifth row: **616 (C#) / 580 (TypeScript) / 38 (the third reader)
+normative, 413 agreements**, zero failures, zero divergences, 52 survey
+observations each and 16 on the agreement rows.
+
 ## 25. The DER readers diverge four ways, and the corpus cannot see it (filed 2026-11-01, closed 2026-11-02)
 
 Filed open, with nothing in `vectors/` deciding it: a normative row would say
@@ -2590,7 +2641,7 @@ AES-CCM (8 rows), AES-MAC (4), direct+HKDF (4), ECDH-SS (5), and then
 RSAES-OAEP, HSS-LMS, the SHAKEs and SHA-512/256. So that block is complete for
 RFC 9053 — with the one exception the asymmetry below is about.
 
-### The ten, and the nine that are now vectors
+### The ten, which all have a vector now
 
 | row | registry | the vector |
 |---|---|---|
@@ -2600,6 +2651,7 @@ RFC 9053 — with the one exception the asymmetry below is about.
 | ECDH-ES + A192KW (−30) | Recommended | `cose-ecdh:ecdh-key-wrap-a192kw` |
 | SHA-384 (−43), SHA-512 (−44) | Recommended | `cose-x509:thumbprint-with-sha-384`, `…-512` |
 | EdDSA (−8) | Deprecated | `cose-sign:sign1-eddsa-ed25519`, `…-ed448` |
+| SHA-1 (−14) | Filter Only | `cose-x509-messages:thumbprint-labelled-with-sha-1` |
 
 Each of the four signature rows reuses the key of the deprecated algorithm
 beside it where there is one, so ESP384 and ESP512 sign with the same key and
@@ -2624,10 +2676,16 @@ else. The messages come out 98 and 148 bytes against 98 and 149, because `-8`
 is a one-byte head where `-53` needs two. Deprecating an identifier does not
 retire the messages that carry it.
 
-One of the ten is left out, on purpose rather than by oversight: **SHA-1
-(−14)** is named by both and computable by neither — COSE.TS's entry carries no
-hash function, Styx's a null `HashAlgorithmName` — and the registry marks it
-"Filter Only". A vector would ask nothing of anybody.
+**SHA-1 (−14)** was the one row this section first left out, with the argument
+that a vector would ask nothing of anybody: both name it and neither computes
+it, COSE.TS's entry carrying no hash function and Styx's a null
+`HashAlgorithmName`. The argument was wrong, and the row that proves it is in
+§24. What a message with a SHA-1 thumbprint asks is not whether the label names
+a hash algorithm — SHA-1 does, RFC 9054 Section 3.1 registers it for this very
+field — but what a verifier does with a hash algorithm it does not have. Both
+refuse, both give the same false reason for refusing, and an implementation in
+one of the situations RFC 9054 keeps SHA-1 registered for would be within the
+specification verifying it. The whole of it is at the end of §24.
 
 ### What the new rows needed from the runners
 
@@ -2721,14 +2779,13 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Twelve cases: four signatures, the EdDSA pair, two key wraps, two thumbprints
-and two Partial IV. 616 (C#) / 580 (TypeScript) / 36 (the third reader)
-normative, 413 agreements, zero failures, zero divergences, zero messages
-verified against what the third reader refuses, 51 survey observations each and
-15 on the agreement rows.
+Thirteen cases: four signatures, the EdDSA pair, two key wraps, two
+thumbprints, two Partial IV and the SHA-1 thumbprint of §24. 616 (C#) / 580
+(TypeScript) / 38 (the third reader) normative, 413 agreements, zero failures,
+zero divergences, zero messages verified against what the third reader refuses,
+52 survey observations each and 16 on the agreement rows.
 
-Of the 38 algorithms both implement, 37 now have a vector and one is left out
-with a reason. Of the 13 header parameters both name, 11 do: the two that do not
+Of the 38 algorithms both implement, all 38 now have a vector. Of the 13 header parameters both name, 11 do: the two that do not
 are the deprecated counter signature of label 7 and `Countersignature0 version
 2` of label 12 — and the second is §26's shape exactly, a registered label both
 can name and neither reads, with COSE.TS's scope block giving the reason. Of

@@ -84,6 +84,9 @@ import { fileURLToPath }               from 'node:url';
 
 import { brainpoolP256r1 }             from '@noble/curves/misc.js';
 import { sha256 }                      from '@noble/hashes/sha2.js';
+// For the one row whose thumbprint has to be a correct SHA-1: a hash neither
+// implementation computes, which is why a third encoder has to.
+import { sha1 }                        from '@noble/hashes/legacy.js';
 
 
 const root      = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -498,6 +501,11 @@ const digest = sha256(source.chain[0]);
 if (upper(digest) !== upper(sha256(hex(corpus.certificates.meter))))
     throw new Error('the digest is not the hash of the certificate in the corpus');
 
+const digests = { 'sha-256': digest, 'sha-1': sha1(source.chain[0]) };
+
+if (upper(digests['sha-1']) !== upper(sha1(hex(corpus.certificates.meter))))
+    throw new Error('the SHA-1 digest is not the hash of the certificate in the corpus');
+
 /**
  * A certificate that is not the signer's, for the third family's bag.
  *
@@ -526,7 +534,7 @@ const LABELS = [
         algorithm:   -16,
         name:        'SHA-256',
         expected:    'accept',
-        description: 'The control, and the one of these four messages that neither implementation ' +
+        description: 'The control, and the one of these five messages that neither implementation ' +
                      'refuses: the x5t header names SHA-256, the hash algorithm the digest beside ' +
                      'it was computed with. Its bytes are not this generator\'s word for what a ' +
                      'sound message looks like — they are byte for byte the message both ' +
@@ -577,6 +585,41 @@ const LABELS = [
                      'digest — which all three do — from one that asks whether it is a hash ' +
                      'algorithm, which is what RFC 9054 registers and what both implementations ' +
                      'check. The first kind verifies all three messages.',
+    },
+    {
+        id:          'thumbprint-labelled-with-sha-1',
+        algorithm:   -14,
+        name:        'SHA-1',
+        digest:      'sha-1',
+        class:       'survey',
+        expected:    'reject',
+        reason:      'the thumbprint is a correct SHA-1 of the certificate, and neither ' +
+                     'implementation computes SHA-1',
+        description: 'The fourth label after the control, and the first one here that really is ' +
+                     'a hash algorithm: SHA-1, which RFC 9054 §3.1 registers for exactly this ' +
+                     'field and recommends "Filter Only" - which the registry defines as not for ' +
+                     'purposes that require collision resistance. So the digest beside it is not ' +
+                     'the ' +
+                     'SHA-256 of the three rows above but the correct SHA-1 of the end-entity ' +
+                     'certificate, a value neither implementation can compute, which is why a ' +
+                     'third encoder has to write it. The question is therefore a different one: ' +
+                     'not whether an implementation checks that the label names a hash algorithm, ' +
+                     'but what it does with a hash algorithm it does not have. Verifying is one ' +
+                     'wrong answer; silently ignoring the thumbprint is the dangerous one, ' +
+                     'because a verifier that skips a check it cannot perform accepts the chain ' +
+                     'the thumbprint was there to pin. Measured: both refuse, and both say the ' +
+                     'same thing - that SHA-1 is not a hash algorithm, which is false. Their ' +
+                     'predicates ask for a digest they have rather than for a hash algorithm, ' +
+                     'and no error text is judged in this family, so the verdict is the row and ' +
+                     'the wording is recorded in FINDINGS §24. ' +
+                     '`survey`, because the premise is a reading ' +
+                     'and a property of these two rather than a rule: RFC 9054 keeps SHA-1 ' +
+                     'registered for the situations that still need it, naming historic HSMs and ' +
+                     'filtering, where collision resistance is not needed - and an implementation ' +
+                     'that computed it and took x5t for a filter would be within the ' +
+                     'specification verifying this message. Whether a thumbprint beside a sound ' +
+                     'chain is a filter or a binding check is what the class leaves open, and it ' +
+                     'is for the specification to settle rather than for this suite.',
     },
 ];
 
@@ -878,9 +921,12 @@ const cases = [
 
     ...LABELS.map(entry => ({
         id:                   entry.id,
-        class:                'normative',
+        // Per row, because one of them records a verdict rather than requiring
+        // it: see LABELS above for which and why.
+        class:                entry.class ?? 'normative',
         message:              upper(sign1({ ...source,
-                                            thumbprint: { algorithm: entry.algorithm, digest } })),
+                                            thumbprint: { algorithm: entry.algorithm,
+                                                          digest:    digests[entry.digest ?? 'sha-256'] } })),
         trustAnchors:         ['metrologyRoot'],
         expected:             entry.expected,
         ...(entry.reason ? { reason: entry.reason } : {}),
@@ -1087,15 +1133,19 @@ for (const entry of cases) {
     if (entry.thumbprintAlgorithm !== undefined) {
 
         // The first family: the label is the one the case claims, the digest
-        // beside it is the true hash of the end-entity certificate — the
-        // property that makes a skipped check verify the message rather than
-        // stumble over a thumbprint that was wrong anyway — and the chain is
-        // the one the corpus minted, so the label is the only thing at issue.
+        // beside it is the true hash of the end-entity certificate under the
+        // algorithm that label names — the property that makes a skipped check
+        // verify the message rather than stumble over a thumbprint that was
+        // wrong anyway — and the chain is the one the corpus minted, so the
+        // label is the only thing at issue. Three of these rows carry a
+        // SHA-256 digest under a label that is not SHA-256; the fourth carries
+        // the SHA-1 its label really names.
         if (thumbprint === null ||
             !entry.thumbprintAlgorithm.startsWith(`${String(thumbprint.algorithm)} `))
             throw new Error(`${entry.id} does not carry the label it claims`);
 
-        if (upper(thumbprint.digest) !== upper(digest))
+        if (upper(thumbprint.digest) !== upper(thumbprint.algorithm === -14 ? digests['sha-1']
+                                                                           : digest))
             throw new Error(`${entry.id} does not carry the hash of the end-entity certificate`);
 
         if (upper(chain[0]) !== upper(source.chain[0]) ||
@@ -1152,9 +1202,11 @@ writeFileSync(join(root, 'vectors', 'cose-x509-messages.json'),
                   suite:       'cose-x509-messages',
                   description: 'Signed messages that carry what neither implementation will ' +
                                'construct: a certificate thumbprint labelled with an algorithm ' +
-                               'that is not a hash algorithm (§24, normative), a certificate ' +
-                               'written down in an encoding that is not DER (§25, survey: ' +
-                               'recorded, required of nobody), and a certificate source neither ' +
+                               'that is not a hash algorithm, or with one that is and that ' +
+                               'neither of them computes (§24, normative but for the SHA-1 row), ' +
+                               'a certificate ' +
+                               'written down in an encoding that is not DER (§25, normative ' +
+                               'since 2026-11-02), and a certificate source neither ' +
                                'implementation reads — x5bag and x5u (§26, normative where an ' +
                                'unread header must not cost a sound message its verification, ' +
                                'survey where a verifier that read the label would be right to ' +

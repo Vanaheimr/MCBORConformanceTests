@@ -1216,7 +1216,8 @@ for (const testCase of vectors['cose-x509']) {
 /**
  * Messages a third party assembled, because the implementations under test
  * refuse to assemble them: a certificate thumbprint labelled with an algorithm
- * that is not a hash algorithm (§24), a certificate written down in an encoding
+ * that is not a hash algorithm - or with one that is and that neither of them
+ * computes (§24) - a certificate written down in an encoding
  * that is not DER (§25), and a certificate source neither side reads — x5bag
  * and x5u (§26). The first two are rules both sides enforce when they write,
  * each in its own unit tests, and until this suite existed nothing compared the
@@ -1816,14 +1817,15 @@ lines.push('');
 lines.push('Messages tools/X509Cases assembled from the noble primitives, because each of');
 lines.push('them breaks a rule both implementations enforce when they write a message, or');
 lines.push('carries a header neither of them writes at all. Three families: a certificate');
-lines.push('thumbprint labelled with an algorithm that is not a hash algorithm, a');
-lines.push('certificate written down in an encoding that is not DER, and a certificate');
-lines.push('source neither side reads - x5bag (label 32) and x5u (label 35), whose names');
-lines.push('both of them carry and whose readers neither has. The first two families open');
-lines.push('with a control that is byte for byte a message both implementations produce');
-lines.push('above, and the generator refuses to write the file unless it reproduces them;');
-lines.push('the third needs none, because two of its rows are that control with one header');
-lines.push('added and have to verify all the same.');
+lines.push('thumbprint labelled with an algorithm that is not a hash algorithm or with one');
+lines.push('that is and that neither of them computes, a certificate written down in an');
+lines.push('encoding that is not DER, and a certificate source neither side reads - x5bag');
+lines.push('(label 32) and x5u (label 35), whose names both of them carry and whose readers');
+lines.push('neither has. The first two families open with a control that is byte for byte');
+lines.push('a message both implementations produce above, and the generator refuses to');
+lines.push('write the file unless it reproduces them; the third needs none, because two of');
+lines.push('its rows are that control with one header added and have to verify all the');
+lines.push('same.');
 lines.push('');
 lines.push('There is nothing to agree on byte for byte, since neither side wrote the bytes,');
 lines.push('so what is recorded is the verdict: a refusal counts whether it comes back as a');
