@@ -95,6 +95,20 @@ writes that are *not* DER are what found the divergence
 [FINDINGS.md](FINDINGS.md) §25. A corpus minted by one of the parties
 under test is blind in exactly the direction that party is blind.
 
+The same tool now *signs*, which is one step further and was needed for one
+question. A certificate states its signature algorithm twice, and the copy
+inside the body is under the signature, so a parameter that is odd
+*consistently* — in both copies, with the signature still holding — cannot be
+written over a finished certificate: it has to be minted. So the third encoder
+has RSA of its own, from the modular exponentiation up, and
+`tools/CertificateCorpus` publishes one issuing key for it to sign with. The
+certificate it mints is the corpus's own leaf with one field written
+differently, which the generator proves by minting it a third time with the
+field as the corpus has it and refusing to run unless that comes out byte for
+byte. What it found is the suite's one divergence, and the one place where a
+certificate everybody agrees is correctly encoded is refused all the same
+([FINDINGS.md](FINDINGS.md) §28).
+
 Reading those encodings has a third party too: `tools/DerArbiter` answers the
 one question they turn on — is this certificate a single DER encoding — with
 `System.Formats.Asn1`, which is Microsoft's ASN.1 reader, is neither of the two
@@ -116,9 +130,9 @@ two can see.
 | `libs/MetrologicalCBOR.TS` | the TypeScript implementation (git submodule) |
 | `libs/COSE.TS` | [Vanaheimr COSE](libs/COSE.TS/README.md) (git submodule) — the TypeScript COSE implementation, the second party the cross-signing tests need |
 | `vectors/` | the suites that are not what a metrological value *is*, and so do not belong in the specification's annex: COSE cross-signing, authentication, encryption, `crit` and certificate chains — COSE is how a value is signed — plus `cbor-robustness` (the layer beneath the one the specification describes) `default-encoding` (what each library writes with its own default options, which is the one path every other suite bypasses) `json-escapes` (string escapes, which no JSON-carrying vector had ever contained) and `json-tags` (one case per row of the conversion table that nothing had reached) |
-| `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — 26 certificates, deterministically, so it can be regenerated and diffed rather than believed |
+| `tools/CertificateCorpus/` | generates `vectors/cose-x509-corpus.json` — 26 certificates, deterministically, so it can be regenerated and diffed rather than believed. Also the keys: `privateKeys` for the ones that sign messages, each with the COSE algorithm it signs with, and `issuerKeys` for the one authority key a third encoder mints under |
 | `tools/EcdhCases/` | generates `vectors/cose-ecdh.json` from the noble primitives alone, independently of both implementations under test, and refuses to write anything unless it first reproduces a published working-group example byte for byte |
-| `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying what neither implementation will construct: a thumbprint labelled with an algorithm that is not a hash algorithm (or with one that is and that neither of them computes), a certificate written down in an encoding that is not DER, and a certificate source neither of them reads, `x5bag` and `x5u` ([FINDINGS.md](FINDINGS.md) §26). Rules both sides enforce on the way out, or header parameters neither of them writes at all, which is why only a third encoder can compare them |
+| `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying what neither implementation will construct: a thumbprint labelled with an algorithm that is not a hash algorithm (or with one that is and that neither of them computes), a certificate written down in an encoding that is not DER, a certificate source neither of them reads, `x5bag` and `x5u` ([FINDINGS.md](FINDINGS.md) §26), and a signature algorithm carrying a parameter RFC 4055 Section 5 does not allow, in both of the copies a certificate holds, which takes minting and so takes RSA of its own ([FINDINGS.md](FINDINGS.md) §28). Rules both sides enforce on the way out, or header parameters neither of them writes at all, which is why only a third encoder can compare them |
 | `tools/DerArbiter/` | a third reader, not a third encoder: for every message of `vectors/cose-x509-messages.json` it says how many certificates it carries and whether each is a single DER encoding, using `System.Formats.Asn1` and referencing nothing else. Normative about the vectors, and about neither implementation ([FINDINGS.md](FINDINGS.md) §27) |
 | `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |

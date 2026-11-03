@@ -16,7 +16,7 @@
  * ECDSA over the bytes this file builds. Neither implementation contributes
  * anything.
  *
- * Three families. At the head of the first two is a control whose bytes are not
+ * Four families. At the head of three of them is a control whose bytes are not
  * this generator's word for a sound message but byte for byte a message both
  * implementations already produce and agree on:
  *
@@ -72,10 +72,32 @@
  *    second family's control with one header added, and the generator checks
  *    that the chain in them is still the one the corpus minted.
  *
+ * 4. A certificate whose signature algorithm carries a parameter RFC 4055 does
+ *    not allow — and carries it *consistently*, in both of the copies a
+ *    certificate holds. This is the one family that cannot be done by writing
+ *    bytes over a minted certificate, which is why §28 recorded it as not
+ *    measured rather than measuring it: the body a certificate signs holds one
+ *    of those two copies, so changing that copy breaks the signature over it,
+ *    and changing only the other leaves the two contradicting each other —
+ *    which Bouncy Castle refuses as "signature algorithm in TBS cert not same
+ *    as outer cert" and COSE.TS refuses as well. A certificate consistent in
+ *    its own oddity has to be *minted*, by something that signs. So this
+ *    family signs: RSA is written out below, PKCS #1 v1.5 over SHA-256, from
+ *    the modular exponentiation up, and the issuer's key comes from the corpus
+ *    like everything else. §28 of FINDINGS.md.
+ *
  * The certificates and the signing key are not written here: the chain, the
  * anchor and the end-entity key come from vectors/cose-x509-corpus.json, which
  * tools/CertificateCorpus owns, so that a certificate has one owner rather
  * than two that must remember to agree.
+ *
+ * The fourth family bends that, and the bend is checked rather than asserted.
+ * Its certificate is not a new one: it is the corpus's `rsaMeter`, with one
+ * field written differently and the issuer's signature recomputed over the
+ * body — so the generator mints it a third time with the field as the corpus
+ * has it, and refuses to write this file unless that comes out as the corpus
+ * certificate byte for byte. The corpus is still the owner; this file derives
+ * from it and proves the derivation.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -116,10 +138,100 @@ const array     = items => concat(head(4, items.length), ...items);
 const map       = pairs => concat(head(5, pairs.length), ...pairs.flat());
 
 
+// ------------------------------------------------------------- RSA, by hand --
+
+// There is no RSA in the noble packages, and the fourth family needs two
+// signatures made with it: one over a certificate's body, so that the minted
+// certificate is sound apart from the field it is about, and one over the
+// message that certificate travels in. So the primitive is written out here,
+// as the CBOR and the DER above are, and it is arithmetic rather than a curve.
+
+/** `base ** exponent mod modulus`, square and multiply. */
+function modPow(base, exponent, modulus) {
+
+    let result = 1n;
+    let b      = base % modulus;
+    let e      = exponent;
+
+    while (e > 0n) {
+        if (e & 1n) result = (result * b) % modulus;
+        b = (b * b) % modulus;
+        e >>= 1n;
+    }
+
+    return result;
+
+}
+
+
+const number = bytes => BigInt(`0x${upper(bytes)}`);
+
+
+/** A number as exactly `octets` octets, which is what a signature is carried as. */
+function fixedWidth(value, octets) {
+
+    const digits = value.toString(16);
+
+    if (digits.length > octets * 2)
+        throw new Error('a value wider than the modulus it was reduced by');
+
+    return hex(digits.padStart(octets * 2, '0'));
+
+}
+
+
+/**
+ * The DigestInfo prefix of EMSA-PKCS1-v1_5 with SHA-256 [RFC 8017, Appendix
+ * B.1]: SEQUENCE { SEQUENCE { id-sha256, NULL }, OCTET STRING (32) }, written
+ * out so that the 32 octets of the digest follow it.
+ *
+ * The NULL in it is the same question this family is about, one layer down —
+ * and there RFC 8017 is explicit that it is what implementations write, which
+ * is why it is a constant here and not a case.
+ */
+const SHA256_DIGESTINFO = hex('3031300D060960864801650304020105000420');
+
+
+/**
+ * One RSASSA-PKCS1-v1_5 signature over `message` with SHA-256 [RFC 8017,
+ * Section 8.2.1], as the fewest-octets parameters of a corpus key give it.
+ *
+ * The signature is verified here with the public exponent before it is
+ * returned, which is the whole of the check: `s ** e mod n` has to come back
+ * as the encoded message that went in.
+ */
+function pkcs1Sign(message, key) {
+
+    const n       = number(hex(key.n));
+    const e       = number(hex(key.e));
+    const d       = number(hex(key.d));
+    const octets  = hex(key.n).length;
+
+    const digestInfo = concat(SHA256_DIGESTINFO, sha256(message));
+
+    // EM = 0x00 || 0x01 || PS || 0x00 || T, with PS as many 0xFF as it takes.
+    const encoded = concat(Uint8Array.from([0x00, 0x01]),
+                           new Uint8Array(octets - digestInfo.length - 3).fill(0xFF),
+                           Uint8Array.from([0x00]),
+                           digestInfo);
+
+    const signature = modPow(number(encoded), d, n);
+
+    if (modPow(signature, e, n) !== number(encoded))
+        throw new Error('the RSA signature this generator just made does not verify');
+
+    return fixedWidth(signature, octets);
+
+}
+
+
 // ------------------------------------------------------- the COSE structures --
 
 /** ECDSA with brainpoolP256r1 and SHA-256, as the corpus names it. */
 const ESB256 = -265;
+
+/** RSASSA-PKCS1-v1_5 with SHA-256, which the fourth family's chain certifies. */
+const RS256  = -257;
 
 
 /**
@@ -135,11 +247,19 @@ const ESB256 = -265;
  *
  * A `bag` of several certificates is written as an array and a single one as a
  * byte string, which is what RFC 9360 §2 gives COSE_X509 for either count.
+ *
+ * `algorithm` is ESB256 for the first three families, whose chain certifies a
+ * brainpoolP256r1 key, and RS256 for the fourth, whose chain certifies an RSA
+ * one. It is not a free choice: the key the signature is made with is the key
+ * the end-entity certificate certifies, or the chain would not bind the
+ * message, and `signingKey` is whatever that key is written as — a scalar for
+ * the curve, the eight parameters of RFC 8230 §4 for RSA.
  */
-function sign1({ payload, chain, signingKey, thumbprint, bag, uri, critical }) {
+function sign1({ payload, chain, signingKey, algorithm = ESB256,
+                 thumbprint, bag, uri, critical }) {
 
     const protectedBucket = bstr(map([
-        [int(1),  int(ESB256)],
+        [int(1),  int(algorithm)],
         ...(critical
                 ? [[int(2),  array(critical.map(int))]]
                 : []),
@@ -171,12 +291,14 @@ function sign1({ payload, chain, signingKey, thumbprint, bag, uri, critical }) {
     // says what is being signed. `lowS: false` is not a preference either:
     // RFC 9053 §2.1 carries r and s as they come out, and normalising s to the
     // lower half is a Bitcoin convention that would put a different signature
-    // on the wire.
-    const digestToSign = sha256(toBeSigned);
-    const signature    = brainpoolP256r1.sign(digestToSign, signingKey,
-                                              { prehash: false, lowS: false });
+    // on the wire. RS256 takes the branch above, which verifies itself.
+    const signature = algorithm === RS256
+                          ? pkcs1Sign(toBeSigned, signingKey)
+                          : brainpoolP256r1.sign(sha256(toBeSigned), signingKey,
+                                                 { prehash: false, lowS: false });
 
-    if (!brainpoolP256r1.verify(signature, digestToSign,
+    if (algorithm !== RS256 &&
+        !brainpoolP256r1.verify(signature, sha256(toBeSigned),
                                 brainpoolP256r1.getPublicKey(signingKey, false),
                                 { prehash: false, lowS: false }))
         throw new Error('the signature this generator just made does not verify');
@@ -482,6 +604,123 @@ const TAMPERINGS = {
 };
 
 
+// ------------------------------------------------- minting one of them again --
+
+/**
+ * The key that signed `rsaMeter` and `rsaMeterWideHash`, from the corpus's
+ * `issuerKeys` — a different object from the `privateKeys` every other case
+ * here draws on, because a key that signs certificates has no COSE algorithm
+ * and signs no message.
+ *
+ * That it really is the authority's key is checked rather than trusted: its
+ * modulus has to be the 256 octets `rsaManufacturerCA` carries in its subject
+ * public key info. Two hundred and fifty-six octets do not appear in a
+ * certificate by coincidence, and if the corpus ever published a different key
+ * under this name, the certificates minted below would chain to nothing and
+ * every row of this family would be refused for that instead.
+ */
+const issuerKey = corpus.issuerKeys.rsaManufacturerCA.keyRsa;
+
+if (!upper(hex(corpus.certificates.rsaManufacturerCA)).includes(upper(hex(issuerKey.n))))
+    throw new Error('the published issuer key is not the key in rsaManufacturerCA');
+
+/**
+ * sha256WithRSAEncryption [RFC 4055, Section 5], which is what `rsaMeter` is
+ * signed with — as it is encoded, tag and length included, because that is how
+ * it is compared and written back below.
+ */
+const OID_SHA256_WITH_RSA = '06092A864886F70D01010B';
+
+/**
+ * The three ways the parameters beside that identifier are written below.
+ *
+ * RFC 4055 §5 allows two of them: "the parameters MUST be NULL. Implementations
+ * MUST accept the parameters being absent as well as present." The third is
+ * neither, and is a zero-length OCTET STRING rather than anything larger
+ * because it is the shortest thing that is not those two — so the certificate
+ * carrying it differs from the corpus's in one octet of its two copies, and in
+ * the signature that follows.
+ */
+const PARAMETERS = {
+    'a NULL':                     hex('0500'),
+    'a zero-length OCTET STRING': hex('0400'),
+    'nothing at all':             new Uint8Array(0),
+};
+
+/** `AlgorithmIdentifier ::= SEQUENCE { algorithm, parameters OPTIONAL }`. */
+function algorithmIdentifier(oid, parameters) {
+
+    const content = concat(oid, parameters);
+
+    if (content.length > 127)
+        throw new Error('an algorithm identifier this generator writes is short-form');
+
+    return concat(Uint8Array.from([0x30, content.length]), content);
+
+}
+
+
+/**
+ * The corpus's `rsaMeter`, with the parameters beside its signature algorithm
+ * written as `parameters` says and the issuer's signature made again over the
+ * body that holds one of them.
+ *
+ * Both copies, which is the whole point: a certificate states its signature
+ * algorithm twice, once within the TBSCertificate and once beside it, and the
+ * copy within is under the signature. Neither of the two patches §28 could
+ * make produces that — patching the copy within breaks the signature over it,
+ * patching the copy beside leaves two statements that contradict each other,
+ * and both implementations refuse both. A certificate consistent in its own
+ * oddity and sound in every other way has to be signed into existence.
+ *
+ * Nothing else about the certificate moves: the serial number, the validity,
+ * the subject, the key and the extensions are the corpus's, read out of it and
+ * written back unchanged. The TBSCertificate's own length is recomputed
+ * because absent parameters are two octets shorter than the NULL they replace.
+ */
+function remint(parameters) {
+
+    const minted        = hex(corpus.certificates.rsaMeter);
+    const { tbs, rest } = parts(minted);
+
+    // The signature field is the TBSCertificate's third element, after the
+    // version and the serial number [RFC 5280, Section 4.1] - the version
+    // being present because the corpus mints v3 certificates. Nothing here
+    // relies on that: the object identifier is checked below, and a field
+    // counted wrong would not be sha256WithRSAEncryption.
+    const content = record(tbs, 0);
+    const at      = record(tbs, record(tbs, content.from).to).to;
+
+    const within  = record(tbs, at);
+    const beside  = record(rest, 0);
+
+    if (tbs[at] !== 0x30 || rest[0] !== 0x30)
+        throw new Error('a signature algorithm is a SEQUENCE in both of its copies');
+
+    const oid = tbs.subarray(within.from, record(tbs, within.from).to);
+
+    if (upper(oid) !== OID_SHA256_WITH_RSA)
+        throw new Error(`rsaMeter is signed with ${upper(oid)}, not sha256WithRSAEncryption`);
+
+    if (upper(oid) !== upper(rest.subarray(beside.from, record(rest, beside.from).to)))
+        throw new Error('the two copies of the signature algorithm name different algorithms');
+
+    const identifier = algorithmIdentifier(oid, parameters);
+    const body       = concat(tbs.subarray(content.from, at), identifier, tbs.subarray(within.to));
+    const signed     = concat(Uint8Array.from([0x30]), twoOctets(body.length), body);
+
+    // signatureValue is a BIT STRING with no unused bits [RFC 5280, §4.1.1.3].
+    const signature  = pkcs1Sign(signed, issuerKey);
+    const value      = concat(Uint8Array.from([0x03]), twoOctets(signature.length + 1),
+                              Uint8Array.from([0x00]), signature);
+
+    const whole      = concat(signed, identifier, value);
+
+    return concat(Uint8Array.from([0x30]), twoOctets(whole.length), whole);
+
+}
+
+
 // ----------------------------------------------------------------- the cases --
 
 const source = {
@@ -525,6 +764,20 @@ const stranger = hex(corpus.certificates.strangerMeter);
  * the header.
  */
 const URI = 'https://example.invalid/metrology/meter.der';
+
+
+/**
+ * The fourth family draws on the RSA hierarchy instead, because the
+ * certificate it mints is an RSA certificate: the key an end-entity
+ * certificate certifies is the key the message it travels in has to be signed
+ * with, or the chain would not bind the message at all.
+ */
+const rsaAuthority = hex(corpus.certificates.rsaManufacturerCA);
+const rsaKey       = corpus.privateKeys.rsaMeter.keyRsa;
+
+if (corpus.privateKeys.rsaMeter.algorithm !== 'RS256')
+    throw new Error(`the corpus's RSA meter signs with ${corpus.privateKeys.rsaMeter.algorithm}, ` +
+                    'not RS256');
 
 
 /** The algorithms the first family labels its thumbprint with. */
@@ -918,6 +1171,88 @@ const SOURCES = [
 ];
 
 
+/**
+ * The fourth family: the parameters beside a signature algorithm.
+ *
+ * `parameters` keys into PARAMETERS above, and the certificate at position 0 of
+ * the chain is `remint(...)` of it — the corpus's `rsaMeter` with that encoding
+ * in both copies of its signature algorithm. Position 1 and the anchor are the
+ * corpus's own, untouched.
+ *
+ * All three rows carry DER. That is not an aside: it is what separates this
+ * family from the second one. A zero-length OCTET STRING is a perfectly good
+ * DER encoding of a perfectly good ASN.1 value — the encoding rules have
+ * nothing to say against it, and tools/DerArbiter confirms as much — and what
+ * forbids it is RFC 4055 §5, one layer up. So this is the first family here
+ * where a refusal is a refusal of a certificate that is written down correctly.
+ */
+const RFC4055 = [
+    {
+        id:          'the-parameter-rfc-4055-asks-for',
+        parameters:  'a NULL',
+        expected:    'accept',
+        class:       'normative',
+        description: 'The control of this family, and the one whose bytes carry the most: they ' +
+                     'are byte for byte the message both implementations produce and agree on ' +
+                     'for `cose-x509:chain-signed-with-rsa`, and the generator refuses to write ' +
+                     'this file unless it reproduces them. So the RSA written out in this file — ' +
+                     'from the modular exponentiation and the EMSA-PKCS1-v1_5 encoding up, ' +
+                     'because the noble packages have none — makes the same 256 octets two ' +
+                     'independent implementations make, and the certificate it mints with the ' +
+                     'parameter the corpus has comes out as the corpus certificate itself, which ' +
+                     'the generator also refuses to write this file without. Both pins matter ' +
+                     'more here than in the families above, because this is the one family that ' +
+                     'signs: without them the two rows below would be refusals of whatever this ' +
+                     'generator got wrong about RSA or about DER.',
+    },
+    {
+        id:          'a-parameter-rfc-4055-does-not-allow',
+        parameters:  'a zero-length OCTET STRING',
+        expected:    'reject',
+        class:       'survey',
+        reason:      'the signature algorithm carries a zero-length OCTET STRING where RFC 4055 ' +
+                     '§5 requires a NULL or nothing, and the certificate is consistent in it: ' +
+                     'both copies carry it and the issuer\'s signature covers one of them',
+        description: 'The row §28 recorded as not measured, now minted. `sha256WithRSAEncryption` ' +
+                     'with a zero-length OCTET STRING beside it instead of the NULL — in both of ' +
+                     'the copies a certificate holds, with the issuer\'s signature made again ' +
+                     'over the body that holds one of them, so the certificate is sound in every ' +
+                     'respect but the one it is about. That consistency is why the row needed a ' +
+                     'third encoder: patching a minted certificate reaches only an inconsistent ' +
+                     'one, which both implementations refuse, and the refusals say so. Measured ' +
+                     'here: Bouncy Castle reads this certificate, reports its parameters as `04 ' +
+                     '00`, and verifies the signature — so Styx verifies this message — while ' +
+                     'COSE.TS refuses it at the parse, saying the identifier "carries parameters ' +
+                     '… where RFC 4055 allows a NULL or nothing at all". `survey`, because ' +
+                     'neither answer is wrong. RFC 4055 §5 says the parameters MUST be NULL, so ' +
+                     'nothing here is a valid certificate and refusing it is right; and nothing ' +
+                     'asks a reader to police a field it does not interpret, which is what a ' +
+                     'certificate library does for every algorithm whose parameters it has no ' +
+                     'use for. Which of the two a verifier should be is for the specification to ' +
+                     'settle rather than for this suite, and until it does the row records both ' +
+                     'verdicts side by side every run.',
+    },
+    {
+        id:          'no-parameters-at-all',
+        parameters:  'nothing at all',
+        expected:    'accept',
+        class:       'normative',
+        description: 'The same identifier with no parameters after it — the AlgorithmIdentifier ' +
+                     'two octets shorter, the TBSCertificate\'s own length redone, the signature ' +
+                     'made over the result. This is the encoding RFC 4055 §2 calls "the correct ' +
+                     'encoding", and §5 puts the requirement on the reader in its own words: ' +
+                     '"Implementations MUST accept the parameters being absent as well as ' +
+                     'present." So the row is `normative` on a sentence rather than on a reading, ' +
+                     'and it is the one that gives the row above its meaning: without it a ' +
+                     'refusal there could be a reader that simply demands the NULL, where the ' +
+                     'pair shows exactly where each side draws its line. Both accept. COSE.TS ' +
+                     'accepts absent parameters by a decision in `expectNoParameters` and not by ' +
+                     'omission, which is what this row holds it to; Bouncy Castle reports the ' +
+                     'parameters as null and verifies.',
+    },
+];
+
+
 const cases = [
 
     ...LABELS.map(entry => ({
@@ -1013,6 +1348,27 @@ const cases = [
         description:   entry.description,
     })),
 
+    ...RFC4055.map(entry => ({
+        id:            entry.id,
+        // Per row again, and both classes appear: see RFC4055 above.
+        class:         entry.class,
+        message:       upper(sign1({
+                           payload:    source.payload,
+                           chain:      [remint(PARAMETERS[entry.parameters]), rsaAuthority],
+                           signingKey: rsaKey,
+                           algorithm:  RS256,
+                       })),
+        trustAnchors:  ['rsaRoot'],
+        expected:      entry.expected,
+        ...(entry.reason ? { reason: entry.reason } : {}),
+        certificates:  2,
+        // All three of them, which is this family's point: see RFC4055 above.
+        der:           true,
+        parameters:    `${entry.parameters}, beside sha256WithRSAEncryption`,
+        computedBy:    'tools/X509Cases',
+        description:   entry.description,
+    })),
+
 ];
 
 
@@ -1042,7 +1398,21 @@ const CONTROLS = {
     // cose-x509:chain-to-trusted-root, 797 bytes
     'the-certificate-as-it-was-minted':
         '28E3F46A0723EC9B1808F221B947202702100D8E046D31AF8F2DE1D64026CEA5',
+    // cose-x509:chain-signed-with-rsa, 1912 bytes. This one pins more than the
+    // other two: the message is RSA-signed, so reproducing it says that the
+    // 256 octets this file computes are the 256 octets two independent
+    // implementations compute, and that the certificate it mints is theirs.
+    'the-parameter-rfc-4055-asks-for':
+        'F91EC294B639FF648C54AE86C17C407E838383FBC9A75C2AE674203E6B743B1B',
 };
+
+// And the fourth family's other pin, which the control above implies but does
+// not say: minting the certificate with the parameter the corpus has gives the
+// corpus certificate back, every octet of it. Stated on its own so that a
+// break here reads as a break in the minting rather than in the message.
+if (upper(remint(PARAMETERS['a NULL'])) !== upper(hex(corpus.certificates.rsaMeter)))
+    throw new Error('reminting rsaMeter with the parameter the corpus has does not reproduce it ' +
+                    '— refusing to write');
 
 for (const [id, pinned] of Object.entries(CONTROLS)) {
 
@@ -1131,6 +1501,35 @@ for (const entry of cases) {
     if (chain === null || chain.length !== 2)
         throw new Error(`${entry.id} does not carry a chain of two certificates`);
 
+    const parameterised = RFC4055.find(candidate => candidate.id === entry.id);
+
+    if (parameterised !== undefined) {
+
+        if (upper(chain[0]) !== upper(remint(PARAMETERS[parameterised.parameters])) ||
+            upper(chain[1]) !== upper(rsaAuthority))
+            throw new Error(`${entry.id} does not carry the chain its case claims`);
+
+        // The parameter is read back out of the certificate rather than
+        // believed of the variable it was minted from, and *both* copies of it
+        // are counted — a row that was consistent in one place only would be
+        // refused by everything and would prove nothing. The whole
+        // AlgorithmIdentifier is compared and not just the parameter, so that
+        // the row with no parameters is held to the shorter length octet too.
+        const identifier = upper(algorithmIdentifier(hex(OID_SHA256_WITH_RSA),
+                                                     PARAMETERS[parameterised.parameters]));
+        const copies     = upper(chain[0]).split(identifier).length - 1;
+
+        if (copies !== 2)
+            throw new Error(`${entry.id} states the parameter its case names ${String(copies)} ` +
+                            'times, not twice');
+
+        if (thumbprint !== null)
+            throw new Error(`${entry.id} carries a thumbprint, which this family does not`);
+
+        continue;
+
+    }
+
     if (entry.thumbprintAlgorithm !== undefined) {
 
         // The first family: the label is the one the case claims, the digest
@@ -1211,10 +1610,17 @@ writeFileSync(join(root, 'vectors', 'cose-x509-messages.json'),
                                'implementation reads — x5bag and x5u (§26, normative where an ' +
                                'unread header must not cost a sound message its verification, ' +
                                'survey where a verifier that read the label would be right to ' +
-                               'answer differently). Generated by tools/X509Cases from the noble ' +
-                               'primitives alone; the chain and the signing key come from ' +
-                               'cose-x509-corpus.json, and the first two families\' controls are ' +
-                               'byte for byte messages both implementations produce. Each case ' +
+                               'answer differently), and a certificate whose signature ' +
+                               'algorithm carries a parameter RFC 4055 §5 does not allow, ' +
+                               'consistently in both of the copies a certificate holds — which ' +
+                               'no patch can reach, so this family mints its certificate and ' +
+                               'signs it (§28, normative where RFC 4055 puts the rule on the ' +
+                               'reader in its own words, survey where the two disagree). ' +
+                               'Generated by tools/X509Cases from the noble primitives and the ' +
+                               'RSA written out in it; the chain, the signing key and the ' +
+                               'issuing key come from cose-x509-corpus.json, and three ' +
+                               'families\' controls are byte for byte messages both ' +
+                               'implementations produce. Each case ' +
                                'states how many certificates it carries and whether they are ' +
                                'DER; tools/DerArbiter answers both with a reader that is neither ' +
                                'implementation\'s, which is what §25\'s rows had no third ' +
@@ -1230,7 +1636,7 @@ for (const entry of cases)
                 `${String(hex(entry.message).length).padStart(4)} bytes  ` +
                 `${entry.thumbprintAlgorithm !== undefined
                        ? `x5t ${entry.thumbprintAlgorithm}`
-                       : entry.encoding ?? entry.headers}` +
+                       : entry.encoding ?? entry.headers ?? entry.parameters}` +
                 `${entry.thumbprintOver !== undefined
                        ? `, x5t over ${entry.thumbprintOver}`
                        : ''}`);

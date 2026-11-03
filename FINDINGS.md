@@ -3041,9 +3041,9 @@ subject public key info comes from the key rather than from the signature, so
 Bouncy Castle writes `rsaEncryption` in both hierarchies.
 
 A parameter where RFC 4055 allows a NULL or nothing at all is what COSE.TS
-refuses, and what nothing here can ask about — and the reason turned out to be
-worth more than the row would have been. This subsection first recorded it as a
-leniency Bouncy Castle would show, on the strength of its reading that field
+refuses, and what nothing here could ask about — and the reason turned out to
+be worth more than the row would have been. This subsection first recorded it as
+a leniency Bouncy Castle would show, on the strength of its reading that field
 for nothing. A probe against Bouncy Castle 2.7.0 says that was never measured
 and could not have been. The `tbsCertificate` carries one of the two copies of
 the signature algorithm, so patching that one breaks the signature over it, and
@@ -3057,16 +3057,101 @@ identifiers. So the agreement check COSE.TS gained for RSASSA-PSS in this
 increment is one Styx has had all along, through the library it reads
 certificates with.
 
-What is left unmeasured is a certificate whose odd parameter is consistent
-throughout, and no patch can produce one: it has to be minted, by an encoder
-that writes a `tbsCertificate` of its own and signs it. `tools/X509Cases` is
-the only candidate here and would need RSA signing of its own, for the message
-such a chain travels in. Whether Styx accepts such a certificate is therefore
-not known, and this document does not say. The two COSE.TS tests that patch one
-pin its refusal at the parse, which is a statement about one implementation.
+What a patch cannot produce is a certificate whose odd parameter is consistent
+throughout: that one has to be minted, by an encoder that writes a
+`tbsCertificate` of its own and signs it, and `tools/X509Cases` is the only
+candidate here. It was built the same day; the next subsection is what it
+measured.
 
 The multi-prime form of RFC 8230 is where the subsection above left it: read by
 neither implementation, and asked by nothing.
+
+### Decided: the parameter that had to be minted (2026-11-03)
+
+The subsection above named what the row would cost and then did not pay it. It
+is paid here. `tools/X509Cases` has a fourth family and RSA of its own — the
+modular exponentiation, the EMSA-PKCS1-v1_5 encoding and the DigestInfo of RFC
+8017, because the noble packages carry no RSA — and `tools/CertificateCorpus`
+publishes one issuing key, in an `issuerKeys` object beside `privateKeys`
+rather than in it: a key that signs messages carries the COSE algorithm it
+signs with, and an authority's key signs certificates and has none, so
+recording it beside the others with one invented would be a claim this corpus
+cannot back.
+
+**What was measured**, with `sha256WithRSAEncryption` as `rsaMeter` is signed
+and the parameters beside it the only thing that varies:
+
+| the parameters | Styx | COSE.TS | the third reader |
+|---|---|---|---|
+| a NULL, which is what the corpus writes | verified | verified | DER |
+| a zero-length OCTET STRING | **verified** | **refused** | **DER** |
+| absent | verified | verified | DER |
+
+So the leniency this document asserted in the morning and withdrew in the
+afternoon is there after all — and the withdrawal was still right, because what
+was asserted was that Bouncy Castle "does not look at the field at all", and
+that is false. It looks: it compares the two copies, which is what the previous
+probe established. What it does not do is ask what the agreed value *is*. Those
+two sentences are the whole of it, and only the second one is a leniency.
+Bouncy Castle reads this certificate, reports its parameters as `04 00`,
+verifies the signature, and Styx walks the chain to `rsaRoot` and verifies the
+message; COSE.TS refuses at the parse, with the identifier in the sentence.
+That is the one cross-implementation divergence in the suite, and
+`a-parameter-rfc-4055-does-not-allow` is `survey` for the reason §25 gives:
+RFC 4055 §5 says the parameters MUST be NULL, so nothing here is a valid
+certificate and refusing it is right, and nothing asks a reader to police a
+field it does not interpret, which is what a certificate library does for every
+algorithm whose parameters it has no use for. Which of the two a verifier
+should be is for the specification to settle rather than for this suite.
+
+**The third reader is what makes this family different from §25's.** A
+zero-length OCTET STRING is a correct DER encoding of a correct ASN.1 value;
+what forbids it is one layer up. `tools/DerArbiter` says so of all three rows,
+so this is the first family here where a refusal is the refusal of a
+certificate that is written down properly — §25's four were refusals of writing.
+
+**Why it had to be minted, demonstrated rather than argued.** A certificate
+states its signature algorithm twice and the copy within the `tbsCertificate`
+is under the signature, so a patcher can reach an inconsistent certificate and
+nothing else. Minting the family that way — the parameter beside the body only,
+as the probe did — leaves the suite with *nothing to say*: the divergence
+disappears, nothing fails, and the two implementations refuse that row for two
+different reasons, neither of which is the parameter. Styx answers *"The
+certificate 'CN=Meter 1ISA0000000047' was not signed by 'CN=RSA Meter
+Manufacturer CA': signature algorithm in TBS cert not same as outer cert"*,
+which is about the inconsistency; COSE.TS reaches its parameter check first and
+answers about the parameter. One sentence of the two is an accident of the
+order the checks run in. And the absent row keeps verifying on both sides even
+then, because RFC 4055 §2 makes a NULL and an absent field equivalent and both
+libraries treat them so — so the half-patched certificate does not even
+separate the two encodings.
+
+**The two pins the family rests on**, both of which stop the generator rather
+than quietly anchoring the rows in bytes nobody else produces. Its control is
+byte for byte the message both implementations produce for
+`cose-x509:chain-signed-with-rsa`, so the 256 octets this generator computes
+are the 256 octets two independent implementations compute; and minting the
+certificate with the parameter the corpus has gives the corpus certificate
+back, octet for octet, so the surgery and the signing are not what the two rows
+beside it measure. The issuing key is checked against the authority's
+certificate as well: its modulus has to be the 256 octets `rsaManufacturerCA`
+carries in its subject public key info.
+
+**`no-parameters-at-all` is `normative`, and on a sentence rather than a
+reading.** RFC 4055 §5 puts the rule on the reader in its own words —
+"Implementations MUST accept the parameters being absent as well as present" —
+and §2 calls the absent form "the correct encoding", the NULL being an artefact
+of a defect report. Both accept. It is also the row that gives the one beside
+it its meaning: without it a refusal there could be a reader that simply
+demands the NULL, where the pair shows where each side draws its line.
+
+### Falsification of the three rows
+
+| what was changed | what happened |
+|---|---|
+| COSE.TS's parameter check made a no-op | the divergence goes from 1 to 0 and **nothing fails**, because the row that moves is `survey`: both sides verify and the suite records that they do. A survey row cannot fail a run, and its whole output is the pair of verdicts and the divergence line — which is what §25 says of recording and what this falsification shows the shape of |
+| COSE.TS made to require the NULL, refusing an absent field | `no-parameters-at-all` fails, in both of the places a verdict is asked for: its own `validate` and the agreement check of the cross pass — 2 failures, 2 divergences. So the normative row of the family is load-bearing on exactly the sentence it cites, and the survey row beside it is untouched |
+| the generator minting the parameter into the copy beside the body only | the family measures nothing, as described above: 0 divergences, 0 failures, and §28's reason for not building this row in the first place, reproduced |
 
 ### Falsification
 
@@ -3088,15 +3173,24 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Twenty-three cases: four signatures, the EdDSA pair, two key wraps, two
+Twenty-six cases: four signatures, the EdDSA pair, two key wraps, two
 thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
-the count produced, and the four certificate rows that the asymmetry it turned
-up produced. 631 (C#) / 595 (TypeScript) / 38 (the third reader) normative, 448
-agreements, zero failures, zero divergences, zero messages verified against
-what the third reader refuses, 55 survey observations each and 13 on the
-agreement rows. The promotion of 2026-11-03 moved five rows across: the two
-cross-open verdicts, one per opening implementation, and the three byte
-agreements of the case.
+the count produced, the four certificate rows that the asymmetry it turned up
+produced, and the three parameter rows that had to be minted. 633 (C#) / 597
+(TypeScript) / 44 (the third reader) normative, 450 agreements, zero failures,
+zero messages verified against what the third reader refuses, 56 survey
+observations each and 14 on the agreement rows.
+
+And one cross-implementation divergence, where this suite ran at zero for a
+while. It is `cose-x509-messages:a-parameter-rfc-4055-does-not-allow`, it is
+the first thing a reader of the report meets, and it is there on purpose: the
+row was built to produce it. A divergence is what this suite is for, and a
+`survey` row is how it is written down while which side is right remains the
+specification's question and not this suite's.
+
+The promotion of 2026-11-03 moved five rows across: the two cross-open
+verdicts, one per opening implementation, and the three byte agreements of the
+case.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, 11 do: the two that do not are the deprecated counter
