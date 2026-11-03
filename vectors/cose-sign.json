@@ -1,6 +1,6 @@
 {
     "suite": "cose-sign",
-    "description": "COSE cross-signing conformance (RFC 9052 / 9053 / 9338 / 9679). Every case is signed by both implementations and then handed to the other one to verify. Signing is deterministic (RFC 6979) on both sides, because that is the only mode in which two implementations can be compared byte for byte; the randomized mode is exercised by the cross-verification instead. The keys are the example keys of RFC 9052 and of the specification's worked example, and they secure nothing.",
+    "description": "COSE cross-signing conformance (RFC 9052 / 9053 / 9338 / 9679). Every case is signed by both implementations and then handed to the other one to verify. Signing is deterministic (RFC 6979) on both sides, because that is the only mode in which two implementations can be compared byte for byte; the randomized mode is exercised by the cross-verification instead. The keys are the example keys of RFC 9052, of the specification's worked example and, for the curves no published example covers, fixed scalars of this suite's own. They secure nothing.",
     "cases": [
         {
             "id": "sign1-non-canonical-payload",
@@ -76,6 +76,48 @@
             "curve": "brainpoolP320r1",
             "keyD": "2A7C6E1B4F9038D5C2A1B60E7F3D8C4952E1A0B7C6D5E4F3021A9B8C7D6E5F40312B4A5968C7D8E9",
             "keyIdentifier": "B320B320B320B320",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-esb384-brainpool",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "brainpoolP384r1 with SHA-384. The curve library ships this one, so unlike brainpoolP320r1 it is not a transcription under test; what is under test is that both implementations agree byte for byte on a 96-byte signature over a 384-bit brainpool curve, and that they pair the curve with the same hash. Registered for COSE by RFC 9864 and implemented on both sides since before this vector existed, which is what made the gap invisible.",
+            "algorithm": "ESB384",
+            "curve": "brainpoolP384r1",
+            "keyD": "3B52698097AEC5DCF30A21384F667D94ABC2D9F0071E354C637A91A8BFD6ED041B324960778EA5BCD3EA01182F465D74",
+            "keyIdentifier": "B384B384B384B384",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-esb512-brainpool",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "brainpoolP512r1 with SHA-512, the widest brainpool curve either implementation offers: a 64-byte group order, a 128-byte signature, and an RFC 6979 nonce derived with SHA-512 rather than SHA-384.",
+            "algorithm": "ESB512",
+            "curve": "brainpoolP512r1",
+            "keyD": "4C6986A3C0DDFA1734516E8BA8C5E2FF1C39567390ADCAE704213E5B7895B2CFEC092643607D9AB7D4F10E2B4865829FBCD9F613304D6A87A4C1DEFB1835526F",
+            "keyIdentifier": "B512B512B512B512",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-esp384-fully-specified",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "RFC 9864's fully-specified algorithm for P-384, signing with the same key and the same hash as sign1-es384-p384 above. The signature is not the same one: the alg label sits in the protected bucket that the Sig_structure covers, so naming the curve in the algorithm rather than leaving it to the key changes the bytes being signed. Until this vector only ESP256 had one, and the registry recommends all three.",
+            "algorithm": "ESP384",
+            "curve": "P-384",
+            "keyD": "6952487A0A16EACE6E9A69EFD062D7671D68D23FF68722326348827C3A94E2A1743A1DF8901B948412CCA26CA4372CED",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-esp512-fully-specified",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The same for P-521, on the key whose leading octet is zero — so it reads the big-integer serialization of sign1-es512-p521 a second time, under the label that names the curve. ESP512 pairs P-521 with SHA-512, which is what ES512 does with this key anyway: the computation is the same and only the protected header differs.",
+            "algorithm": "ESP512",
+            "curve": "P-521",
+            "keyD": "00085138DDABF5CA975F5860F91A08E91D6D5F9A76AD4018766A476680B55CD339E8AB6C72B5FACDB2A2A50AC25BD086647DD3E2E6E99E84CA2C3609FDF177FEB26D",
             "payload": "546869732069732074686520636F6E74656E742E"
         },
         {

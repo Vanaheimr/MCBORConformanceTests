@@ -31,6 +31,7 @@ import {
 } from '../../libs/MetrologicalCBOR.TS/src/index.ts';
 
 import {
+    algorithmById,
     algorithmByName,
     cbor,
     CoseCertificateChain,
@@ -147,6 +148,8 @@ interface VectorCase {
     chain?:            string[];
     trustAnchors?:     string[];
     thumbprintOf?:     string;
+    thumbprintAlgorithm?: number;
+    partialIv?:        string;
     critical?:         boolean;
     expected?:         string;
 }
@@ -555,14 +558,24 @@ function runCoseX509(testCase: VectorCase, checks: Record<string, Check>): void 
 
     parameters.push([label(HeaderLabel.x5Chain), new CoseCertificateChain(chain).toCbor()]);
 
+    // The hash the thumbprint is taken with, where the case names one. RFC 9360
+    // leaves the choice to the sender, so a reader that assumes SHA-256 computes
+    // a digest of the wrong width and refuses a sound message - which is what
+    // the SHA-384 and SHA-512 cases measure.
+    const thumbprintAlgorithm = testCase.thumbprintAlgorithm !== undefined
+                                    ? algorithmById(testCase.thumbprintAlgorithm) ?? undefined
+                                    : undefined;
+
     if (testCase.thumbprintOf !== undefined)
         parameters.push([label(HeaderLabel.x5T),
-                         CoseCertificateHash.from(certificateOf(testCase.thumbprintOf)).toCbor()]);
+                         CoseCertificateHash.from(certificateOf(testCase.thumbprintOf),
+                                                  thumbprintAlgorithm).toCbor()]);
 
     const message = CoseSign1.signWithHeaders(payload, key, new CoseHeaders(parameters));
 
     checks['message']    = capture(() => okHex (bytesToHex(message.toBytes())));
-    checks['thumbprint'] = capture(() => okHex (bytesToHex(chain[0]!.thumbprint())));
+    checks['thumbprint'] = capture(() => okHex (bytesToHex(
+                                       CoseCertificateHash.from(chain[0]!, thumbprintAlgorithm).value)));
     checks['subject']    = capture(() => okText(chain[0]!.subject.toString()));
 
     checks['validate']   = capture(() => {
@@ -909,13 +922,29 @@ function runCoseEncrypt(testCase: VectorCase, checks: Record<string, Check>): vo
         case 'encrypt0': {
 
             const contentKey = symmetricKeyOf(testCase.key!, testCase.algorithm, testCase.keyIdentifier);
+            const iv         = hexToBytes(testCase.iv!);
+            const options    = { iv, externalAad: external, detachPayload: detached, tagged };
 
-            const message = CoseEncrypt0.encrypt(payload, contentKey, {
-                                iv:            hexToBytes(testCase.iv!),
-                                externalAad:   external,
-                                detachPayload: detached,
-                                tagged,
-                            });
+            // A case that names a Partial IV or a crit composes both buckets
+            // itself, because the encrypt call writes neither: label 6 is one
+            // this library can name and does not read, and crit belongs in the
+            // protected bucket beside the algorithm. Every other case takes the
+            // ordinary path, so its bytes are the ones it always produced.
+            const message = testCase.partialIv === undefined && testCase.crit === undefined
+                                ? CoseEncrypt0.encrypt(payload, contentKey, options)
+                                : CoseEncrypt0.encryptWithHeaders(
+                                      payload, contentKey,
+                                      testCase.crit === undefined
+                                          ? CoseHeaders.create(contentKey.algorithm)
+                                          : CoseHeaders.create(contentKey.algorithm)
+                                                .set(label(HeaderLabel.critical),
+                                                     cbor.array(testCase.crit.map(each => label(each)))),
+                                      testCase.partialIv === undefined
+                                          ? new CoseHeaders([[label(HeaderLabel.iv), cbor.bytes(iv)]])
+                                          : new CoseHeaders([[label(HeaderLabel.iv), cbor.bytes(iv)],
+                                                             [label(HeaderLabel.partialIv),
+                                                              cbor.bytes(hexToBytes(testCase.partialIv))]]),
+                                      options);
 
             checks['toBeEncrypted'] = capture(() => okHex(bytesToHex(message.toBeEncrypted(external))));
             checks['ciphertext']    = capture(() => okHex(bytesToHex(

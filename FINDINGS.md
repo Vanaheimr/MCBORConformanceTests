@@ -831,6 +831,13 @@ declarations rather than off the documentation.
 | message types | 6 + recipient | 6 + recipient |
 | understood labels for `crit` | {1, 2, 3, 4} | {1, 2, 3, 4} |
 
+**The first row of that table expired, and nothing noticed for ten weeks.**
+Re-measured the same way on 2026-11-03: 44 algorithms in Styx against 38 in
+COSE.TS, the six being RSA, which Styx signs and COSE.TS does not know. The
+other four rows still hold — 21 header parameter labels each now, identical.
+§28 has the measurement and what it leaves open; what matters here is that a
+hand audit is a photograph, and this one was taken before both libraries grew.
+
 The features match as well — detached payloads, external additional
 authenticated data, `crit`, RFC 9338 countersignatures, `x5chain`/`x5t`,
 several signers, recipients by `direct` and key wrap — and so do the
@@ -2550,3 +2557,171 @@ reader refuses, 58 survey observations each and 22 on the agreement rows — as
 this section was written, and before the decision at the end of §25 moved eight
 of those rows from `survey` to `normative`. The counts there are the ones that
 hold.
+
+## 28. Counted against the registries, and the ten rows that count produced (added 2026-11-03)
+
+§15 found its vectors by asking which row of a conversion table no vector
+reached. This section asks the same question of COSE, and not the one that
+sounds like it: not which features are implemented, but which *registry rows*
+both implementations implement and no vector names. The answer was ten
+algorithms, three header parameters, and one asymmetry nobody had written down.
+
+### How it was counted
+
+The IANA registries are the row list, and RFC 9052 Section 13 is why: an
+algorithm identifier is whatever that registry says it is, which is what Styx's
+own table says in the comment above it. Three files: COSE Algorithms, 86
+assigned rows; COSE Header Parameters, 45; COSE Header Algorithm Parameters,
+16. Both implementations' tables were extracted from source — the C# registry
+literal and the TypeScript `algorithm(...)` calls — and diffed against every
+algorithm name and every header label that appears anywhere in the thirteen
+files of `vectors/` or in the specification's annex. By script, not by reading.
+
+| | |
+|---|---|
+| algorithms both implement | 38 — 28 with a vector, **10 without** |
+| algorithms only one implements | **6**, all of them Styx's: PS256/384/512 [RFC 8230] and RS256/384/512 [RFC 8812] |
+| algorithms neither implements | 42, of which the registry recommends 28 |
+| header parameters both name | 13 of 45 — 10 with a vector, **3 without** |
+| header algorithm parameters both name | 8 of 16 — 6 with a vector, 2 without |
+
+The 42 fall into the families COSE.TS's scope block excludes with a reason:
+AES-CCM (8 rows), AES-MAC (4), direct+HKDF (4), ECDH-SS (5), and then
+RSAES-OAEP, HSS-LMS, the SHAKEs and SHA-512/256. So that block is complete for
+RFC 9053 — with the one exception the asymmetry below is about.
+
+### The ten, and the eight that are now vectors
+
+| row | registry | the vector |
+|---|---|---|
+| ESP384 (−51), ESP512 (−52) | Recommended | `cose-sign:sign1-esp384-fully-specified`, `…-esp512-…` |
+| ESB384 (−267), ESB512 (−268) | — | `cose-sign:sign1-esb384-brainpool`, `…-esb512-…` |
+| A192KW (−4) | Recommended | `cose-encrypt:encrypt-key-wrap-a192kw` |
+| ECDH-ES + A192KW (−30) | Recommended | `cose-ecdh:ecdh-key-wrap-a192kw` |
+| SHA-384 (−43), SHA-512 (−44) | Recommended | `cose-x509:thumbprint-with-sha-384`, `…-512` |
+
+Each of the four signature rows reuses the key of the deprecated algorithm
+beside it where there is one, so ESP384 and ESP512 sign with the same key and
+the same hash as ES384 and ES512 and still produce a different signature — the
+alg label is in the protected bucket the Sig_structure covers. The two
+brainpool rows carry fixed scalars of this suite's own, because no published
+example covers those curves; both were checked against the curve before being
+written down. The two thumbprint rows are the first in this suite to name a
+hash for `x5t` other than the default, which is the whole point: §24 pins that
+the label must *be* a hash algorithm, with three that are not, and nothing
+until now held either side to *reading* it rather than assuming SHA-256.
+
+Two of the ten are left out, on purpose rather than by oversight:
+
+- **SHA-1 (−14)** is named by both and computable by neither — COSE.TS's entry
+  carries no hash function, Styx's a null `HashAlgorithmName` — and the
+  registry marks it "Filter Only". A vector would ask nothing of anybody.
+- **EdDSA (−8)** is signable on both and deprecated by RFC 9864 in favour of
+  Ed25519 and Ed448, which both have vectors. The pair this suite draws for
+  ECDSA — deprecated ES256 beside fully-specified ESP256 — is undrawn for
+  EdDSA. That is a row somebody may want; it is left out rather than forgotten.
+
+### What the new rows needed from the runners
+
+The thumbprint cases needed a `thumbprintAlgorithm` field, because the hash was
+the runner's default on both sides and no vector could name another; both
+libraries' APIs already took one. The Partial IV cases needed the encrypt0 path
+to compose both header buckets itself, which both libraries offer
+(`encryptWithHeaders`, and the `COSEHeaders` overload of `Encrypt`), and one new
+expectation in the driver: a case may now say that the message it describes has
+to be *refused* by whoever opens it rather than opened, with the two cross-open
+rows inverted and the byte agreements unchanged. Everything else in this
+section is vector data.
+
+### Label 6, which both can name and neither reads
+
+RFC 9052 Section 3.1 defines a Partial IV as the part of the IV that changes
+per message, the rest coming from a Context IV that travels with the key — and
+says the two MUST NOT "both be present in the same security layer". Neither
+implementation reads label 6, and neither can be handed a Base IV either: that
+is a COSE *key* parameter, and neither reads it.
+
+Two cases, differing by one header entry:
+
+| row | class | expected | what both do |
+|---|---|---|---|
+| `encrypt0-partial-iv-beside-the-iv` | survey | reject | **open it**, by its IV, ignoring label 6 |
+| `encrypt0-partial-iv-the-sender-made-critical` | normative | reject | refuse, for the `crit` |
+
+Both implementations build both messages byte for byte identically, and the
+first one is `D08343A10101A2054C02D1F7E6F26C43D4868D87CE064261A75824…` — an
+unprotected bucket holding label 5 and label 6 at once.
+
+The second row is green, and rests on the sentence §26's two `crit` rows rest
+on: a label listed in `crit` must be processed, and neither of these processes
+label 6. The first records a message RFC 9052 forbids and both implementations
+accept. It is `survey` for a textual reason rather than a lenient one: that
+sentence binds whoever *builds* the message, and no sentence was found in RFC
+9052 binding a recipient to police it. Where the document wanted both sides
+bound it said both halves — Section 9, on a label used twice as a key in one
+map, forbids generating such a message and forbids parsing and processing one.
+Section 3.1 forbids only the first. So requiring the refusal would be a
+decision about published behaviour rather than a reading of the specification,
+which is §25's question again and the maintainer's to answer. The verdict is
+recorded every run meanwhile.
+
+Two things this family does not have. RFC 9052 Appendix C.4.2 publishes a
+Partial IV example and this suite cannot use it: it encrypts with
+AES-CCM-16-64-128, one of the 42 algorithms neither implementation offers. Its
+Partial IV value is the one both cases carry. And the third row label 6 would
+want — a Partial IV and no IV at all — is absent because an encryptor needs a
+real IV to encrypt with, so that message has to come from a third encoder the
+way §24 to §26's do; what its refusal would measure is the absence of a Context
+IV rather than a rule.
+
+### The asymmetry the count turned up
+
+§13 measured 32 algorithms against 32, an identical list, on 2026-08-19. Today
+it is 44 against 38, and the six are RSA: PS256, PS384, PS512 [RFC 8230] and
+RS256, RS384, RS512 [RFC 8812], Styx-only. They are not name-only entries —
+`IsSupportedForSigning` is true for all six, and `COSERSATests.cs` has seven
+tests of its own that sign real `COSE_Sign1` messages with them, verify them,
+and detect tampering. COSE.TS knows none of the six, its scope block gives a
+reason for every other omission and does not mention RSA, and neither README
+does either. Three of the six the registry recommends.
+
+No vector names them and none can: a cross-implementation vector compares what
+both sides can do, so this is not a gap a row closes. It is a decision — COSE.TS
+grows RSA, or the six are written down as a deliberate asymmetry, or a `survey`
+row records that one side signs what the other cannot read. Nothing was changed
+here. §13's first row is dated in place instead, because the interesting part is
+not the drift but that a hand audit is a photograph: it was taken before both
+libraries grew, and nothing in `npm test` was ever going to notice it ageing.
+
+### Falsification
+
+| what was changed | what happened |
+|---|---|
+| ESP384 resolved to SHA-256 — COSE.TS `algorithm.ts` | `sign1-esp384-fully-specified`: the signature and the message disagree and both cross-verifications fail — 4 failures, 2 divergences |
+| the `x5t` thumbprint computed with SHA-256 whatever the label says — COSE.TS `x5chain.ts`, `CoseCertificateHash.from` | both new thumbprint rows: thumbprint and message disagree, TypeScript refuses its own message and C# refuses TypeScript's — 8 failures, 6 divergences |
+| a 24-byte key-encryption key labelled A128KW — COSE.TS `recipient.ts`, `keyWrapAlgorithmFor` — and the ECDH-ES + A192KW entry sized for 16 bytes | both A192KW rows: the message, the first recipient structure and the `COSE_KDF_Context` disagree, and neither side opens the other's — 7 failures, 4 divergences |
+| the `crit` entry taken out of the critical Partial IV row | that *is* the survey row beside it: both open it, measured rather than argued |
+
+One falsification caught nothing, and it belongs here for that reason. Changing
+A192KW's `keySize` in the algorithm table from 24 to 16 changes nothing
+whatsoever: the key-wrap algorithm is read off the key-encryption key's length
+by `keyWrapAlgorithmFor`, and the field is consulted for content encryption
+only. That was the first attempt at the third row above, and it looked exactly
+like a suite passing over a broken library. A falsification that does not fail
+has falsified nothing — including itself.
+
+### Where it leaves the suite
+
+Ten cases: four signatures, two key wraps, two thumbprints, two Partial IV.
+614 (C#) / 578 (TypeScript) / 36 (the third reader) normative, 405 agreements,
+zero failures, zero divergences, zero messages verified against what the third
+reader refuses, 51 survey observations each and 15 on the agreement rows.
+
+Of the 38 algorithms both implement, 36 now have a vector and two are left out
+with a reason. Of the 13 header parameters both name, 11 do: the two that do not
+are the deprecated counter signature of label 7 and `Countersignature0 version
+2` of label 12 — and the second is §26's shape exactly, a registered label both
+can name and neither reads, with COSE.TS's scope block giving the reason. Of
+the 8 header algorithm parameters both name, `PartyU other` (−23) and `PartyV
+nonce` (−25) are still unexercised; the one case that carries party information
+sets four of the six fields.

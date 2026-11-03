@@ -193,6 +193,25 @@
             ]
         },
         {
+            "id": "ecdh-key-wrap-a192kw",
+            "class": "normative",
+            "shape": "encrypt",
+            "description": "ECDH-ES + A192KW, which is the case above with exactly one thing changed: the recipient key and the ephemeral key are the same, so the agreed secret is the same, and the difference is only how many bytes HKDF is asked for and which AES width wraps the content key with them - 24 instead of 16. The middle width had no vector anywhere, here or among the published examples, although the description of this file has named it since the file existed.",
+            "algorithm": "A256GCM",
+            "key": "0F1E2D3C4B5A69788796A5B4C3D2E1F01F2E3D4C5B6A798897A6B5C4D3E2F100",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "recipients": [
+                {
+                    "algorithm": "ECDH-ES + A192KW",
+                    "curve": "brainpoolP256r1",
+                    "key": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "ephemeral": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "keyIdentifier": "6D657465722D726563697069656E742D313932"
+                }
+            ]
+        },
+        {
             "id": "ecdh-direct-salt-and-parties",
             "class": "normative",
             "shape": "encrypt",

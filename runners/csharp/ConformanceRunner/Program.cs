@@ -975,7 +975,31 @@ static void RunCoseEncrypt(JsonObject TestCase, JsonObject Checks)
                                             TestCase["algorithm"]!.GetValue<String>(),
                                             TestCase["keyIdentifier"]?.GetValue<String>());
             var iv       = Convert.FromHexString(TestCase["iv"]!.GetValue<String>());
-            var message  = COSEEncrypt0.Encrypt(payload, contentKey, iv, externalAAD, detached, tagged);
+
+            // A case that names a Partial IV or a crit composes both buckets
+            // itself, because the encrypt call writes neither: label 6 is one
+            // this library can name and does not read, and crit belongs in the
+            // protected bucket beside the algorithm. Every other case takes the
+            // ordinary path, so its bytes are the ones it always produced.
+            var protectedHeader = COSEHeaders.Create(contentKey.Algorithm);
+
+            if (TestCase["crit"] is not null)
+                protectedHeader = protectedHeader.Set(
+                                      COSEHeaderLabel.Critical,
+                                      CBORValue.FromArray(TestCase["crit"]!.AsArray()
+                                          .Select(each => CBORValue.FromInt64(each!.GetValue<Int64>()))));
+
+            var unprotectedHeader = new COSEHeaders((COSEHeaderLabel.IV, CBORValue.FromBytes(iv)));
+
+            if (TestCase["partialIv"] is not null)
+                unprotectedHeader = unprotectedHeader.Set(
+                                        COSEHeaderLabel.PartialIV,
+                                        CBORValue.FromBytes(Convert.FromHexString(TestCase["partialIv"]!.GetValue<String>())));
+
+            var message  = TestCase["partialIv"] is null && TestCase["crit"] is null
+                               ? COSEEncrypt0.Encrypt(payload, contentKey, iv, externalAAD, detached, tagged)
+                               : COSEEncrypt0.Encrypt(payload, contentKey, protectedHeader, unprotectedHeader,
+                                                      iv, externalAAD, detached, tagged);
 
             Checks["toBeEncrypted"] = Capture(() => OkHex(Convert.ToHexString(message.ToBeEncrypted(externalAAD))));
             Checks["ciphertext"]    = Capture(() => OkHex(Convert.ToHexString(
@@ -1287,9 +1311,18 @@ static void RunCoseX509(JsonObject TestCase, JsonObject Checks, JsonObject Corpu
 
     parameters.Add((COSEHeaderLabel.X5Chain, chain.ToCBOR()));
 
+    // The hash the thumbprint is taken with, where the case names one. RFC 9360
+    // leaves the choice to the sender, so a reader that assumes SHA-256 computes
+    // a digest of the wrong width and refuses a sound message - which is what
+    // the SHA-384 and SHA-512 cases measure.
+    var thumbprintAlgorithm = TestCase["thumbprintAlgorithm"] is not null
+                                  ? new COSEAlgorithm(TestCase["thumbprintAlgorithm"]!.GetValue<Int32>())
+                                  : (COSEAlgorithm?) null;
+
     if (TestCase["thumbprintOf"] is not null)
         parameters.Add((COSEHeaderLabel.X5T,
-                        COSECertificateHash.From(CertificateOf(Corpus, TestCase["thumbprintOf"]!.GetValue<String>())).ToCBOR()));
+                        COSECertificateHash.From(CertificateOf(Corpus, TestCase["thumbprintOf"]!.GetValue<String>()),
+                                                 thumbprintAlgorithm).ToCBOR()));
 
     var message = COSESign1.Sign(payload,
                                  signer.PrivateKey,
@@ -1297,7 +1330,7 @@ static void RunCoseX509(JsonObject TestCase, JsonObject Checks, JsonObject Corpu
                                  null, null, false, true, null, null, true);
 
     Checks["message"]    = Capture(() => OkHex (Convert.ToHexString(message.ToByteArray())));
-    Checks["thumbprint"] = Capture(() => OkHex (Convert.ToHexString(COSECertificateHash.From(chain.EndEntity).Value)));
+    Checks["thumbprint"] = Capture(() => OkHex (Convert.ToHexString(COSECertificateHash.From(chain.EndEntity, thumbprintAlgorithm).Value)));
     Checks["subject"]    = Capture(() => OkText(chain.EndEntity.SubjectDN.ToString()));
 
     Checks["validate"]   = Capture(() => ValidateChain(message.ToByteArray(), anchors, at));

@@ -54,6 +54,30 @@
             "expected": "accept"
         },
         {
+            "id": "thumbprint-with-sha-384",
+            "class": "normative",
+            "description": "The same thumbprint taken with SHA-384 instead of SHA-256. RFC 9360 Section 2 leaves the hash to the sender and makes the COSE_CertHash carry its identifier, which is the whole reason the identifier is there — and until this case the only algorithm any x5t vector named was SHA-256, so nothing held either side to reading the label rather than assuming it. An implementation that assumes computes 32 bytes where 48 travelled and refuses a sound message; one that writes 32 bytes under label -43 is refused by the other side for the same reason. cose-x509-messages Section 24 pins that the label must be a hash algorithm at all, with three that are not; this pins that a correct one other than the default is honoured.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA"],
+            "thumbprintOf": "meter",
+            "thumbprintAlgorithm": -43,
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
+            "id": "thumbprint-with-sha-512",
+            "class": "normative",
+            "description": "The same with SHA-512, the widest hash either implementation offers for the purpose. Both algorithms are Recommended=Yes in the IANA COSE Algorithms registry and both were implemented on each side before any vector named them.",
+            "signer": "meter",
+            "chain": ["meter", "manufacturerCA"],
+            "thumbprintOf": "meter",
+            "thumbprintAlgorithm": -44,
+            "trustAnchors": ["metrologyRoot"],
+            "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "expected": "accept"
+        },
+        {
             "id": "critical-x5chain",
             "class": "normative",
             "description": "A sender demanding, through crit, that the chain actually be processed. The demand must be honoured by a verification that walks the chain and refused by one that does not — whoever verifies with a bare public key has looked at no certificate and must not claim otherwise.",

@@ -939,6 +939,12 @@ for (const testCase of vectors['cose-encrypt']) {
     const key   = `cose-encrypt:${testCase.id}`;
     const klass = testCase.class ?? 'normative';
 
+    // A case may say that the message it describes has to be refused by
+    // whoever opens it rather than accepted. Both implementations still have
+    // to build it, and byte-identically — what is inverted is only the verdict
+    // the cross-open rows below expect.
+    const mustRefuse = testCase.expected === 'reject';
+
     for (const [check, what] of ENCRYPT_AGREEMENTS) {
 
         const mine  = checkOf(csharp, key, check);
@@ -967,7 +973,8 @@ for (const testCase of vectors['cose-encrypt']) {
         }
     }
 
-    // ...and each has to open what the other produced.
+    // ...and each has to open what the other produced - or, where the case says
+    // the message has to be refused, to refuse it.
     for (const [impl, own, otherName, otherCross] of [
              ['csharp', csharp, 'typescript', tsCross],
              ['typescript', ts, 'csharp', csharpCross]]) {
@@ -981,9 +988,13 @@ for (const testCase of vectors['cose-encrypt']) {
         }
 
         const opened = checkOf(otherCross, `cose-decrypt:xenc-${testCase.id}`, 'open');
+        const did    = opened?.status === 'ok' && opened.verified === true;
 
-        judge(testCase.id, `cross-open ${impl}→${otherName}`, otherName, klass,
-              opened?.status === 'ok' && opened.verified === true,
+        judge(testCase.id,
+              mustRefuse ? `cross-open ${impl}→${otherName} (must refuse)`
+                         : `cross-open ${impl}→${otherName}`,
+              otherName, klass,
+              mustRefuse ? !did : did,
               `${otherName} opening the message produced by ${impl}: ${describe(opened)}`);
 
     }

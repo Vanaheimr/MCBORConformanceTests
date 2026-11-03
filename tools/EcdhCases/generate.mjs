@@ -381,6 +381,19 @@ const cases = [
     },
 
     {
+        id: 'ecdh-key-wrap-a192kw', class: 'normative', shape: 'encrypt',
+        description: 'ECDH-ES + A192KW, which is the case above with exactly one thing changed: the ' +
+                     'recipient key and the ephemeral key are the same, so the agreed secret is the ' +
+                     'same, and the difference is only how many bytes HKDF is asked for and which AES ' +
+                     'width wraps the content key with them - 24 instead of 16. The middle width had no ' +
+                     'vector anywhere, here or among the published examples, although the description ' +
+                     'of this file has named it since the file existed.',
+        algorithm: 'A256GCM', key: cek256, iv: hex(iv), payload: hex(payload),
+        recipients: [{ algorithm: 'ECDH-ES + A192KW', curve: 'brainpoolP256r1', key: hex(fill(32, 0x22)),
+                       ephemeral: hex(fill(32, 0x11)), keyIdentifier: hex(utf8('meter-recipient-192')) }],
+    },
+
+    {
         id: 'ecdh-direct-salt-and-parties', class: 'normative', shape: 'encrypt',
         description: 'ECDH-ES + HKDF-256 on X25519 with an HKDF salt and both parties named: PartyU with an identity and an integer nonce, PartyV with an identity and other information. All of it travels in the recipient\'s headers (-20 to -26) and all of it enters COSE_KDF_Context, so a receiver that read one field differently derives another key and opens nothing. No published example carries any of it.',
         algorithm: 'A128GCM', iv: hex(iv), payload: hex(payload),

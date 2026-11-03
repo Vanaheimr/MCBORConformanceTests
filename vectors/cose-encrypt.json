@@ -1,6 +1,6 @@
 {
     "suite": "cose-encrypt",
-    "description": "Encrypted and enveloped COSE structures: COSE_Encrypt0 (tag 16), COSE_Encrypt (tag 96) and COSE_Mac (tag 97), with AES-GCM or ChaCha20/Poly1305, AES key wrap and the direct recipient algorithm. Where a case carries expectedMessage, the complete message the COSE working group published is the judge, and that pins more than the cryptography: the order of the recipients and the order of the keys in every unprotected bucket. A red row there can mean that a spelling changed rather than that a cipher broke — the Enc_structure and ciphertext checks beside it say which. Each case is produced by both implementations and then handed to the other one to open. Everything here is deterministic once the content key and the nonce are given, and the vectors give both — a generated nonce would make the bytes incomparable, and a generated content key would too. That is the same departure from 'default settings' the signing suite makes, for the same reason. Note what a passing case does NOT establish: an encrypted or MACed message says nothing about who sent it. RFC 9052 Section 8.3 calls it 'either no or very limited data origination', and with more than one recipient there is none at all, because they all hold the same content key. The metrological record is signed for exactly that reason; the case carrying a reading here is a demonstration of cost. Every key is printed in this file and secures nothing.",
+    "description": "Encrypted and enveloped COSE structures: COSE_Encrypt0 (tag 16), COSE_Encrypt (tag 96) and COSE_Mac (tag 97), with AES-GCM or ChaCha20/Poly1305, AES key wrap and the direct recipient algorithm. Two cases carry a Partial IV (label 6), which neither implementation reads and which RFC 9052 Section 3.1 forbids beside an IV; they are the only cases here whose message has to be refused by whoever opens it rather than opened, and the class of each says who is held to that. Where a case carries expectedMessage, the complete message the COSE working group published is the judge, and that pins more than the cryptography: the order of the recipients and the order of the keys in every unprotected bucket. A red row there can mean that a spelling changed rather than that a cipher broke — the Enc_structure and ciphertext checks beside it say which. Each case is produced by both implementations and then handed to the other one to open. Everything here is deterministic once the content key and the nonce are given, and the vectors give both — a generated nonce would make the bytes incomparable, and a generated content key would too. That is the same departure from 'default settings' the signing suite makes, for the same reason. Note what a passing case does NOT establish: an encrypted or MACed message says nothing about who sent it. RFC 9052 Section 8.3 calls it 'either no or very limited data origination', and with more than one recipient there is none at all, because they all hold the same content key. The metrological record is signed for exactly that reason; the case carrying a reading here is a demonstration of cost. Every key is printed in this file and secures nothing.",
     "cases": [
         {
             "id": "encrypt0-a128gcm",
@@ -87,6 +87,33 @@
             "payload": "D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401"
         },
         {
+            "id": "encrypt0-partial-iv-beside-the-iv",
+            "class": "survey",
+            "shape": "encrypt0",
+            "description": "A Partial IV (label 6) in the unprotected bucket beside the IV, which RFC 9052 Section 3.1 forbids in so many words: the Initialization Vector and Partial Initialization Vector header parameters MUST NOT both be present in the same security layer. Neither implementation reads label 6 — both carry the name and neither has a reader, and neither has any way to be given the Context IV that a Partial IV is XORed into — so both open this message by its IV and ignore the rest. That is what the row records. It is survey and not normative because the sentence binds whoever builds the message and no sentence found in RFC 9052 binds the receiver to police it: where the document wanted both sides bound it said so, as Section 9 does for a label used twice in one map — MUST NOT generate, and MUST NOT parse and process. Requiring the refusal is therefore a decision about published behaviour rather than a reading of the specification, which is the maintainer's to take, exactly as the eight DER rows of FINDINGS Section 25 were. The row below needs this one: the two messages differ by the crit entry and nothing else.",
+            "reason": "RFC 9052 Section 3.1: the Initialization Vector and Partial Initialization Vector header parameters MUST NOT both be present in the same security layer",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "partialIv": "61A7",
+            "expected": "reject",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "encrypt0-partial-iv-the-sender-made-critical",
+            "class": "normative",
+            "shape": "encrypt0",
+            "description": "The same message with crit [6] in the protected bucket. RFC 9052 Section 3.1 requires that a label listed in crit be processed, and requires the crit and the labels it names to be in the protected bucket; this message meets both, so what it is refused for is the demand itself and not a malformed crit. Neither implementation processes a Partial IV, so for both of them refusing is what the section prescribes rather than what it prefers — the same sentence the x5bag and x5u crit rows of FINDINGS Section 26 rest on, asked of a third registered label that both can name and neither reads. The row above is this message minus the crit entry and both implementations open it, which is what makes the refusal here the crit entry's and nothing else in the message. The Partial IV value is the one RFC 9052 Appendix C.4.2 prints, which is as much of that example as this suite can use: it encrypts with AES-CCM, an algorithm neither implementation offers.",
+            "reason": "crit names label 6 and neither implementation processes a Partial IV, and RFC 9052 Section 3.1 gives a recipient that cannot process a critical header nothing to do but refuse",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "partialIv": "61A7",
+            "crit": [6],
+            "expected": "reject",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
             "id": "encrypt-direct-recipient",
             "class": "normative",
             "shape": "encrypt",
@@ -123,6 +150,19 @@
             "iv": "02D1F7E6F26C43D4868D87CE",
             "recipients": [
                 { "algorithm": "A256KW", "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE3A76DCEA6C427188", "keyIdentifier": "3031386330616535" }
+            ],
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "encrypt-key-wrap-a192kw",
+            "class": "normative",
+            "shape": "encrypt",
+            "description": "The middle AES width of the key-wrap family, which the registry recommends and which had no vector anywhere: A192KW wrapping the same 128-bit content key A256KW wraps above, under the first 24 bytes of that same key-encryption key. The 192-bit width is where a key schedule written for 128 and 256 bits goes wrong — AES-192 runs twelve rounds against ten and fourteen — and while encrypt0-a192gcm already drives that schedule for encryption, key wrap reaches the primitive with no nonce and no tag of its own.",
+            "algorithm": "A128GCM",
+            "key": "849B57219DAE48DE646D07DBB533566E",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "recipients": [
+                { "algorithm": "A192KW", "key": "849B57219DAE48DE646D07DBB533566E976686457C1491BE", "keyIdentifier": "6361726F6C" }
             ],
             "payload": "546869732069732074686520636F6E74656E742E"
         },
