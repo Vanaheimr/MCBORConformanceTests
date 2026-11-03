@@ -2590,7 +2590,7 @@ AES-CCM (8 rows), AES-MAC (4), direct+HKDF (4), ECDH-SS (5), and then
 RSAES-OAEP, HSS-LMS, the SHAKEs and SHA-512/256. So that block is complete for
 RFC 9053 — with the one exception the asymmetry below is about.
 
-### The ten, and the eight that are now vectors
+### The ten, and the nine that are now vectors
 
 | row | registry | the vector |
 |---|---|---|
@@ -2599,6 +2599,7 @@ RFC 9053 — with the one exception the asymmetry below is about.
 | A192KW (−4) | Recommended | `cose-encrypt:encrypt-key-wrap-a192kw` |
 | ECDH-ES + A192KW (−30) | Recommended | `cose-ecdh:ecdh-key-wrap-a192kw` |
 | SHA-384 (−43), SHA-512 (−44) | Recommended | `cose-x509:thumbprint-with-sha-384`, `…-512` |
+| EdDSA (−8) | Deprecated | `cose-sign:sign1-eddsa-ed25519`, `…-ed448` |
 
 Each of the four signature rows reuses the key of the deprecated algorithm
 beside it where there is one, so ESP384 and ESP512 sign with the same key and
@@ -2611,15 +2612,22 @@ hash for `x5t` other than the default, which is the whole point: §24 pins that
 the label must *be* a hash algorithm, with three that are not, and nothing
 until now held either side to *reading* it rather than assuming SHA-256.
 
-Two of the ten are left out, on purpose rather than by oversight:
+The deprecated **EdDSA (−8)** is the tenth, and it is a pair rather than a row.
+ES256, ES384 and ES512 are three deprecated identifiers for three curves, each
+fixing its own hash; −8 is one identifier for *both* EdDSA curves, so a
+verifier has nowhere to read the curve from but the key — which is what RFC
+9864 deprecates it for, and what COSE.TS says in the comment above the entry.
+One case carries it over the Ed25519 key of `sign1-ed25519` and one over the
+Ed448 key of `sign1-ed448`, each with that case's key identifier and payload,
+so each is its fully-specified neighbour with one label changed and nothing
+else. The messages come out 98 and 148 bytes against 98 and 149, because `-8`
+is a one-byte head where `-53` needs two. Deprecating an identifier does not
+retire the messages that carry it.
 
-- **SHA-1 (−14)** is named by both and computable by neither — COSE.TS's entry
-  carries no hash function, Styx's a null `HashAlgorithmName` — and the
-  registry marks it "Filter Only". A vector would ask nothing of anybody.
-- **EdDSA (−8)** is signable on both and deprecated by RFC 9864 in favour of
-  Ed25519 and Ed448, which both have vectors. The pair this suite draws for
-  ECDSA — deprecated ES256 beside fully-specified ESP256 — is undrawn for
-  EdDSA. That is a row somebody may want; it is left out rather than forgotten.
+One of the ten is left out, on purpose rather than by oversight: **SHA-1
+(−14)** is named by both and computable by neither — COSE.TS's entry carries no
+hash function, Styx's a null `HashAlgorithmName` — and the registry marks it
+"Filter Only". A vector would ask nothing of anybody.
 
 ### What the new rows needed from the runners
 
@@ -2701,6 +2709,7 @@ libraries grew, and nothing in `npm test` was ever going to notice it ageing.
 | the `x5t` thumbprint computed with SHA-256 whatever the label says — COSE.TS `x5chain.ts`, `CoseCertificateHash.from` | both new thumbprint rows: thumbprint and message disagree, TypeScript refuses its own message and C# refuses TypeScript's — 8 failures, 6 divergences |
 | a 24-byte key-encryption key labelled A128KW — COSE.TS `recipient.ts`, `keyWrapAlgorithmFor` — and the ECDH-ES + A192KW entry sized for 16 bytes | both A192KW rows: the message, the first recipient structure and the `COSE_KDF_Context` disagree, and neither side opens the other's — 7 failures, 4 divergences |
 | the `crit` entry taken out of the critical Partial IV row | that *is* the survey row beside it: both open it, measured rather than argued |
+| EdDSA (−8) given a fixed Ed25519 curve — COSE.TS `algorithm.ts` | `sign1-eddsa-ed448` alone: the TypeScript side produces no message at all, so its three agreements fail and both cross-verifications with it — 5 failures, no divergence, because a side that produced nothing has nothing to disagree with. `sign1-eddsa-ed25519` stays green, which is the whole reason the row is a pair |
 
 One falsification caught nothing, and it belongs here for that reason. Changing
 A192KW's `keySize` in the algorithm table from 24 to 16 changes nothing
@@ -2712,12 +2721,13 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Ten cases: four signatures, two key wraps, two thumbprints, two Partial IV.
-614 (C#) / 578 (TypeScript) / 36 (the third reader) normative, 405 agreements,
-zero failures, zero divergences, zero messages verified against what the third
-reader refuses, 51 survey observations each and 15 on the agreement rows.
+Twelve cases: four signatures, the EdDSA pair, two key wraps, two thumbprints
+and two Partial IV. 616 (C#) / 580 (TypeScript) / 36 (the third reader)
+normative, 413 agreements, zero failures, zero divergences, zero messages
+verified against what the third reader refuses, 51 survey observations each and
+15 on the agreement rows.
 
-Of the 38 algorithms both implement, 36 now have a vector and two are left out
+Of the 38 algorithms both implement, 37 now have a vector and one is left out
 with a reason. Of the 13 header parameters both name, 11 do: the two that do not
 are the deprecated counter signature of label 7 and `Countersignature0 version
 2` of label 12 — and the second is §26's shape exactly, a registered label both

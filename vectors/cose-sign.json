@@ -153,6 +153,28 @@
             "payload": "546869732069732074686520636F6E74656E742E"
         },
         {
+            "id": "sign1-eddsa-ed25519",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The key, the key identifier and the payload of sign1-ed25519 above, under the identifier that algorithm was registered with before RFC 9864 arrived: EdDSA (-8), which names no curve and leaves it to the key. That is what the registry now marks Deprecated and what RFC 9864 replaced with Ed25519 (-19) and Ed448 (-53) — and it is also why this row comes as a pair rather than alone. ES256, ES384 and ES512 are three deprecated identifiers for three curves, each fixing its own hash; -8 is one identifier for both EdDSA curves, so a verifier has nowhere to read the curve from but the key. An implementation that resolved -8 to Ed25519 once and for all verifies this message and fails the one below it. Deprecating the identifier does not retire the messages that carry it, which is the reason to hold both sides to reading it at all.",
+            "algorithm": "EdDSA",
+            "curve": "Ed25519",
+            "keyD": "9D61B19DEFFD5A60BA844AF492EC2CC44449C5697B326919703BAC031CAE7F60",
+            "keyIdentifier": "3131",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
+            "id": "sign1-eddsa-ed448",
+            "class": "normative",
+            "shape": "sign1",
+            "description": "The other half of that pair: the same -8 over the Ed448 key of sign1-ed448, where the curve the identifier does not name is the one that makes the signature 114 bytes instead of 64. Nothing in the protected bucket distinguishes this message from the one above except the key it was signed with, which is the whole of what -8 says and the whole of what RFC 9864 objects to.",
+            "algorithm": "EdDSA",
+            "curve": "Ed448",
+            "keyD": "6C82A562CB808D10D632BE89C8513EBF6C929F34DDFA8C9F63C9960EF6E348A3528C8A3FCC2F044E39A3FC5B94492F8F032E7549A20098F95B",
+            "keyIdentifier": "3232",
+            "payload": "546869732069732074686520636F6E74656E742E"
+        },
+        {
             "id": "sign1-mldsa44",
             "class": "normative",
             "shape": "sign1",
