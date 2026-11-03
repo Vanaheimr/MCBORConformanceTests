@@ -2984,7 +2984,8 @@ beside it, and the existing agreement check compared the object identifiers.
 For every other algorithm that is the whole statement, the parameters being
 absent or a NULL. For RSASSA-PSS the statement *is* the parameters, so two
 parameter sets that differ are two algorithms wearing one identifier — and they
-are compared as the bytes they are now.
+are compared as the bytes they are now. Styx had that check already, through
+Bouncy Castle, which the last subsection below is the measurement of.
 
 **One ordering is the way it is because of a test.** A minted parameter set
 leaves the trailer field to its default, so the only way to put a wrong one
@@ -3039,18 +3040,30 @@ it does not know. Nothing in the corpus mints one, and nothing would: the
 subject public key info comes from the key rather than from the signature, so
 Bouncy Castle writes `rsaEncryption` in both hierarchies.
 
-A parameter where RFC 4055 allows a NULL or nothing at all is the one that
-*is* measurable, and only by a third encoder. COSE.TS refuses anything else;
-Bouncy Castle does not look at the field for these identifiers, so it accepts
-whatever is there. Patching both of a minted certificate's copies of its
-signature algorithm consistently — a zero-length OCTET STRING in place of the
-NULL fits in the same two octets — would leave a certificate Styx validates and
-COSE.TS refuses. That row belongs in `tools/X509Cases` and would be a `survey`
-row, because neither answer is wrong: the specification says the parameters
-MUST be NULL, and reading past a field nobody interprets is what a certificate
-library does. It would also need RSA signing in that third encoder, for the
-message the chain travels in. Not built; the two COSE.TS tests that patch a
-certificate this way are the only place the refusal is pinned.
+A parameter where RFC 4055 allows a NULL or nothing at all is what COSE.TS
+refuses, and what nothing here can ask about — and the reason turned out to be
+worth more than the row would have been. This subsection first recorded it as a
+leniency Bouncy Castle would show, on the strength of its reading that field
+for nothing. A probe against Bouncy Castle 2.7.0 says that was never measured
+and could not have been. The `tbsCertificate` carries one of the two copies of
+the signature algorithm, so patching that one breaks the signature over it, and
+Bouncy Castle then answers *"Public key presented not for certificate
+signature"* — which is the very sentence it gives for a plainly wrong key, and
+is how the probe found out it was measuring nothing. Patching the copy beside
+the body is the one change that leaves the signed bytes alone, and it is refused
+as *"signature algorithm in TBS cert not same as outer cert"*: Bouncy Castle
+compares the parameters of the two copies and not only their object
+identifiers. So the agreement check COSE.TS gained for RSASSA-PSS in this
+increment is one Styx has had all along, through the library it reads
+certificates with.
+
+What is left unmeasured is a certificate whose odd parameter is consistent
+throughout, and no patch can produce one: it has to be minted, by an encoder
+that writes a `tbsCertificate` of its own and signs it. `tools/X509Cases` is
+the only candidate here and would need RSA signing of its own, for the message
+such a chain travels in. Whether Styx accepts such a certificate is therefore
+not known, and this document does not say. The two COSE.TS tests that patch one
+pin its refusal at the parse, which is a statement about one implementation.
 
 The multi-prime form of RFC 8230 is where the subsection above left it: read by
 neither implementation, and asked by nothing.
