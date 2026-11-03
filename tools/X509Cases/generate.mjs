@@ -86,6 +86,19 @@
  *    the modular exponentiation up, and the issuer's key comes from the corpus
  *    like everything else. §28 of FINDINGS.md.
  *
+ * 5. A certificate whose *key* says what it is for. `rsaEncryption` is two
+ *    integers and no opinion — the same key serves RSASSA-PSS and PKCS #1
+ *    v1.5 — while `id-RSASSA-PSS` in the subject public key info is written
+ *    there "when the RSA private key owner wishes to limit the use of the
+ *    public key exclusively to RSASSA-PSS" [RFC 4055, Section 3.1], and its
+ *    parameters, which may be absent here and nowhere else in a certificate,
+ *    name the hash. Bouncy Castle will not write one: the subject public key
+ *    info comes from the key, and a key does not know what it is to be
+ *    restricted to. So this family mints its certificates too, and signs its
+ *    messages with RSASSA-PSS as well as with PKCS #1 v1.5, which is the
+ *    second RSA padding written out below. The five rows are the scenarios of
+ *    that section's own Section 3.3. §28 of FINDINGS.md.
+ *
  * The certificates and the signing key are not written here: the chain, the
  * anchor and the end-entity key come from vectors/cose-x509-corpus.json, which
  * tools/CertificateCorpus owns, so that a certificate has one owner rather
@@ -181,6 +194,80 @@ function fixedWidth(value, octets) {
 
 
 /**
+ * MGF1 with SHA-256 [RFC 8017, Appendix B.2.1]: the hash of the seed and a
+ * four-octet counter, concatenated until `length` octets are there.
+ */
+function mgf1(seed, length) {
+
+    const blocks = [];
+
+    for (let counter = 0; counter * 32 < length; counter++)
+        blocks.push(sha256(concat(seed,
+                                  Uint8Array.from([(counter >>> 24) & 0xFF, (counter >>> 16) & 0xFF,
+                                                   (counter >>>  8) & 0xFF,  counter        & 0xFF]))));
+
+    return concat(...blocks).subarray(0, length);
+
+}
+
+
+/**
+ * The salt of every RSASSA-PSS signature below.
+ *
+ * Fixed, and the reason it can be is that nothing about a salt has to be
+ * secret or even unpredictable for a *verifier*: PSS verification recovers the
+ * salt from the signature and recomputes the hash over it, so any 32 octets
+ * verify. What a random salt buys is a security property of the signer, and
+ * these messages secure nothing — while a random one would make this file
+ * different on every run, which is the one thing it must not be.
+ */
+const PSS_SALT = sha256(Buffer.from('tools/X509Cases, one fixed PSS salt', 'utf8'));
+
+
+/**
+ * One RSASSA-PSS signature over `message` with SHA-256, MGF1 over SHA-256 and
+ * a 32-octet salt, which is what the COSE PS256 is [RFC 8230, Section 2]:
+ * EMSA-PSS-ENCODE of RFC 8017 Section 9.1.1, then the private key operation.
+ *
+ * Checked against OpenSSL once, through Node's crypto, in a probe rather than
+ * here: this file owes its output to nobody, and what it keeps is the check
+ * that costs it nothing — `s ** e mod n` has to come back as the encoded
+ * message that went in.
+ */
+function pssSign(message, key) {
+
+    const n      = number(hex(key.n));
+    const octets = hex(key.n).length;
+
+    // emBits is one less than the modulus, so for a 2048-bit key the encoded
+    // message is 256 octets with its leading bit cleared.
+    const emBits = n.toString(2).length - 1;
+    const emLen  = Math.ceil(emBits / 8);
+    const hLen   = 32;
+
+    const mHash  = sha256(message);
+    const H      = sha256(concat(new Uint8Array(8), mHash, PSS_SALT));
+
+    const db     = concat(new Uint8Array(emLen - hLen - hLen - 2),
+                          Uint8Array.from([0x01]),
+                          PSS_SALT);
+    const mask   = mgf1(H, emLen - hLen - 1);
+    const masked = db.map((octet, at) => octet ^ mask[at]);
+
+    masked[0] &= 0xFF >> (8 * emLen - emBits);
+
+    const encoded   = concat(masked, H, Uint8Array.from([0xBC]));
+    const signature = modPow(number(encoded), number(hex(key.d)), n);
+
+    if (modPow(signature, number(hex(key.e)), n) !== number(encoded))
+        throw new Error('the RSASSA-PSS signature this generator just made does not verify');
+
+    return fixedWidth(signature, octets);
+
+}
+
+
+/**
  * The DigestInfo prefix of EMSA-PKCS1-v1_5 with SHA-256 [RFC 8017, Appendix
  * B.1]: SEQUENCE { SEQUENCE { id-sha256, NULL }, OCTET STRING (32) }, written
  * out so that the 32 octets of the digest follow it.
@@ -233,6 +320,9 @@ const ESB256 = -265;
 /** RSASSA-PKCS1-v1_5 with SHA-256, which the fourth family's chain certifies. */
 const RS256  = -257;
 
+/** RSASSA-PSS with SHA-256, which the fifth family's keys are restricted to. */
+const PS256  = -37;
+
 
 /**
  * One COSE_Sign1 over the metrological value, carrying whichever headers a case
@@ -249,11 +339,13 @@ const RS256  = -257;
  * byte string, which is what RFC 9360 §2 gives COSE_X509 for either count.
  *
  * `algorithm` is ESB256 for the first three families, whose chain certifies a
- * brainpoolP256r1 key, and RS256 for the fourth, whose chain certifies an RSA
- * one. It is not a free choice: the key the signature is made with is the key
- * the end-entity certificate certifies, or the chain would not bind the
- * message, and `signingKey` is whatever that key is written as — a scalar for
- * the curve, the eight parameters of RFC 8230 §4 for RSA.
+ * brainpoolP256r1 key, and RS256 or PS256 for the two RSA families. It is not
+ * a free choice: the key the signature is made with is the key the end-entity
+ * certificate certifies, or the chain would not bind the message, and
+ * `signingKey` is whatever that key is written as — a scalar for the curve,
+ * the eight parameters of RFC 8230 §4 for RSA. Which of the two RSA
+ * algorithms is a free choice, and the fifth family is about what the
+ * certificate has to say about it.
  */
 function sign1({ payload, chain, signingKey, algorithm = ESB256,
                  thumbprint, bag, uri, critical }) {
@@ -291,13 +383,14 @@ function sign1({ payload, chain, signingKey, algorithm = ESB256,
     // says what is being signed. `lowS: false` is not a preference either:
     // RFC 9053 §2.1 carries r and s as they come out, and normalising s to the
     // lower half is a Bitcoin convention that would put a different signature
-    // on the wire. RS256 takes the branch above, which verifies itself.
-    const signature = algorithm === RS256
-                          ? pkcs1Sign(toBeSigned, signingKey)
-                          : brainpoolP256r1.sign(sha256(toBeSigned), signingKey,
-                                                 { prehash: false, lowS: false });
+    // on the wire. The two RSA branches verify themselves.
+    const rsa       = algorithm === RS256 || algorithm === PS256;
+    const signature = algorithm === RS256 ? pkcs1Sign(toBeSigned, signingKey)
+                    : algorithm === PS256 ? pssSign(toBeSigned, signingKey)
+                    : brainpoolP256r1.sign(sha256(toBeSigned), signingKey,
+                                           { prehash: false, lowS: false });
 
-    if (algorithm !== RS256 &&
+    if (!rsa &&
         !brainpoolP256r1.verify(signature, sha256(toBeSigned),
                                 brainpoolP256r1.getPublicKey(signingKey, false),
                                 { prehash: false, lowS: false }))
@@ -624,12 +717,17 @@ const issuerKey = corpus.issuerKeys.rsaManufacturerCA.keyRsa;
 if (!upper(hex(corpus.certificates.rsaManufacturerCA)).includes(upper(hex(issuerKey.n))))
     throw new Error('the published issuer key is not the key in rsaManufacturerCA');
 
-/**
- * sha256WithRSAEncryption [RFC 4055, Section 5], which is what `rsaMeter` is
- * signed with — as it is encoded, tag and length included, because that is how
- * it is compared and written back below.
- */
+// Three object identifiers, each as it is encoded with its tag and length,
+// because that is how they are compared and written back below.
+
+/** sha256WithRSAEncryption [RFC 4055, Section 5], which `rsaMeter` is signed with. */
 const OID_SHA256_WITH_RSA = '06092A864886F70D01010B';
+
+/** rsaEncryption [RFC 4055, Section 1.2], which every RSA key in the corpus is named by. */
+const OID_RSA_ENCRYPTION  = '06092A864886F70D010101';
+
+/** id-RSASSA-PSS [RFC 4055, Section 3.1], which is a signature algorithm and a key type. */
+const OID_RSASSA_PSS      = '06092A864886F70D01010A';
 
 /**
  * The three ways the parameters beside that identifier are written below.
@@ -706,17 +804,154 @@ function remint(parameters) {
         throw new Error('the two copies of the signature algorithm name different algorithms');
 
     const identifier = algorithmIdentifier(oid, parameters);
-    const body       = concat(tbs.subarray(content.from, at), identifier, tbs.subarray(within.to));
-    const signed     = concat(Uint8Array.from([0x30]), twoOctets(body.length), body);
+
+    return certificateOf(concat(tbs.subarray(content.from, at), identifier,
+                                tbs.subarray(within.to)),
+                         identifier);
+
+}
+
+
+/**
+ * One TBSCertificate's contents, signed by the authority above `rsaMeter` and
+ * wrapped as a certificate.
+ *
+ * `signatureAlgorithm` is the copy beside the body, and it has to be the copy
+ * within it: the two families here each vary one field, and each varies it in
+ * both of its copies or in neither. Which is also why this is one function and
+ * not two — the reminting is identical once the body is decided, and the
+ * signature is PKCS #1 v1.5 over SHA-256 in both, because that is what the
+ * authority signed `rsaMeter` with and what both reminted certificates still
+ * claim.
+ */
+function certificateOf(contents, signatureAlgorithm) {
+
+    const signed    = concat(Uint8Array.from([0x30]), twoOctets(contents.length), contents);
+    const signature = pkcs1Sign(signed, issuerKey);
 
     // signatureValue is a BIT STRING with no unused bits [RFC 5280, §4.1.1.3].
-    const signature  = pkcs1Sign(signed, issuerKey);
-    const value      = concat(Uint8Array.from([0x03]), twoOctets(signature.length + 1),
-                              Uint8Array.from([0x00]), signature);
+    const value     = concat(Uint8Array.from([0x03]), twoOctets(signature.length + 1),
+                             Uint8Array.from([0x00]), signature);
 
-    const whole      = concat(signed, identifier, value);
+    const whole     = concat(signed, signatureAlgorithm, value);
 
     return concat(Uint8Array.from([0x30]), twoOctets(whole.length), whole);
+
+}
+
+
+/**
+ * The RSASSA-PSS parameter set Bouncy Castle writes for one hash, lifted out
+ * of a certificate it signed with it.
+ *
+ * Lifted rather than written, so that this file does not own a second encoder
+ * of the one parameter set in X.509 that is hard to write: these are the bytes
+ * the corpus already carries, and a row built on them is a row about the key
+ * type rather than about this generator's idea of RFC 4055 Section 3.1.
+ */
+function pssParametersOf(name) {
+
+    const { rest }   = parts(hex(corpus.certificates[name]));
+    const identifier = record(rest, 0);
+    const oid        = rest.subarray(identifier.from, record(rest, identifier.from).to);
+
+    if (upper(oid) !== OID_RSASSA_PSS)
+        throw new Error(`${name} is signed with ${upper(oid)}, not id-RSASSA-PSS`);
+
+    return rest.subarray(record(rest, identifier.from).to, identifier.to);
+
+}
+
+
+/**
+ * Bouncy Castle's parameter set with its salt length lowered to the DEFAULT of
+ * RFC 4055 Section 3.1, which is also the value Section 3.3 makes a floor.
+ *
+ * `A2 03 02 01 20` is a 32-octet salt and `A2 03 02 01 14` a 20-octet one, so
+ * this is one octet of Bouncy Castle's own bytes and not a parameter set of
+ * this generator's. Twenty is below what any PS* signs with, which is the
+ * point: a floor is cleared from above.
+ */
+function withSaltLength(parameters, octets) {
+
+    // A2 03 02 01 <length>: the context tag of saltLength around a one-octet
+    // INTEGER, which is how every parameter set in the corpus writes it.
+    const asked = upper(parameters);
+    const salt  = count => `A2030201${count.toString(16).toUpperCase().padStart(2, '0')}`;
+
+    if (asked.split(salt(32)).length - 1 !== 1)
+        throw new Error('the parameter set does not ask for a 32-octet salt exactly once');
+
+    return hex(asked.replace(salt(32), salt(octets)));
+
+}
+
+
+/**
+ * The five ways the subject public key algorithm is written below.
+ *
+ * `rsaEncryption` is what the corpus carries and is here as the control's.
+ * The three others are `id-RSASSA-PSS`, which says the key is for RSASSA-PSS
+ * and nothing else, with the parameters that name a hash and without any —
+ * "The parameters may be either absent or present when used as subject public
+ * key information" [RFC 4055, Section 3.1], which is the one place in a
+ * certificate where this identifier may stand alone.
+ */
+const KEY_ALGORITHMS = {
+    'rsaEncryption':
+        algorithmIdentifier(hex(OID_RSA_ENCRYPTION), PARAMETERS['a NULL']),
+    'id-RSASSA-PSS, with parameters naming SHA-256':
+        algorithmIdentifier(hex(OID_RSASSA_PSS), pssParametersOf('rsaPssMeter')),
+    'id-RSASSA-PSS, with parameters naming SHA-384':
+        algorithmIdentifier(hex(OID_RSASSA_PSS), pssParametersOf('rsaPssManufacturerCA')),
+    'id-RSASSA-PSS, with parameters asking for a salt of 20':
+        algorithmIdentifier(hex(OID_RSASSA_PSS),
+                            withSaltLength(pssParametersOf('rsaPssMeter'), 20)),
+    'id-RSASSA-PSS, with no parameters':
+        algorithmIdentifier(hex(OID_RSASSA_PSS), new Uint8Array(0)),
+};
+
+
+/**
+ * The corpus's `rsaMeter` with the algorithm of its subject public key info
+ * replaced, and the issuer's signature made again over the body that holds it.
+ *
+ * The same two integers are the key either way, and what changes is what the
+ * certificate says they are *for*. Everything above the identifier is
+ * recomputed, because an identifier that names its parameters is 52 octets
+ * longer than `rsaEncryption`'s and one that omits them is two shorter: the
+ * subject public key info, the TBSCertificate and the certificate all change
+ * length, which is the other reason this had to be minted rather than patched.
+ */
+function remintKey(identifier) {
+
+    const minted  = hex(corpus.certificates.rsaMeter);
+    const { tbs } = parts(minted);
+
+    // The subject public key info is the TBSCertificate's seventh element,
+    // after the version, the serial number, the signature, the issuer, the
+    // validity and the subject [RFC 5280, Section 4.1].
+    const content = record(tbs, 0);
+    let   at      = content.from;
+
+    for (let element = 0; element < 6; element++)
+        at = record(tbs, at).to;
+
+    const spki      = record(tbs, at);
+    const algorithm = record(tbs, spki.from);
+    const oid       = tbs.subarray(algorithm.from, record(tbs, algorithm.from).to);
+
+    if (upper(oid) !== OID_RSA_ENCRYPTION)
+        throw new Error(`rsaMeter holds a key of type ${upper(oid)}, not rsaEncryption`);
+
+    // The subject public key info, with the identifier replaced and the BIT
+    // STRING after it kept as it is - the key itself never moves.
+    const info = concat(identifier, tbs.subarray(algorithm.to, spki.to));
+
+    return certificateOf(concat(tbs.subarray(content.from, at),
+                                Uint8Array.from([0x30]), twoOctets(info.length), info,
+                                tbs.subarray(spki.to)),
+                         algorithmIdentifier(hex(OID_SHA256_WITH_RSA), PARAMETERS['a NULL']));
 
 }
 
@@ -1253,6 +1488,158 @@ const RFC4055 = [
 ];
 
 
+/**
+ * The fifth family: what the key itself says it is for.
+ *
+ * `key` keys into KEY_ALGORITHMS above and `algorithm` is what the message is
+ * signed with, and those two are the whole of each row: the certificate at
+ * position 0 is `remintKey(...)` of the first, the message is signed with the
+ * second, and the key is `rsaMeter`'s either way. Position 1 and the anchor
+ * are the corpus's own.
+ *
+ * The rows are RFC 4055 Section 3.3's own scenarios. Scenario 1 is
+ * `rsaEncryption`, where "no parameter validation is needed", and the suite
+ * already has it four times over in `cose-x509`. Scenario 2 is id-RSASSA-PSS
+ * with the parameters absent, where no validation is needed either. Scenario 3
+ * is id-RSASSA-PSS with the parameters present, where "all parameters in the
+ * signature structure algorithm identifier MUST match the parameters in the
+ * key structure algorithm identifier except the saltLength field" — and for a
+ * COSE message the signature structure is the `alg` header, so matching means
+ * the message's PS* is the one the key's hash names.
+ */
+const KEY_TYPES = [
+    {
+        id:          'a-key-restricted-to-the-scheme-its-message-uses',
+        key:         'id-RSASSA-PSS, with parameters naming SHA-256',
+        algorithm:   PS256,
+        expected:    'accept',
+        class:       'normative',
+        description: 'The control of this family: the key is restricted to RSASSA-PSS with ' +
+                     'SHA-256 and the message is signed with PS256, which is that. It is also ' +
+                     'the family\'s one anchor for the signing, because no row in this suite ' +
+                     'carries a PSS signature these bytes could be compared against — a PSS ' +
+                     'signature is salted, and Bouncy Castle draws its salt from a random this ' +
+                     'file cannot reproduce. So what says the signature is right is that both ' +
+                     'implementations verify this message, measured rather than pinned; the ' +
+                     'certificate is pinned the other way, by reminting it with the identifier ' +
+                     'the corpus has and requiring `rsaMeter` back octet for octet. Without ' +
+                     'this row the four beside it would prove nothing: a message refused by ' +
+                     'everybody is refused whatever anybody checks.',
+    },
+    {
+        id:          'a-key-restricted-to-the-other-rsa-scheme',
+        key:         'id-RSASSA-PSS, with parameters naming SHA-256',
+        algorithm:   RS256,
+        expected:    'reject',
+        class:       'survey',
+        reason:      'the certificate restricts the key to RSASSA-PSS with SHA-256 and the ' +
+                     'message is signed with RSASSA-PKCS1-v1_5, which no key named by ' +
+                     'id-RSASSA-PSS is for',
+        description: 'The row the key type exists for. The same certificate as the control, ' +
+                     'with the message signed PKCS #1 v1.5 instead — and the key is an RSA key, ' +
+                     'so the signature is perfectly good arithmetic that an implementation ' +
+                     'reading `rsaEncryption` would verify without hesitating, which is what ' +
+                     'makes refusing it an answer. What forbids it is one sentence about intent: ' +
+                     'id-RSASSA-PSS is in the subject public key info "when the RSA private key ' +
+                     'owner wishes to limit the use of the public key exclusively to RSASSA-PSS" ' +
+                     '[RFC 4055 §3.1]. Measured: COSE.TS attaches the PS256 the parameters name ' +
+                     'to the key and then refuses the message for stating another algorithm; ' +
+                     'Bouncy Castle hands Styx an RsaKeyParameters that is indistinguishable ' +
+                     'from the control\'s, keeping the identifier on the certificate structure ' +
+                     'and not on the key, so Styx verifies. `survey`: the restriction is real ' +
+                     'and RFC 4055 states it, and it states it as what the owner wishes rather ' +
+                     'than as what a verifier must enforce, and RFC 9360 says nothing about it ' +
+                     'at all. Which of the two a verifier should be is for the specification to ' +
+                     'settle rather than for this suite.',
+    },
+    {
+        id:          'a-key-restricted-to-another-hash',
+        key:         'id-RSASSA-PSS, with parameters naming SHA-384',
+        algorithm:   PS256,
+        expected:    'reject',
+        class:       'survey',
+        reason:      'the certificate restricts the key to RSASSA-PSS with SHA-384 and the ' +
+                     'message is signed with PS256, and RFC 4055 §3.3 requires the signature\'s ' +
+                     'parameters to be the key\'s',
+        description: 'The same question one level finer, and the one RFC 4055 answers with a ' +
+                     'MUST rather than with a wish. The scheme agrees — the key is for ' +
+                     'RSASSA-PSS and the message is RSASSA-PSS — and the hash does not: the key ' +
+                     'names SHA-384 and PS256 hashes with SHA-256. Scenario 3 of §3.3 says all ' +
+                     'parameters of the signature must match the key\'s but the salt length, ' +
+                     'which this message\'s do not. The parameter set is Bouncy Castle\'s own, ' +
+                     'lifted out of `rsaPssManufacturerCA`, so nothing here turns on this ' +
+                     'generator\'s idea of how to write one. Measured: COSE.TS attaches PS384 ' +
+                     'and refuses PS256 beside it; Styx verifies. `survey` for the same reason ' +
+                     'as the row above — the two disagree and §25 says a row that would declare ' +
+                     'one of them wrong is the maintainer\'s call — though this is the half of ' +
+                     'the pair with a MUST behind it.',
+    },
+    {
+        id:          'a-key-whose-salt-is-a-floor-and-not-a-width',
+        key:         'id-RSASSA-PSS, with parameters asking for a salt of 20',
+        algorithm:   PS256,
+        expected:    'accept',
+        class:       'normative',
+        description: 'The other half of scenario 3, and the one field a key and a signature are ' +
+                     'read differently for. "The saltLength field in the signature parameters ' +
+                     'MUST be greater or equal to that in the key parameters field" [RFC 4055 ' +
+                     '§3.3] — so the key states a floor and not a width, and this key asks for ' +
+                     'twenty octets, which is also what the DEFAULT of §3.1 gives. PS256 signs ' +
+                     'with a salt as long as its hash [RFC 8230 §2], which is 32, and 32 is ' +
+                     'above 20, so the message is one this key is for. Both accept. The row is ' +
+                     'here because an implementation that read a key\'s parameters the way it ' +
+                     'reads a signature\'s would require the 32 and refuse a certificate the ' +
+                     'specification allows — and nothing else in this suite would notice, every ' +
+                     'parameter set Bouncy Castle writes asking for exactly the hash\'s width. ' +
+                     'These are Bouncy Castle\'s bytes with one octet lowered, so what the row ' +
+                     'turns on is the twenty and nothing else.',
+    },
+    {
+        id:          'a-restriction-that-names-no-hash',
+        key:         'id-RSASSA-PSS, with no parameters',
+        algorithm:   PS256,
+        expected:    'accept',
+        class:       'normative',
+        description: 'The identifier alone, which is scenario 2 of §3.3: "The key is identified ' +
+                     'by the id-RSASSA-PSS signature algorithm identifier, but the parameters ' +
+                     'field is absent. In this case no parameter validation is needed." This is ' +
+                     'also the one place in a certificate where that identifier may stand ' +
+                     'without parameters at all — beside a signature value they "MUST be ' +
+                     'present" — so a reader that learned to require them from the signature ' +
+                     'side refuses this certificate, and both of these accept it. `normative` ' +
+                     'on that sentence, and the shorter certificate besides: the ' +
+                     'AlgorithmIdentifier is two octets smaller than `rsaEncryption`\'s, where ' +
+                     'the parameterised ones are 52 larger, so the three rows of this family ' +
+                     'move the subject public key info\'s length in both directions.',
+    },
+    {
+        id:          'a-restriction-that-names-no-hash-with-the-other-scheme',
+        key:         'id-RSASSA-PSS, with no parameters',
+        algorithm:   RS256,
+        expected:    'reject',
+        class:       'survey',
+        reason:      'the certificate restricts the key to RSASSA-PSS, naming no hash, and the ' +
+                     'message is signed with RSASSA-PKCS1-v1_5',
+        description: 'The second row\'s question with the parameters gone, and the one row here ' +
+                     'where both implementations are lenient together — which is why it is ' +
+                     'written down rather than required. Measured: both verify this message. ' +
+                     'Styx for the reason it verifies the second row, and COSE.TS for a ' +
+                     'different one it states in its own changelog: the restriction here is to a ' +
+                     'scheme and not to an algorithm, and the COSE algorithms bundle a scheme ' +
+                     'with a hash, so "RSASSA-PSS with whichever hash" is not a name it has to ' +
+                     'attach to the key — a key would have to carry a family instead. So this ' +
+                     'row and the second one together say where the enforcement comes from: ' +
+                     'from the parameters naming a hash, and not from the identifier. `survey`, ' +
+                     'and `reject` in it is what honouring §3.1 would mean rather than what ' +
+                     'this suite asks of anyone. It is also the shape §25 warns about — two ' +
+                     'implementations lenient at once, which recording catches and requiring ' +
+                     'nothing does not — and the reason it is recorded and not promoted is that ' +
+                     '§3.1 puts the restriction in the key owner\'s wishes and no specification ' +
+                     'here turns it into a verifier\'s duty.',
+    },
+];
+
+
 const cases = [
 
     ...LABELS.map(entry => ({
@@ -1369,6 +1756,28 @@ const cases = [
         description:   entry.description,
     })),
 
+    ...KEY_TYPES.map(entry => ({
+        id:            entry.id,
+        class:         entry.class,
+        message:       upper(sign1({
+                           payload:    source.payload,
+                           chain:      [remintKey(KEY_ALGORITHMS[entry.key]), rsaAuthority],
+                           signingKey: rsaKey,
+                           algorithm:  entry.algorithm,
+                       })),
+        trustAnchors:  ['rsaRoot'],
+        expected:      entry.expected,
+        ...(entry.reason ? { reason: entry.reason } : {}),
+        certificates:  2,
+        // Every one of them, as in the family above: what a certificate may
+        // say is not a question the encoding rules have an opinion about.
+        der:           true,
+        keyType:       `${entry.key}, over a message signed with ` +
+                       `${entry.algorithm === PS256 ? 'PS256' : 'RS256'}`,
+        computedBy:    'tools/X509Cases',
+        description:   entry.description,
+    })),
+
 ];
 
 
@@ -1406,13 +1815,18 @@ const CONTROLS = {
         'F91EC294B639FF648C54AE86C17C407E838383FBC9A75C2AE674203E6B743B1B',
 };
 
-// And the fourth family's other pin, which the control above implies but does
-// not say: minting the certificate with the parameter the corpus has gives the
-// corpus certificate back, every octet of it. Stated on its own so that a
-// break here reads as a break in the minting rather than in the message.
-if (upper(remint(PARAMETERS['a NULL'])) !== upper(hex(corpus.certificates.rsaMeter)))
-    throw new Error('reminting rsaMeter with the parameter the corpus has does not reproduce it ' +
-                    '— refusing to write');
+// And the two reminting pins, which the control above implies for the first
+// and cannot give at all for the second: minting the certificate with the
+// field the corpus has gives the corpus certificate back, every octet of it,
+// whichever of the two fields is being varied. Stated on their own so that a
+// break here reads as a break in the minting rather than in a message — and
+// for the fifth family this is the only pin there is, a PSS signature being
+// salted and so not comparable with anything either implementation wrote.
+for (const [what, reminted] of [['parameter', remint(PARAMETERS['a NULL'])],
+                                ['key type',  remintKey(KEY_ALGORITHMS['rsaEncryption'])]])
+    if (upper(reminted) !== upper(hex(corpus.certificates.rsaMeter)))
+        throw new Error(`reminting rsaMeter with the ${what} the corpus has does not reproduce ` +
+                        'it — refusing to write');
 
 for (const [id, pinned] of Object.entries(CONTROLS)) {
 
@@ -1500,6 +1914,34 @@ for (const entry of cases) {
 
     if (chain === null || chain.length !== 2)
         throw new Error(`${entry.id} does not carry a chain of two certificates`);
+
+    const restricted = KEY_TYPES.find(candidate => candidate.id === entry.id);
+
+    if (restricted !== undefined) {
+
+        if (upper(chain[0]) !== upper(remintKey(KEY_ALGORITHMS[restricted.key])) ||
+            upper(chain[1]) !== upper(rsaAuthority))
+            throw new Error(`${entry.id} does not carry the chain its case claims`);
+
+        // The key type is read back out of the certificate, and so is the fact
+        // that the key under it is still `rsaMeter`'s: a row that certified
+        // some other key would be refused for that, and the restriction the
+        // row is about would never be reached. The modulus is what ties the
+        // certificate to the key the message was signed with.
+        const identifier = upper(KEY_ALGORITHMS[restricted.key]);
+
+        if (upper(chain[0]).split(identifier).length - 1 !== 1)
+            throw new Error(`${entry.id} does not state the key type its case names, exactly once`);
+
+        if (!upper(chain[0]).includes(upper(hex(rsaKey.n))))
+            throw new Error(`${entry.id} does not certify the key its message is signed with`);
+
+        if (thumbprint !== null)
+            throw new Error(`${entry.id} carries a thumbprint, which this family does not`);
+
+        continue;
+
+    }
 
     const parameterised = RFC4055.find(candidate => candidate.id === entry.id);
 
@@ -1636,7 +2078,7 @@ for (const entry of cases)
                 `${String(hex(entry.message).length).padStart(4)} bytes  ` +
                 `${entry.thumbprintAlgorithm !== undefined
                        ? `x5t ${entry.thumbprintAlgorithm}`
-                       : entry.encoding ?? entry.headers ?? entry.parameters}` +
+                       : entry.encoding ?? entry.headers ?? entry.parameters ?? entry.keyType}` +
                 `${entry.thumbprintOver !== undefined
                        ? `, x5t over ${entry.thumbprintOver}`
                        : ''}`);

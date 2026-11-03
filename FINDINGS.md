@@ -3035,10 +3035,12 @@ as for bytes, which §25 is the reason for.
 ### What the four rows do not reach
 
 `id-RSASSA-PSS` as a *key* type [RFC 4055, Section 3.1] restricts a key to one
-scheme where `rsaEncryption` leaves it open. COSE.TS refuses it as a key type
-it does not know. Nothing in the corpus mints one, and nothing would: the
+scheme where `rsaEncryption` leaves it open. COSE.TS refused it as a key type
+it did not know. Nothing in the corpus mints one, and nothing would: the
 subject public key info comes from the key rather than from the signature, so
-Bouncy Castle writes `rsaEncryption` in both hierarchies.
+Bouncy Castle writes `rsaEncryption` in both hierarchies. Once `tools/X509Cases`
+could mint and sign, that stopped being a reason; the subsection after the next
+is what it measured.
 
 A parameter where RFC 4055 allows a NULL or nothing at all is what COSE.TS
 refuses, and what nothing here could ask about — and the reason turned out to
@@ -3153,6 +3155,101 @@ demands the NULL, where the pair shows where each side draws its line.
 | COSE.TS made to require the NULL, refusing an absent field | `no-parameters-at-all` fails, in both of the places a verdict is asked for: its own `validate` and the agreement check of the cross pass — 2 failures, 2 divergences. So the normative row of the family is load-bearing on exactly the sentence it cites, and the survey row beside it is untouched |
 | the generator minting the parameter into the copy beside the body only | the family measures nothing, as described above: 0 divergences, 0 failures, and §28's reason for not building this row in the first place, reproduced |
 
+### Decided: the key type that says what a key is for (2026-11-03)
+
+The subsection above mints a certificate and signs it, and once that existed
+the last recorded gap closed with it. COSE.TS `e3cb696` reads `id-RSASSA-PSS`
+as a key type; `cose-x509-messages` has six rows for it. The pin moved to
+v0.13.0 first, as released, so that the suite ran green against the published
+version before anything new went on top of it.
+
+**What the identifier says.** An `rsaEncryption` key is two integers and no
+opinion — the same key serves RSASSA-PSS and PKCS #1 v1.5 — while the same two
+integers under `id-RSASSA-PSS` are a key its owner has restricted: that
+identifier is written into the subject public key info "when the RSA private
+key owner wishes to limit the use of the public key exclusively to RSASSA-PSS",
+and its parameters "may be either absent or present when used as subject public
+key information" [RFC 4055, Section 3.1], which is the one place in a
+certificate where this identifier may stand without them. Where they are
+present they name the hash, and a scheme with a hash is exactly one COSE
+algorithm — so COSE.TS attaches that algorithm to the key, and `resolveAlgorithm`
+holds the message to it exactly as it holds an Ed25519 or an ML-DSA message to
+its own. The restriction cost the reading and no new mechanism.
+
+**What was measured**, with `rsaMeter`'s own key and `rsaMeter`'s own
+certificate reminted around it:
+
+| what the certificate says the key is for | the message | Styx | COSE.TS |
+|---|---|---|---|
+| RSASSA-PSS with SHA-256 | PS256 | verified | verified |
+| RSASSA-PSS with SHA-256 | **RS256** | **verified** | **refused** |
+| RSASSA-PSS with SHA-384 | **PS256** | **verified** | **refused** |
+| RSASSA-PSS with SHA-256, salt 20 | PS256 | verified | verified |
+| RSASSA-PSS, no hash named | PS256 | verified | verified |
+| RSASSA-PSS, no hash named | RS256 | verified | verified |
+
+Two more divergences, both of them Styx accepting what COSE.TS refuses, and
+both of them one sentence: *"This COSE_Sign1 message was signed with the
+algorithm 'RS256', but the algorithm 'PS256' was expected!"* and the same with
+PS256 for PS384. Bouncy Castle reads all three forms — measured in a probe
+before any row existed — and hands Styx an `RsaKeyParameters` that is
+indistinguishable from an `rsaEncryption` key's, keeping the identifier on the
+certificate structure and not on the key. So the restriction never reaches the
+verification, and Styx verifies whatever the header asks for.
+
+**The two rows are `survey`, and not for the same reason.** Both are the
+situation §25 describes — the two disagree, and a normative row would declare
+one of them wrong, which is the maintainer's call — but the sentences behind
+them differ in force. The scheme restriction is stated as what the key owner
+*wishes*, and nothing in RFC 4055 or RFC 9360 turns that wish into a verifier's
+duty. The hash is a MUST: scenario 3 of Section 3.3 says "all parameters in
+the signature structure algorithm identifier MUST match the parameters in the
+key structure algorithm identifier except the saltLength field", and a PS256
+message under a SHA-384 key does not match. So of the two rows the second has
+the firmer ground, and the record says so rather than averaging them.
+
+**The salt is the one field a key and a signature are read differently for**,
+and it has its own row because nothing else in this suite would notice. "The
+saltLength field in the signature parameters MUST be greater or equal to that
+in the key parameters field" — a key states a floor, where a signature states
+the width it used. Every parameter set Bouncy Castle writes asks for exactly
+the hash's width, so an implementation reading a key's parameters the way it
+reads a signature's would pass every other row here and refuse a certificate
+the specification allows. That row is Bouncy Castle's own SHA-256 parameter set
+with one octet lowered, from 32 to the 20 that is also Section 3.1's DEFAULT.
+
+**And one row records a leniency both sides share**, which is the shape §25
+warns about: an `id-RSASSA-PSS` key with no parameters, carrying a message
+signed with PKCS #1 v1.5. Both verify it. Styx for the reason above; COSE.TS
+for a different one, which is that the restriction there is to a *scheme* and
+not to an algorithm, and the COSE algorithms bundle a scheme with a hash — so
+"RSASSA-PSS with whichever hash" is not a name it can attach to a key, and a
+key would have to carry a family instead. Recorded in that package's changelog
+as a limitation rather than fixed, because the fix is a change to a key model
+and the specification asks for it only as a wish. Together with the row above
+it, the pair says where the enforcement comes from: from the parameters naming
+a hash, and not from the identifier.
+
+**What anchors the family.** The certificate is pinned the way the fourth
+family's is: reminting it with the identifier the corpus has gives `rsaMeter`
+back, octet for octet, or the generator refuses to write the file. The
+signature cannot be pinned that way — an RSASSA-PSS signature is salted, and
+Bouncy Castle draws its salt from a random this generator cannot reproduce, so
+no row in this suite carries PSS bytes to compare against. What says the PSS
+written here is right is that both implementations verify the control, measured
+rather than pinned; OpenSSL verified it too, through Node, in a probe. The salt
+is fixed, which costs nothing: verification recovers the salt from the
+signature, so what a random salt buys is a property of the signer, and a random
+one would make this file different on every run.
+
+### Falsification of the six rows
+
+| what was changed | what happened |
+|---|---|
+| the key type made unknown again in COSE.TS, as it was before `e3cb696` | all three `normative` accept rows fail, each in both of the places a verdict is asked for — 6 failures — and the divergences go from 3 to 7, because every row of the family now has one. So the reading is what the three accept rows hold, and the three `survey` rows record the rest |
+| an absent parameter set defaulting to PS256 in COSE.TS | nothing fails and the divergences go from 3 to 4. The new one is `a-restriction-that-names-no-hash-with-the-other-scheme`, which is the row that exists to record the shared leniency — so it is also the row that notices an implementation inventing a hash the certificate does not name. RFC 4055's own default is SHA-1, which no PS* is, and PS256 would be a guess |
+| a key's salt length read as a width rather than a floor | `a-key-whose-salt-is-a-floor-and-not-a-width` fails in both places — 2 failures, 4 divergences — and every other row stays green, which is the whole reason that row is there. This is the mistake the row was written against, and it was a real one: the first draft of the reader required equality for keys as well |
+
 ### Falsification
 
 | what was changed | what happened |
@@ -3173,20 +3270,22 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Twenty-six cases: four signatures, the EdDSA pair, two key wraps, two
+Thirty-two cases: four signatures, the EdDSA pair, two key wraps, two
 thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
-produced, and the three parameter rows that had to be minted. 633 (C#) / 597
-(TypeScript) / 44 (the third reader) normative, 450 agreements, zero failures,
-zero messages verified against what the third reader refuses, 56 survey
-observations each and 14 on the agreement rows.
+produced, the three parameter rows that had to be minted, and the six key-type
+rows that minting made possible. 636 (C#) / 600 (TypeScript) / 56 (the third
+reader) normative, 453 agreements, zero failures, zero messages verified
+against what the third reader refuses, 59 survey observations each and 17 on
+the agreement rows.
 
-And one cross-implementation divergence, where this suite ran at zero for a
-while. It is `cose-x509-messages:a-parameter-rfc-4055-does-not-allow`, it is
-the first thing a reader of the report meets, and it is there on purpose: the
-row was built to produce it. A divergence is what this suite is for, and a
-`survey` row is how it is written down while which side is right remains the
-specification's question and not this suite's.
+And three cross-implementation divergences, where this suite ran at zero for a
+while. Every one of them is a row built to produce it: a parameter RFC 4055
+does not allow, and the two halves of its Section 3.3 that a key restricted to
+RSASSA-PSS asks about. They are the first thing a reader of the report meets,
+and they are the point. A divergence is what this suite is for, and `survey` is
+how one is written down while which side is right remains the specification's
+question and not this suite's.
 
 The promotion of 2026-11-03 moved five rows across: the two cross-open
 verdicts, one per opening implementation, and the three byte agreements of the
