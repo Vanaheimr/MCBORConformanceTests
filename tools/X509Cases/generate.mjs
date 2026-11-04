@@ -16,7 +16,7 @@
  * ECDSA over the bytes this file builds. Neither implementation contributes
  * anything.
  *
- * Four families. At the head of three of them is a control whose bytes are not
+ * Six families. At the head of three of them is a control whose bytes are not
  * this generator's word for a sound message but byte for byte a message both
  * implementations already produce and agree on:
  *
@@ -98,6 +98,18 @@
  *    messages with RSASSA-PSS as well as with PKCS #1 v1.5, which is the
  *    second RSA padding written out below. The five rows are the scenarios of
  *    that section's own Section 3.3. §28 of FINDINGS.md.
+ *
+ * 6. A countersignature neither implementation reads. RFC 9338 registers
+ *    `Countersignature0 version 2` at label 12: a bare signature, made over
+ *    the body's signature, whose algorithm and key "are provided by the same
+ *    context" rather than by the message. Both sides carry the name and
+ *    neither reads it. COSE.TS says why in src/index.ts, and in Styx it is a
+ *    constant in COSEHeaderLabel that nothing else reads. One row, beside the
+ *    sound chain, and the countersignature in it is a real one: made with the
+ *    key of the corpus's `strangerMeter`, a second party certified by the
+ *    same authority, and verified here before anything is written. So a
+ *    reader that did take the key and the algorithm from its context would
+ *    verify as well. §28 of FINDINGS.md.
  *
  * The certificates and the signing key are not written here: the chain, the
  * anchor and the end-entity key come from vectors/cose-x509-corpus.json, which
@@ -348,7 +360,7 @@ const PS256  = -37;
  * certificate has to say about it.
  */
 function sign1({ payload, chain, signingKey, algorithm = ESB256,
-                 thumbprint, bag, uri, critical }) {
+                 thumbprint, bag, uri, critical, countersigner }) {
 
     const protectedBucket = bstr(map([
         [int(1),  int(algorithm)],
@@ -396,9 +408,49 @@ function sign1({ payload, chain, signingKey, algorithm = ESB256,
                                 { prehash: false, lowS: false }))
         throw new Error('the signature this generator just made does not verify');
 
+    // An abbreviated countersignature [RFC 9338, Section 3.3], when one is
+    // asked for: ESB256 over the Countersign_structure, which for
+    // Countersignature0 version 2 omits sign_protected and carries the body's
+    // signature as the one element of other_fields. It is "encoded as an
+    // unprotected header parameter", label 12 [RFC 9338, Section 3.2].
+    const unprotectedBucket = countersigner === undefined || countersigner === null
+                                  ? map([])
+                                  : map([[int(12), bstr(countersign0({ protectedBucket, payload, signature,
+                                                                       key: countersigner }))]]);
+
     // COSE_Sign1 is tag 18 around [protected, unprotected, payload, signature].
     return concat(Uint8Array.from([0xD2]),
-                  array([protectedBucket, map([]), bstr(payload), bstr(signature)]));
+                  array([protectedBucket, unprotectedBucket, bstr(payload), bstr(signature)]));
+
+}
+
+
+/**
+ * The Countersign_structure of a Countersignature0 version 2 on a COSE_Sign1
+ * [RFC 9338, Section 3.3]: the context string, the body's protected bucket,
+ * the externally supplied data (none), the payload, and the body's signature
+ * as the one element of other_fields. sign_protected "is omitted for the
+ * Countersignature0V2 attribute".
+ */
+const countersignStructure = ({ protectedBucket, payload, signature }) => array([
+    tstr('CounterSignature0V2'),
+    protectedBucket,
+    bstr(new Uint8Array(0)),
+    bstr(payload),
+    array([bstr(signature)]),
+]);
+
+/** ESB256 over that structure, verified before it is returned. */
+function countersign0({ protectedBucket, payload, signature, key }) {
+
+    const toBeSigned = countersignStructure({ protectedBucket, payload, signature });
+    const made       = brainpoolP256r1.sign(sha256(toBeSigned), key, { prehash: false, lowS: false });
+
+    if (!brainpoolP256r1.verify(made, sha256(toBeSigned), brainpoolP256r1.getPublicKey(key, false),
+                                { prehash: false, lowS: false }))
+        throw new Error('the countersignature this generator just made does not verify');
+
+    return made;
 
 }
 
@@ -445,6 +497,58 @@ function skip(bytes, at) {
         }
         default: throw new Error(`major type ${String(item.major)} is not one this generator writes`);
     }
+
+}
+
+
+/**
+ * The four parts of a finished COSE_Sign1: the protected bucket as it lies in
+ * the message (the encoded byte string, which is what a Countersign_structure
+ * holds), the unprotected bucket by label, the payload and the signature.
+ */
+function sign1Parts(message) {
+
+    if (message[0] !== 0xD2 || message[1] !== 0x84)
+        throw new Error('not a tagged COSE_Sign1 of four elements');
+
+    const protectedEnd  = skip(message, 2);
+    const unprotected   = readHead(message, protectedEnd);
+
+    if (unprotected.major !== 5)
+        throw new Error('the unprotected bucket is not a map');
+
+    const headers = new Map();
+    let   at      = unprotected.next;
+
+    for (let entry = 0; entry < unprotected.value; entry++) {
+
+        const key   = readHead(message, at);
+        const label = key.major === 1 ? -1 - key.value : key.value;
+        const from  = key.next;
+
+        at = skip(message, from);
+        headers.set(label, message.subarray(from, at));
+
+    }
+
+    const payloadEnd = skip(message, at);
+
+    return { protectedBucket: message.subarray(2, protectedEnd),
+             unprotected:     headers,
+             payload:         byteString(message.subarray(at, payloadEnd)),
+             signature:       byteString(message.subarray(payloadEnd, skip(message, payloadEnd))) };
+
+}
+
+/** The contents of an encoded byte string. */
+function byteString(item) {
+
+    const head = readHead(item, 0);
+
+    if (head.major !== 2)
+        throw new Error('not a byte string');
+
+    return item.subarray(head.next, head.next + head.value);
 
 }
 
@@ -992,6 +1096,16 @@ if (upper(digests['sha-1']) !== upper(sha1(hex(corpus.certificates.meter))))
 const stranger = hex(corpus.certificates.strangerMeter);
 
 /**
+ * Who countersigns in the sixth family: `strangerMeter`'s key, a second party
+ * under the same authority, so the countersignature can be checked by anybody
+ * holding the corpus.
+ */
+if (corpus.privateKeys.strangerMeter.algorithm !== 'ESB256')
+    throw new Error(`the corpus's strangerMeter signs with ${corpus.privateKeys.strangerMeter.algorithm}, not ESB256`);
+
+const countersigner = hex(corpus.privateKeys.strangerMeter.keyD);
+
+/**
  * Where the third family's x5u says a certificate may be found.
  *
  * `.invalid` is reserved and resolves for nobody [RFC 2606, Section 2], so no
@@ -1407,6 +1521,47 @@ const SOURCES = [
 
 
 /**
+ * The sixth family: a countersignature neither implementation reads.
+ *
+ * Label 12, `Countersignature0 version 2` [RFC 9338]. Of §26's three
+ * questions only one can be asked of it. "Instead of a chain" means nothing for
+ * a header that is no certificate source. And `crit` names *protected* header
+ * parameters [RFC 9052, Section 3.1], while this one "is then encoded as an
+ * unprotected header parameter" [RFC 9338, Section 3.2]. So `crit: [12]` is
+ * refused for naming a label absent from the protected bucket, which
+ * `cose-crit:crit-label-absent` already asks, before anybody gets to whether
+ * label 12 is understood. What is left is the one with an answer: whether a
+ * header nobody reads may cost a sound message its verification.
+ */
+const COUNTERSIGNATURES = [
+    {
+        id:          'a-countersignature0-beside-the-chain',
+        expected:    'accept',
+        class:       'normative',
+        carries:     'Countersignature0 version 2 (label 12), made with the key of strangerMeter, beside the chain',
+        description: 'The sound chain in x5chain, and in the unprotected bucket a ' +
+                     '`Countersignature0 version 2` [RFC 9338, label 12]: a bare ESB256 ' +
+                     'signature over the Countersign_structure of Section 3.3, the context ' +
+                     '"CounterSignature0V2", the body\'s protected bucket, no external data, the ' +
+                     'payload and the body\'s signature, made with the key of the corpus\'s ' +
+                     '`strangerMeter`, a second party certified by the same authority, and ' +
+                     'verified by the generator before the file is written. Both implementations ' +
+                     'carry the name and neither reads it: COSE.TS leaves it out of scope ' +
+                     'because its algorithm and key "travel outside the message, by agreement", ' +
+                     'and in Styx it is a constant nothing else reads. An implementation that ' +
+                     'treats a header it does not read as fatal refuses this message. One that ' +
+                     'read it, with the algorithm and the key from its context as RFC 9338 says, ' +
+                     'would verify it as well, because the countersignature is sound. So the ' +
+                     'row holds whoever implements what. `normative` on the sentence of RFC ' +
+                     '9052 §3 the bag and URI rows of §26 stand on. There is no `crit` row ' +
+                     'beside it: `crit` names protected header parameters and this one is ' +
+                     'unprotected, so `crit: [12]` would be refused for naming a label absent ' +
+                     'from the protected bucket, which cose-crit already asks.',
+    },
+];
+
+
+/**
  * The fourth family: the parameters beside a signature algorithm.
  *
  * `parameters` keys into PARAMETERS above, and the certificate at position 0 of
@@ -1740,6 +1895,19 @@ const cases = [
         description:   entry.description,
     })),
 
+    ...COUNTERSIGNATURES.map(entry => ({
+        id:            entry.id,
+        class:         entry.class,
+        message:       upper(sign1({ ...source, countersigner })),
+        trustAnchors:  ['metrologyRoot'],
+        expected:      entry.expected,
+        certificates:  2,
+        der:           true,
+        headers:       entry.carries,
+        computedBy:    'tools/X509Cases',
+        description:   entry.description,
+    })),
+
     ...RFC4055.map(entry => ({
         id:            entry.id,
         // Per row again, and both classes appear: see RFC4055 above.
@@ -1912,6 +2080,36 @@ for (const entry of cases) {
 
         if (thumbprint !== null)
             throw new Error(`${entry.id} carries a thumbprint, which this family does not`);
+
+        continue;
+
+    }
+
+    // The sixth family: the countersignature is taken out of the message and
+    // verified against the structure rebuilt from the message's own bytes.
+    if (COUNTERSIGNATURES.some(candidate => candidate.id === entry.id)) {
+
+        const parts = sign1Parts(message);
+
+        if (parts.unprotected.size !== 1 || !parts.unprotected.has(12))
+            throw new Error(`${entry.id} does not carry label 12 and nothing else unprotected`);
+
+        const countersignature = byteString(parts.unprotected.get(12));
+        const toBeSigned       = countersignStructure(parts);
+
+        if (!brainpoolP256r1.verify(countersignature, sha256(toBeSigned),
+                                    brainpoolP256r1.getPublicKey(countersigner, false),
+                                    { prehash: false, lowS: false }))
+            throw new Error(`${entry.id} carries a countersignature that does not verify`);
+
+        if (chain === null ||
+            chain.length !== 2 ||
+            upper(chain[0]) !== upper(source.chain[0]) ||
+            upper(chain[1]) !== upper(source.chain[1]))
+            throw new Error(`${entry.id} does not carry the chain as it was minted`);
+
+        if (thumbprint !== null || criticalIn(message) !== null)
+            throw new Error(`${entry.id} carries a thumbprint or a crit, which this family does not`);
 
         continue;
 

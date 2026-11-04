@@ -3646,6 +3646,57 @@ promotion that failed nothing. Now the run exits 1 with two normative
 failures, both on this row: C#'s verdict and the agreement of the two
 verdicts. The divergences go to two.
 
+### The countersignature nobody reads (2026-11-04)
+
+Label 12 was the last of the header parameters both implementations can name
+with no row: `Countersignature0 version 2` [RFC 9338], a bare signature over
+the body's signature whose algorithm and key "are provided by the same
+context" rather than by the message. Neither side reads it. COSE.TS states why
+in its scope block, and in Styx `COSEHeaderLabel.CounterSignature0V2` is a
+constant nothing else reads. That is §26's shape, but only one of §26's three
+questions can be asked of it:
+
+- **"Instead of a chain"** means nothing for a header that is no certificate
+  source.
+- **`crit: [12]`** cannot be built so that it asks anything. `crit` names
+  protected header parameters [RFC 9052, Section 3.1], and this one "is then
+  encoded as an unprotected header parameter" [RFC 9338, Section 3.2]. A
+  `crit` naming it is refused for listing a label absent from the protected
+  bucket, which `cose-crit:crit-label-absent` already asks, before anybody gets
+  to whether label 12 is understood.
+- **Whether a header nobody reads may cost a sound message its verification**
+  is the one that remains, and it has an answer.
+
+`a-countersignature0-beside-the-chain` is §25's control message with a
+`Countersignature0 version 2` in its unprotected bucket. The countersignature is
+a real one: ESB256 over the Countersign_structure of RFC 9338 Section 3.3, made
+with the key of the corpus's `strangerMeter`, a second party under the same
+authority. Its context is "CounterSignature0V2", followed by the body's
+protected bucket, no external data and the payload, with the body's signature
+as the one element of `other_fields`. `tools/X509Cases` verifies it against
+that structure, rebuilt from the bytes of the finished message, before it
+writes anything. An implementation that took the algorithm and the key from its
+context, as RFC 9338 says, would therefore verify the message too, and the row
+holds whoever implements what. It is `normative` on the RFC 9052 §3 sentence
+that the bag and URI rows of §26 stand on.
+
+| | before | now |
+|---|---|---|
+| csharp | 648 normative | 649: its verdict |
+| typescript | 612 | 613: the same |
+| csharp↔typescript | 466 | 467: the agreement of the two verdicts |
+| the third reader | 56 | 58: its count of the certificates, two, and that they are DER |
+| divergences | 1 | 1 |
+
+Both verify and name `CN=Meter 1ISA0000000042`.
+
+**Falsified**, twice:
+
+| what was changed | what happened |
+|---|---|
+| Styx refusing any message that carries label 12 unprotected, in `VerifyWithCertificateChain` | the run exits 1 with two normative failures, both on this row: C#'s verdict and the agreement of the two verdicts. The divergences go to two |
+| the generator countersigning a signature other than the body's | the generator refuses to write the file: *"a-countersignature0-beside-the-chain carries a countersignature that does not verify"*. So the row cannot quietly come to carry a countersignature that a reader of label 12 would be right to refuse |
+
 ### Falsification
 
 | what was changed | what happened |
@@ -3666,14 +3717,15 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Thirty-four cases: four signatures, the EdDSA pair, two key wraps, two
+Thirty-five cases: four signatures, the EdDSA pair, two key wraps, two
 thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
-that minting made possible, the key with three primes, and the two party fields
-no row set. 648 (C#) / 612 (TypeScript) / 56 (the third reader) normative, 466
-agreements, zero failures, zero messages verified against what the third reader
-refuses, 57 survey observations each and 15 on the agreement rows.
+that minting made possible, the key with three primes, the two party fields no
+row set, and the countersignature nobody reads. 649 (C#) / 613 (TypeScript) /
+58 (the third reader) normative, 467 agreements, zero failures, zero messages
+verified against what the third reader refuses, 57 survey observations each and
+15 on the agreement rows.
 
 And one cross-implementation divergence, where this suite ran at zero for a
 while. It is a row built to produce it: the restriction of a key to RSASSA-PSS
@@ -3694,10 +3746,11 @@ their agreement on the hash a key is restricted to, and the same three on the
 parameter RFC 4055 does not allow.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
-parameters both name, 11 do: the two that do not are the deprecated counter
-signature of label 7 and `Countersignature0 version 2` of label 12 — and the
-second is §26's shape exactly, a registered label both can name and neither
-reads, with COSE.TS's scope block giving the reason. Of
+parameters both name, 12 do. The one that does not is the deprecated counter
+signature of label 7, which RFC 9338 replaced. `Countersignature0 version 2`
+of label 12 has had its row since 2026-11-04: §26's shape, a registered label
+both can name and neither reads, with COSE.TS's scope block giving the reason.
+Of
 the 8 header algorithm parameters both name, all 8 do since 2026-11-04: `PartyU
 other` (−23) and `PartyV nonce` (−25) were the two the one party row left out,
 and the row beside it sets them.
