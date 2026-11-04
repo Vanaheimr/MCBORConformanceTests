@@ -34,7 +34,8 @@ why a signed measurement belongs in CBOR rather than in base64 within JSON —
 and both RSA families, RSASSA-PSS of RFC 8230 and RSASSA-PKCS1-v1_5 of
 RFC 8812 — including a key with three prime factors, the multi-prime form RFC
 8230 offers and requires of nobody, which both sides now sign with, to the same
-bytes ([FINDINGS.md](FINDINGS.md) §28).
+bytes, and which this suite therefore requires of both
+([FINDINGS.md](FINDINGS.md) §28).
 Classical and post-quantum signatures also meet inside single messages: a
 hybrid `COSE_Sign` carrying one of each, and a meter reading signed with the
 key the meter was manufactured with and countersigned post-quantum by the

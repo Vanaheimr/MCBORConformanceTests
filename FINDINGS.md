@@ -3390,7 +3390,8 @@ and a third implementation that declines it would not be wrong — promoting the
 row would make it wrong in this suite. Both implementations read the form now,
 and a `normative` row would hold them to it; whether that is worth more than
 the specification's own latitude is the maintainer's call, so it is offered
-here and not made.
+here and not made. (Made the next day: see *Decided: the row is normative*
+below.)
 
 **Falsified.** In Styx, seven changes, each failing only what it should:
 
@@ -3410,6 +3411,35 @@ runner error the C# side records is Bouncy Castle's sentence, *"RSA engine
 faulty decryption/signing detected"*, and the cross-verification of COSE.TS's
 message still succeeds. So a regression to two primes is seen, and is seen as
 the safe failure it would be.
+
+### Decided: the row is normative (2026-11-04)
+
+The maintainer took the promotion offered above. `sign1-rs256-rsa-three-primes`
+is `normative`: both implementations must sign with the key, to the same bytes,
+and each must verify the other's message. RFC 8230 has not changed its mind —
+the form is still offered and required of nobody — so this is a requirement of
+this suite and not of the specification, and the row's description says so: a
+third implementation that declines the form would fail here without being wrong
+about RFC 8230. What the promotion buys is the half the divergence pass cannot
+see. A survey row that one side stops reading shows up as a divergence and
+fails nothing; now it fails the run.
+
+It moved six checks across, and nothing else moved:
+
+| | before | now |
+|---|---|---|
+| csharp | 636 normative, 60 survey | 637, 59 — verifying TypeScript's message |
+| typescript | 600, 60 | 601, 59 — verifying C#'s message |
+| csharp↔typescript | 453, 21 | 457, 17 — toBeSigned, signature, message, thumbprint |
+| divergences | 3 | 3 |
+
+**Falsified.** The C# runner made to ignore the further primes, so that Styx is
+handed a two-prime key whose p and q do not multiply to n: the run exits 1 with
+four normative failures, all on this row — the three byte agreements and
+TypeScript's cross-verification, C# having produced no message to verify — and
+four divergences. The thumbprint stays agreed, as it must: it reads n and e, and
+those were never in question. Before the promotion the same change failed
+nothing.
 
 ### Falsification
 
@@ -3435,10 +3465,10 @@ Thirty-three cases: four signatures, the EdDSA pair, two key wraps, two
 thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
-that minting made possible, and the key with three primes. 636 (C#) / 600
-(TypeScript) / 56 (the third reader) normative, 453 agreements, zero failures,
-zero messages verified against what the third reader refuses, 60 survey
-observations each and 21 on the agreement rows.
+that minting made possible, and the key with three primes. 637 (C#) / 601
+(TypeScript) / 56 (the third reader) normative, 457 agreements, zero failures,
+zero messages verified against what the third reader refuses, 59 survey
+observations each and 17 on the agreement rows.
 
 And three cross-implementation divergences, where this suite ran at zero for a
 while. Every one of them is a row built to produce it: a parameter RFC 4055
@@ -3451,7 +3481,8 @@ question and not this suite's.
 
 The promotion of 2026-11-03 moved five rows across: the two cross-open
 verdicts, one per opening implementation, and the three byte agreements of the
-case.
+case. The promotion of 2026-11-04 moved six: the four agreements and the two
+cross-verifications of the key with three primes.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, 11 do: the two that do not are the deprecated counter
