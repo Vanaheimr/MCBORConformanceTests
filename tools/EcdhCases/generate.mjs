@@ -96,11 +96,22 @@ const cbor = {
 // in bits, absent party fields are nil (never omitted), and protected is the
 // recipient's protected bucket as it travels.
 
+const nonceOf = nonce => typeof nonce === 'number' ? cbor.int(nonce) : cbor.bytes(unhex(nonce));
+
 const party = info => cbor.array([
     info?.identity !== undefined ? cbor.bytes(unhex(info.identity)) : cbor.nil,
-    info?.nonce    !== undefined ? (typeof info.nonce === 'number' ? cbor.int(info.nonce) : cbor.bytes(unhex(info.nonce))) : cbor.nil,
+    info?.nonce    !== undefined ? nonceOf(info.nonce)              : cbor.nil,
     info?.other    !== undefined ? cbor.bytes(unhex(info.other))    : cbor.nil,
 ]);
+
+// The same fields as header parameters of the recipient [RFC 9053, Section
+// 5.1, Table 23]: -21 to -23 for PartyU, -24 to -26 for PartyV. Unlike the
+// context, an absent field is absent here, not nil.
+const partyHeaders = (info, identityLabel) => [
+    ...(info?.identity !== undefined ? [[cbor.int(identityLabel),     cbor.bytes(unhex(info.identity))]] : []),
+    ...(info?.nonce    !== undefined ? [[cbor.int(identityLabel - 1), nonceOf(info.nonce)]]              : []),
+    ...(info?.other    !== undefined ? [[cbor.int(identityLabel - 2), cbor.bytes(unhex(info.other))]]    : []),
+];
 
 const kdfContext = (algorithmId, keyLength, protectedBytes, partyU, partyV) => cbor.array([
     cbor.int(algorithmId),
@@ -120,16 +131,19 @@ const AEAD = { A128GCM: gcm, A192GCM: gcm, A256GCM: gcm, 'ChaCha20/Poly1305': ch
  * secret: whatever an implementation computed as the secret, this is the
  * message that opens for it.
  */
-function directMessage({ secret, ephemeralKey, kid, x5t, iv, payload, content = 'A128GCM', keyLength = 16 }) {
+function directMessage({ secret, ephemeralKey, kid, x5t, iv, payload, content = 'A128GCM', keyLength = 16,
+                         salt, partyU, partyV }) {
 
     const recipientProtected = cbor.map([[cbor.int(1), cbor.int(ALG['ECDH-ES + HKDF-256'])]]);
-    const context            = kdfContext(ALG[content], keyLength, recipientProtected);
-    const cek                = hkdf(sha256, secret, new Uint8Array(), context, keyLength);
+    const context            = kdfContext(ALG[content], keyLength, recipientProtected, partyU, partyV);
+    const cek                = hkdf(sha256, secret, salt ?? new Uint8Array(), context, keyLength);
     const bodyProtected      = cbor.map([[cbor.int(1), cbor.int(ALG[content])]]);
     const encStructure       = cbor.array([cbor.text('Encrypt'), cbor.bytes(bodyProtected), cbor.bytes(new Uint8Array())]);
     const ciphertext         = AEAD[content](cek, iv, encStructure).encrypt(payload);
 
     const unprotected = [[cbor.int(-1), ephemeralKey]];
+    if (salt !== undefined) unprotected.push([cbor.int(-20), cbor.bytes(salt)]);
+    unprotected.push(...partyHeaders(partyU, -21), ...partyHeaders(partyV, -24));
     if (kid !== undefined) unprotected.push([cbor.int(4), cbor.bytes(kid)]);
     if (x5t !== undefined) unprotected.push([cbor.int(34), x5t]);
 
@@ -284,6 +298,20 @@ const chachaMessage = directMessage({ secret: chachaSecret, ephemeralKey: okpKey
                                       content: 'ChaCha20/Poly1305', keyLength: 32 });
 const p521Zero = zeroLeading(p521, concat(Uint8Array.of(0x01), fill(65, 0x22)));
 
+// The two party rows: the same keys and the same salt, so the same secret,
+// and between them every one of the six party fields set once.
+const partiesSecret = x25519.getSharedSecret(fill(32, 0x11), x25519.getPublicKey(fill(32, 0x22)));
+const parties = ({ kid, partyU, partyV }) => directMessage({
+    secret: partiesSecret, ephemeralKey: okpKey(4, x25519.getPublicKey(fill(32, 0x11))),
+    kid: utf8(kid), iv, payload, salt: utf8('salt'), partyU, partyV });
+
+const namedParties = { partyU: { identity: hex(utf8('lighting-client')), nonce: 7 },
+                       partyV: { identity: hex(utf8('lighting-server')), other: '0102' } };
+const otherFields  = { partyU: { other: hex(utf8('tariff-7')) },
+                       partyV: { nonce: '9F8E7D6C5B4A3928' } };
+const namedPartiesMessage = parties({ kid: 'salted', ...namedParties });
+const otherFieldsMessage  = parties({ kid: 'other-fields', ...otherFields });
+
 // The invalid-curve point: (x0, 0) lies on y² = x³ − 3x + b′ for
 // b′ = −(x0³ − 3x0), a curve sharing P-256's a but not its b, where it has
 // order two. An implementation that never consults b and never checks the
@@ -395,13 +423,30 @@ const cases = [
 
     {
         id: 'ecdh-direct-salt-and-parties', class: 'normative', shape: 'encrypt',
-        description: 'ECDH-ES + HKDF-256 on X25519 with an HKDF salt and both parties named: PartyU with an identity and an integer nonce, PartyV with an identity and other information. All of it travels in the recipient\'s headers (-20 to -26) and all of it enters COSE_KDF_Context, so a receiver that read one field differently derives another key and opens nothing. No published example carries any of it.',
+        description: 'ECDH-ES + HKDF-256 on X25519 with an HKDF salt and both parties named: PartyU with an identity and an integer nonce, PartyV with an identity and other information. All of it travels in the recipient\'s headers (-20 to -26) and all of it enters COSE_KDF_Context, so a receiver that read one field differently derives another key and opens nothing. No published example carries any of it, so the secret, context, key and message are this generator\'s own, computed through the same hand-written CBOR that must reproduce p256-hkdf-256-01 first; until 2026-11-04 the row held the two implementations only to each other, which a context built wrongly on both sides passes.',
         algorithm: 'A128GCM', iv: hex(iv), payload: hex(payload),
         recipients: [{ algorithm: 'ECDH-ES + HKDF-256', curve: 'X25519', key: hex(fill(32, 0x22)),
                        ephemeral: hex(fill(32, 0x11)), keyIdentifier: hex(utf8('salted')),
-                       salt: hex(utf8('salt')),
-                       partyU: { identity: hex(utf8('lighting-client')), nonce: 7 },
-                       partyV: { identity: hex(utf8('lighting-server')), other: '0102' } }],
+                       salt: hex(utf8('salt')), ...namedParties }],
+        computedBy:      'tools/EcdhCases',
+        expectedSecret:  hex(partiesSecret),
+        expectedContext: hex(namedPartiesMessage.context),
+        expectedKey:     hex(namedPartiesMessage.cek),
+        expectedMessage: hex(namedPartiesMessage.message),
+    },
+
+    {
+        id: 'ecdh-direct-the-other-party-fields', class: 'normative', shape: 'encrypt',
+        description: 'The two party fields the row above leaves out, and nothing else: PartyU other (-23) and PartyV nonce (-25), the nonce as a byte string where the row above gives an integer, which RFC 9053 Section 5.2 allows as well. Neither party has an identity, so four of the six fields enter COSE_KDF_Context as nil - never omitted - and are absent from the headers. The keys and the salt are the row above\'s, so the secret is the same, and what differs is only the context and what it derives. Between the two rows every party field is set once. The secret, context, key and message are this generator\'s own, as above.',
+        algorithm: 'A128GCM', iv: hex(iv), payload: hex(payload),
+        recipients: [{ algorithm: 'ECDH-ES + HKDF-256', curve: 'X25519', key: hex(fill(32, 0x22)),
+                       ephemeral: hex(fill(32, 0x11)), keyIdentifier: hex(utf8('other-fields')),
+                       salt: hex(utf8('salt')), ...otherFields }],
+        computedBy:      'tools/EcdhCases',
+        expectedSecret:  hex(partiesSecret),
+        expectedContext: hex(otherFieldsMessage.context),
+        expectedKey:     hex(otherFieldsMessage.cek),
+        expectedMessage: hex(otherFieldsMessage.message),
     },
 
     {

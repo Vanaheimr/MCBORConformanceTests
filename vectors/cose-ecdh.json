@@ -215,7 +215,7 @@
             "id": "ecdh-direct-salt-and-parties",
             "class": "normative",
             "shape": "encrypt",
-            "description": "ECDH-ES + HKDF-256 on X25519 with an HKDF salt and both parties named: PartyU with an identity and an integer nonce, PartyV with an identity and other information. All of it travels in the recipient's headers (-20 to -26) and all of it enters COSE_KDF_Context, so a receiver that read one field differently derives another key and opens nothing. No published example carries any of it.",
+            "description": "ECDH-ES + HKDF-256 on X25519 with an HKDF salt and both parties named: PartyU with an identity and an integer nonce, PartyV with an identity and other information. All of it travels in the recipient's headers (-20 to -26) and all of it enters COSE_KDF_Context, so a receiver that read one field differently derives another key and opens nothing. No published example carries any of it, so the secret, context, key and message are this generator's own, computed through the same hand-written CBOR that must reproduce p256-hkdf-256-01 first; until 2026-11-04 the row held the two implementations only to each other, which a context built wrongly on both sides passes.",
             "algorithm": "A128GCM",
             "iv": "02D1F7E6F26C43D4868D87CE",
             "payload": "546869732069732074686520636F6E74656E742E",
@@ -236,7 +236,42 @@
                         "other": "0102"
                     }
                 }
-            ]
+            ],
+            "computedBy": "tools/EcdhCases",
+            "expectedSecret": "9E004098EFC091D4EC2663B4E9F5CFD4D7064571690B4BEA97AB146AB9F35056",
+            "expectedContext": "8401834F6C69676874696E672D636C69656E7407F6834F6C69676874696E672D736572766572F642010282188044A1013818",
+            "expectedKey": "B2CCAF913C9D17162E679B77D25BD3E7",
+            "expectedMessage": "D8608443A10101A1054C02D1F7E6F26C43D4868D87CE58249E21023B2D28E6DE39787BC08849792BF72A26C4D35D7A5DD827521C18F709136E0B0B1C818344A1013818A720A3010120042158207B4E909BBE7FFE44C465A220037D608EE35897D31EF972F07F74892CB0F73F13334473616C74344F6C69676874696E672D636C69656E743507374F6C69676874696E672D7365727665723819420102044673616C74656440"
+        },
+        {
+            "id": "ecdh-direct-the-other-party-fields",
+            "class": "normative",
+            "shape": "encrypt",
+            "description": "The two party fields the row above leaves out, and nothing else: PartyU other (-23) and PartyV nonce (-25), the nonce as a byte string where the row above gives an integer, which RFC 9053 Section 5.2 allows as well. Neither party has an identity, so four of the six fields enter COSE_KDF_Context as nil - never omitted - and are absent from the headers. The keys and the salt are the row above's, so the secret is the same, and what differs is only the context and what it derives. Between the two rows every party field is set once. The secret, context, key and message are this generator's own, as above.",
+            "algorithm": "A128GCM",
+            "iv": "02D1F7E6F26C43D4868D87CE",
+            "payload": "546869732069732074686520636F6E74656E742E",
+            "recipients": [
+                {
+                    "algorithm": "ECDH-ES + HKDF-256",
+                    "curve": "X25519",
+                    "key": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "ephemeral": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "keyIdentifier": "6F746865722D6669656C6473",
+                    "salt": "73616C74",
+                    "partyU": {
+                        "other": "7461726966662D37"
+                    },
+                    "partyV": {
+                        "nonce": "9F8E7D6C5B4A3928"
+                    }
+                }
+            ],
+            "computedBy": "tools/EcdhCases",
+            "expectedSecret": "9E004098EFC091D4EC2663B4E9F5CFD4D7064571690B4BEA97AB146AB9F35056",
+            "expectedContext": "840183F6F6487461726966662D3783F6489F8E7D6C5B4A3928F682188044A1013818",
+            "expectedKey": "D60122BE4E47C8B86C8A118E66E31687",
+            "expectedMessage": "D8608443A10101A1054C02D1F7E6F26C43D4868D87CE5824BD656743585E437D9661171DC7A075F6B0C2358FB655D7197B66E05566ADD02B67970826818344A1013818A520A3010120042158207B4E909BBE7FFE44C465A220037D608EE35897D31EF972F07F74892CB0F73F13334473616C7436487461726966662D373818489F8E7D6C5B4A3928044C6F746865722D6669656C647340"
         },
         {
             "id": "ecdh-two-recipients",

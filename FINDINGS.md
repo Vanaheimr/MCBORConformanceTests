@@ -621,7 +621,8 @@ published values.
   implemented on neither side. What it would add is that the recipient learns
   who sent the message, and a signature inside the envelope says that to
   everybody. Salt and party information *are* supported for ECDH-ES and
-  covered by `ecdh-direct-salt-and-parties`.
+  covered by `ecdh-direct-salt-and-parties` and, since 2026-11-04 for the two
+  fields that row leaves out, `ecdh-direct-the-other-party-fields` (§28).
 - **Invalid-curve attacks.** The recipient key is static; without validating
   the received ephemeral point, the agreement runs on a curve the attacker
   chose, and whether decryption succeeds is the oracle. RFC 9053 §6.3.1.1
@@ -3441,6 +3442,41 @@ four divergences. The thumbprint stays agreed, as it must: it reads n and e, and
 those were never in question. Before the promotion the same change failed
 nothing.
 
+### The two party fields no row set (2026-11-04)
+
+The count above left two header algorithm parameters without a row: `PartyU
+other` (−23) and `PartyV nonce` (−25). `ecdh-direct-salt-and-parties` sets the
+other four. `ecdh-direct-the-other-party-fields` sets these two and nothing
+else. It uses the same keys and the same salt, so the secret is the same and
+only the context differs. The nonce is a byte string where the older row's is an
+integer, the other form RFC 9053 Section 5.2 allows. Neither party has an
+identity, so four of the six fields enter `COSE_KDF_Context` as nil, never
+omitted, and are absent from the headers.
+
+A row that only compared the two implementations would have measured less than
+it seems, and §12 says why: the context is derived and not transmitted, so a
+field both sides build wrongly still opens. So both party rows now carry
+expected values from `tools/EcdhCases`: the secret, the context, the derived key
+and the message. The generator computes them from the noble primitives through
+its own hand-written CBOR, which must first reproduce `p256-hkdf-256-01`. The
+older row had held the two sides only to each other since it existed. Its new
+expected values are the bytes both implementations had already recorded for it,
+recomputed by a third party.
+
+| | before | now |
+|---|---|---|
+| csharp | 637 normative | 646 — four computed values on each party row, and opening TypeScript's message on the new one |
+| typescript | 601 | 610 — the same |
+| csharp↔typescript | 457 | 464 — the seven agreements of the new row |
+| divergences | 3 | 3 |
+
+**Falsified**, twice:
+
+| what was changed | what happened |
+|---|---|
+| both implementations writing nil for a byte-string nonce in the context, `ecdh.ts` and `COSEKeyAgreement.cs` together | the new row fails six times: the context, the key and the message computed by the generator, on each side. No agreement fails, no divergence appears, and each side still opens the other's message. With the computed values removed from the row, the same recordings fail nothing at all. That is the mistake §12 describes, and only a third party sees it |
+| COSE.TS alone dropping `other` from its context | 18 failures, all on the two party rows, and 8 more divergences. Every agreement on those rows fails and both cross-openings fail. The computed values fail on the TypeScript side only, so they also say which side is wrong, which an agreement cannot |
+
 ### Falsification
 
 | what was changed | what happened |
@@ -3461,14 +3497,14 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Thirty-three cases: four signatures, the EdDSA pair, two key wraps, two
+Thirty-four cases: four signatures, the EdDSA pair, two key wraps, two
 thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
-that minting made possible, and the key with three primes. 637 (C#) / 601
-(TypeScript) / 56 (the third reader) normative, 457 agreements, zero failures,
-zero messages verified against what the third reader refuses, 59 survey
-observations each and 17 on the agreement rows.
+that minting made possible, the key with three primes, and the two party fields
+no row set. 646 (C#) / 610 (TypeScript) / 56 (the third reader) normative, 464
+agreements, zero failures, zero messages verified against what the third reader
+refuses, 59 survey observations each and 17 on the agreement rows.
 
 And three cross-implementation divergences, where this suite ran at zero for a
 while. Every one of them is a row built to produce it: a parameter RFC 4055
@@ -3489,6 +3525,6 @@ parameters both name, 11 do: the two that do not are the deprecated counter
 signature of label 7 and `Countersignature0 version 2` of label 12 — and the
 second is §26's shape exactly, a registered label both can name and neither
 reads, with COSE.TS's scope block giving the reason. Of
-the 8 header algorithm parameters both name, `PartyU other` (−23) and `PartyV
-nonce` (−25) are still unexercised; the one case that carries party information
-sets four of the six fields.
+the 8 header algorithm parameters both name, all 8 do since 2026-11-04: `PartyU
+other` (−23) and `PartyV nonce` (−25) were the two the one party row left out,
+and the row beside it sets them.
