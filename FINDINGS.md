@@ -3211,7 +3211,9 @@ duty. The hash is a MUST: scenario 3 of Section 3.3 says "all parameters in
 the signature structure algorithm identifier MUST match the parameters in the
 key structure algorithm identifier except the saltLength field", and a PS256
 message under a SHA-384 key does not match. So of the two rows the second has
-the firmer ground, and the record says so rather than averaging them.
+the firmer ground, and the record says so rather than averaging them. (Styx
+honours the MUST since `2041ccbc`: see *Decided: Styx honours the hash a key is
+restricted to* below.)
 
 **The salt is the one field a key and a signature are read differently for**,
 and it has its own row because nothing else in this suite would notice. "The
@@ -3477,6 +3479,67 @@ recomputed by a third party.
 | both implementations writing nil for a byte-string nonce in the context, `ecdh.ts` and `COSEKeyAgreement.cs` together | the new row fails six times: the context, the key and the message computed by the generator, on each side. No agreement fails, no divergence appears, and each side still opens the other's message. With the computed values removed from the row, the same recordings fail nothing at all. That is the mistake §12 describes, and only a third party sees it |
 | COSE.TS alone dropping `other` from its context | 18 failures, all on the two party rows, and 8 more divergences. Every agreement on those rows fails and both cross-openings fail. The computed values fail on the TypeScript side only, so they also say which side is wrong, which an agreement cannot |
 
+### Decided: Styx honours the hash a key is restricted to (2026-11-04)
+
+Of the two divergences that an `id-RSASSA-PSS` key raised, the maintainer had
+Styx take up the one with a MUST behind it. `a-key-restricted-to-another-hash`
+is a key restricted to RSASSA-PSS with SHA-384, carrying a PS256 message.
+Scenario 3 of RFC 4055 Section 3.3 forbids that: "all parameters in the
+signature structure algorithm identifier MUST match the parameters in the key
+structure algorithm identifier except the saltLength field". Styx used to
+verify it, because Bouncy Castle hands over an `RsaKeyParameters` that cannot
+be told apart from an `rsaEncryption` key's and keeps the identifier on the
+certificate. Since Styx `2041ccbc` the certificate is asked directly:
+`COSECertificateChain.PermitsAlgorithm` reads the end-entity certificate's
+subject public key info, and `VerifyWithCertificateChain` calls it after the
+chain has validated and before the signature is checked.
+
+For an RSASSA-PSS message under such a key with parameters, those parameters
+have to be what a COSE PS* is [RFC 8230, Section 2]: its hash, MGF1 over the
+same hash, trailer field 1, and a salt floor the hash reaches. These are the
+same rules COSE.TS applies when it reads the key, reached by another route.
+COSE.TS turns the parameters into the one algorithm the key carries. Styx
+compares them with the message's algorithm when it verifies.
+
+What it deliberately leaves alone is the scheme. An RSASSA-PKCS1-v1_5 message
+under an `id-RSASSA-PSS` key still verifies in Styx, and
+`a-key-restricted-to-the-other-rsa-scheme` is still a divergence. RFC 4055
+states that restriction as what the owner wishes, and no MUST stands behind
+it, so it remains open and was not part of this decision. Styx's tests pin the
+leniency, so a change to it will be a decision and not an accident.
+
+| row | Styx before | Styx now | COSE.TS |
+|---|---|---|---|
+| `a-key-restricted-to-another-hash` | verified | refused, *"restricts its key to RSASSA-PSS with SHA-384, and this message is signed with 'PS256', which hashes with SHA-256"* | refused |
+| `a-key-restricted-to-the-other-rsa-scheme` | verified | verified | refused |
+| the four rows that must verify | verified | verified | verified |
+
+The divergences go from three to two, and nothing else moves: 646 / 610 / 464
+/ 56, zero failures.
+
+**The row stays `survey`.** Both sides refuse now, and a `normative` row would
+hold them to it. Unlike the multi-prime row, a third implementation that
+verified this message would be breaking a MUST rather than declining an
+option, so the case for promoting it is stronger. Promoting it is still the
+maintainer's call, so it is offered here and not made.
+
+**Falsified.** In Styx, seven changes, each failing only what it should:
+
+| what was changed in Styx | Styx tests failing |
+|---|---|
+| the restriction never asked | 8: the four hash mismatches, the salt floor, MGF1 over another hash, another trailer field, and the defaults |
+| the hash not compared | 5: the four hash mismatches and the defaults, which name SHA-1 |
+| the salt read as a width | 1: the floor |
+| the salt not compared | 1: the floor |
+| the MGF1 hash not compared | 1 |
+| the trailer field not compared | 1 |
+| absent parameters read as their defaults | 1: the key without parameters, which takes any PS* |
+
+In the suite, the first of them fails nothing and moves the divergences from
+two back to three. That is the limit of a `survey` row. The divergence pass
+sees the regression and the run stays green, which is what the promotion
+offered above would change.
+
 ### Falsification
 
 | what was changed | what happened |
@@ -3506,11 +3569,13 @@ no row set. 646 (C#) / 610 (TypeScript) / 56 (the third reader) normative, 464
 agreements, zero failures, zero messages verified against what the third reader
 refuses, 59 survey observations each and 17 on the agreement rows.
 
-And three cross-implementation divergences, where this suite ran at zero for a
-while. Every one of them is a row built to produce it: a parameter RFC 4055
-does not allow, and the two halves of its Section 3.3 that a key restricted to
-RSASSA-PSS asks about. The fourth was a key form RFC 8230 offers and one side
-declined, until Styx `244aa8c3` read it too.
+And two cross-implementation divergences, where this suite ran at zero for a
+while. Each of them is a row built to produce it: a parameter RFC 4055 does
+not allow, and the restriction of a key to RSASSA-PSS as a scheme, which RFC
+4055 states as a wish. Two more have been closed. One was a key form RFC 8230
+offers and one side declined, until Styx `244aa8c3` read it too. The other was
+the hash such a key is restricted to, a MUST of Section 3.3, until Styx
+`2041ccbc` honoured it too.
 They are the first thing a reader of the report meets, and they are the point. A divergence is what this suite is for, and `survey` is
 how one is written down while which side is right remains the specification's
 question and not this suite's.

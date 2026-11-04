@@ -1569,9 +1569,11 @@ const KEY_TYPES = [
                      'which this message\'s do not. The parameter set is Bouncy Castle\'s own, ' +
                      'lifted out of `rsaPssManufacturerCA`, so nothing here turns on this ' +
                      'generator\'s idea of how to write one. Measured: COSE.TS attaches PS384 ' +
-                     'and refuses PS256 beside it; Styx verifies. `survey` for the same reason ' +
-                     'as the row above — the two disagree and §25 says a row that would declare ' +
-                     'one of them wrong is the maintainer\'s call — though this is the half of ' +
+                     'and refuses PS256 beside it. Styx verified it until 2041ccbc, because ' +
+                     'Bouncy Castle keeps the identifier on the certificate and not on the key, ' +
+                     'and since then reads the restriction from the certificate and refuses ' +
+                     'as well. So the row that was a divergence is an agreement now. It stays ' +
+                     '`survey` until the maintainer promotes it, though this is the half of ' +
                      'the pair with a MUST behind it.',
     },
     {
