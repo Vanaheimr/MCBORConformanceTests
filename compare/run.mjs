@@ -1281,6 +1281,37 @@ for (const testCase of vectors['cose-x509-messages']) {
           verdictOf(mine) === verdictOf(yours),
           `C#: ${describe(mine)} / TS: ${describe(yours)}`);
 
+    // A second question a row may ask, with its own class: whether the
+    // countersignature the message carries verifies under the key of the
+    // corpus certificate it names. The verdict on the body cannot show this,
+    // because a countersignature does not change whether the body verifies.
+    // An implementation that reads no such label records an error, which is
+    // a refusal here and a divergence below.
+    const countersignature = testCase.countersignature;
+
+    if (countersignature !== undefined) {
+
+        const label = `countersignature at label ${countersignature.label} (${countersignature.expected})`;
+
+        for (const [impl, results] of impls) {
+
+            const recorded = checkOf(results, key, 'countersignature');
+
+            judge(testCase.id, label, impl, countersignature.class,
+                  (verdictOf(recorded) === 'verifies') === (countersignature.expected === 'verifies'),
+                  `under the key of ${countersignature.signer}: ${describe(recorded)}`);
+
+        }
+
+        const mineToo  = checkOf(csharp, key, 'countersignature');
+        const yoursToo = checkOf(ts,     key, 'countersignature');
+
+        judge(testCase.id, 'agree on the countersignature', 'csharp↔typescript', countersignature.class,
+              verdictOf(mineToo) === verdictOf(yoursToo),
+              `C#: ${describe(mineToo)} / TS: ${describe(yoursToo)}`);
+
+    }
+
 }
 
 // --- suite: cose-x509-messages, a reader outside both implementations ---
@@ -1370,8 +1401,14 @@ for (const key of Object.keys(csharp.results)) {
         if (a === undefined || b === undefined)
             continue;
 
+        // The verdict is compared too, and not only the bytes and texts
+        // beside it: a record of a verification that carries no text, as a
+        // countersignature's does, would otherwise read the same verified
+        // and refused. The reason a refusal gives is not compared, being
+        // each implementation's own words.
         const same =
             a.status === b.status &&
+            (a.verified ?? null) === (b.verified ?? null) &&
             (a.hex ?? null)  === (b.hex ?? null) &&
             (a.text ?? null) === (b.text ?? null) &&
             (a.json ?? null) === (b.json ?? null);

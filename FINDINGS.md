@@ -3799,7 +3799,70 @@ made with the corpus's `strangerMeter` key, so a check per implementation of
 whether it verifies would hold Styx to a computation that is not its own, and
 would record COSE.TS's "not read" beside it as a `survey` divergence. Whether
 that is wanted, and whether COSE.TS should read label 7 as well, is the
-maintainer's call. It is offered here and not done.
+maintainer's call. It is offered here and not done. (The first was done the
+same day: see the next subsection.)
+
+### Decided: the countersignature is asked of each side (2026-11-04)
+
+The maintainer wanted the asymmetry seen. The label-7 row now asks two
+questions, each with its own class:
+
+- **The verdict on the body**, `normative`, as before. It does not move.
+- **The verdict on the countersignature**, `survey`. The row's new field
+  `countersignature` names the label, 7, and whose key the countersignature
+  must verify under: the corpus certificate `strangerMeter`. Each
+  implementation answers in a check of that name. The class is `survey`
+  because the "must" of RFC 9052 §3.1 is lowercase and the label deprecated.
+
+Each side answers as follows:
+
+- The C# runner takes the key out of the corpus certificate and asks Styx's
+  `RFC8152Countersignatures` and `VerifyRFC8152Countersignature`.
+- The TypeScript runner records an error, *"COSE.TS reads no countersignature
+  at label 7"*. COSE.TS has no reader to ask, and an error is how a side that
+  cannot answer says so, rather than with a verdict it never reached. The day
+  COSE.TS reads label 7, that function is where the reading goes.
+
+The countersignature is the generator's own, made with noble and checked by it
+before the file is written. So Styx is held to a computation that is not its
+own, and to the same structure the working group's examples hold it to in its
+unit tests. Before anything is written, the generator also checks that the
+certificate `strangerMeter` carries the key it countersigns with: the row
+names a certificate, and a certificate with another key would make it ask
+nothing.
+
+| | before | now |
+|---|---|---|
+| csharp | 650 normative, 57 survey | 650, 58: its verdict on the countersignature, *verified* |
+| typescript | 614, 57 | 614, 58: *error: COSE.TS reads no countersignature at label 7* |
+| csharp↔typescript | 468, 15 | 468, 16: the two verdicts disagree |
+| the third reader | 60 | 60 |
+| divergences | 1 | 2: the new one is this check |
+
+**One gap had to be closed for the check to be worth having.** The divergence
+pass compared what each side recorded by status, bytes, text and JSON, but not
+by verdict. A verification that carries no text, as a countersignature's does,
+read the same verified or refused. So had COSE.TS one day read label 7 and
+refused it wrongly, the divergence would have *disappeared*: both records
+would have said `ok`. The pass now compares `verified` too, but not the reason a
+refusal gives, which is each implementation's own wording. Measured on the
+whole suite, that change moves nothing else: 2 divergences before and after.
+
+**Falsified**, six times. Each runner change was measured on a fresh run of
+that runner, judged against the other side's clean results:
+
+| what was changed | what happened |
+|---|---|
+| the C# runner verifying under the key of `meter` instead of the named one | Styx refuses, *"The signature is invalid!"*. The C# survey row turns false. Both sides now refuse, so the agreement row reads true: two refusals agree, which is why the per-side rows are there |
+| Styx's RFC 8152 context string replaced by version 2's | the same: Styx refuses its own label-7 reading |
+| COSE.TS made to read label 7 and refuse it | the TypeScript row stays false and the agreement row false. The divergence stays at 2 |
+| the same, with `verified` taken out of the divergence pass again | the divergences drop to **1**: the gap above, measured |
+| COSE.TS made to read label 7 and verify it | both rows true, the agreement true, the divergences down to 1. This is what the check will show the day COSE.TS catches up |
+| the generator looking for the countersigner's key in `meter`'s certificate instead | the generator refuses to write the file: *"the certificate strangerMeter does not carry the key this generator countersigns with"* |
+
+Still the maintainer's call: whether COSE.TS reads label 7, and whether the
+second question becomes `normative`. Promoting it as things stand would fail
+every run on the TypeScript side.
 
 ### Falsification
 
@@ -3828,12 +3891,14 @@ produced, the three parameter rows that had to be minted, the six key-type rows
 that minting made possible, the key with three primes, the two party fields no
 row set, and the two countersignatures nobody reads. 650 (C#) / 614
 (TypeScript) / 60 (the third reader) normative, 468 agreements, zero failures,
-zero messages verified against what the third reader refuses, 57 survey
-observations each and 15 on the agreement rows.
+zero messages verified against what the third reader refuses, 58 survey
+observations each and 16 on the agreement rows.
 
-And one cross-implementation divergence, where this suite ran at zero for a
-while. It is a row built to produce it: the restriction of a key to RSASSA-PSS
-as a scheme, which RFC 4055 states as a wish. Three more have been closed. The
+And two cross-implementation divergences, where this suite ran at zero for a
+while. Both are rows built to produce one. The first is the restriction of a key
+to RSASSA-PSS as a scheme, which RFC 4055 states as a wish. The second is the
+countersignature of label 7, which Styx verifies and COSE.TS does not read.
+Three more have been closed. The
 first was a key form RFC 8230 offers and one side declined, until Styx
 `244aa8c3` read it too. The second was the hash such a key is restricted to, a
 MUST of Section 3.3, until Styx `2041ccbc` honoured it too. The third was a

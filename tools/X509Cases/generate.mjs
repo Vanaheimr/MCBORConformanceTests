@@ -1164,6 +1164,18 @@ if (corpus.privateKeys.strangerMeter.algorithm !== 'ESB256')
 
 const countersigner = hex(corpus.privateKeys.strangerMeter.keyD);
 
+// The label-7 row asks each implementation to verify its countersignature
+// under the key of the certificate `strangerMeter`, so that certificate must
+// carry the key this generator countersigns with. Its uncompressed point is
+// looked for in the certificate's bytes rather than parsed out of them: one
+// occurrence of 65 bytes cannot be there by accident.
+{
+    const point = Buffer.from(brainpoolP256r1.getPublicKey(countersigner, false)).toString('hex').toUpperCase();
+
+    if (upper(stranger).split(point).length !== 2)
+        throw new Error('the certificate strangerMeter does not carry the key this generator countersigns with');
+}
+
 /**
  * Where the third family's x5u says a certificate may be found.
  *
@@ -1623,6 +1635,11 @@ const COUNTERSIGNATURES = [
         label:       7,
         expected:    'accept',
         class:       'normative',
+        // A second question, asked of each implementation on its own: does
+        // the countersignature verify under the key of the certificate
+        // `strangerMeter`? `survey`, because the "must be understood" of RFC
+        // 9052 §3.1 is lowercase and the label is deprecated.
+        countersignature: { signer: 'strangerMeter', expected: 'verifies', class: 'survey' },
         carries:     'counter signature (label 7) of RFC 8152, made with the key of strangerMeter, beside the chain',
         description: 'The sound chain in x5chain, and in the unprotected bucket the `counter ' +
                      'signature` of RFC 8152 [label 7]: a COSE_Signature whose protected bucket ' +
@@ -1634,11 +1651,16 @@ const COUNTERSIGNATURES = [
                      'is the flaw RFC 9338 replaced it for. RFC 9052 §3.1 still says the label ' +
                      '"must be understood by new implementations, to remain compatible with ' +
                      'senders that adhere to" RFC 8152. Styx reads and verifies it since fb3314be; ' +
-                     'COSE.TS carries the name and reads nothing. What a verdict can ask is ' +
+                     'COSE.TS carries the name and reads nothing. The verdict on the body asks ' +
                      'only what the row above asks, whether a header nobody reads may cost a sound ' +
                      'message its verification, and both verify. `normative` on the same ' +
-                     'sentence. Whether a verifier should also process the countersignature is ' +
-                     'what RFC 9052 asks, and no verdict on the body can show it. There is no ' +
+                     'sentence. Whether a verifier also processes the countersignature is what ' +
+                     'RFC 9052 asks, and no verdict on the body can show it, so the row asks it ' +
+                     'separately: `countersignature` names whose key it must verify under, the ' +
+                     'certificate `strangerMeter` of the corpus, and each implementation is asked ' +
+                     'whether it does. That second question is `survey`, because the "must" is ' +
+                     'lowercase and the label deprecated, and an implementation that reads no ' +
+                     'label 7 answers it by saying so. There is no ' +
                      '`crit` row for the same reason as above, and besides, RFC 9052 §3.1 says ' +
                      'labels 0 to 7 "SHOULD be omitted" from crit.',
     },
@@ -1987,6 +2009,7 @@ const cases = [
                                                            : { countersigner }) })),
         trustAnchors:  ['metrologyRoot'],
         expected:      entry.expected,
+        ...(entry.countersignature ? { countersignature: { label: entry.label, ...entry.countersignature } } : {}),
         certificates:  2,
         der:           true,
         headers:       entry.carries,

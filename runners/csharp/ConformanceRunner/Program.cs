@@ -1479,6 +1479,41 @@ static void RunCoseX509Validate(JsonObject TestCase, JsonObject Checks, JsonObje
 
     });
 
+    // A second question some rows ask: whether the countersignature the
+    // message carries verifies, under the key of the corpus certificate the
+    // row names. The body's verdict above does not depend on it.
+    if (TestCase["countersignature"] is JsonObject countersignature)
+        Checks["countersignature"] = Capture(() =>
+            VerifyCountersignatureOf(Convert.FromHexString(TestCase["message"]!.GetValue<String>()),
+                                     countersignature["label"]!.GetValue<Int32>(),
+                                     CertificateOf(Corpus, countersignature["signer"]!.GetValue<String>()).GetPublicKey()));
+
+}
+
+
+/// <summary>
+/// Verify the one countersignature at the given label of a COSE_Sign1 message.
+/// Label 7 is the countersignature of RFC 8152, which Styx reads since
+/// fb3314be. A label this runner has no reader for is an exception, and so
+/// recorded as an error rather than as a verdict.
+/// </summary>
+static JsonObject VerifyCountersignatureOf(Byte[] Message, Int32 Label, AsymmetricKeyParameter PublicKey)
+{
+
+    if (!COSESign1.TryParse(Message, out var parsed, out var parseError))
+        return Error($"The COSE_Sign1 message could not be read: {parseError}");
+
+    if (Label != 7)
+        throw new Exception($"This runner reads no countersignature at label {Label}!");
+
+    var countersignatures = parsed.RFC8152Countersignatures;
+
+    if (countersignatures.Count != 1)
+        return Error($"The message carries {countersignatures.Count} RFC 8152 countersignatures, not one!");
+
+    return Verified(parsed.VerifyRFC8152Countersignature(countersignatures[0], PublicKey, out var errorResponse),
+                    errorResponse);
+
 }
 
 

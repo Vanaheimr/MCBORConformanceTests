@@ -153,6 +153,9 @@ interface VectorCase {
     partialIv?:        string;
     critical?:         boolean;
     expected?:         string;
+
+    // cose-x509-messages: a countersignature to verify under a corpus certificate
+    countersignature?: { label: number; signer: string; expected: string; class: string };
 }
 
 
@@ -673,6 +676,26 @@ function runCoseX509Validate(testCase: VectorCase, checks: Record<string, Check>
 
     });
 
+    // A second question some rows ask: whether the countersignature the
+    // message carries verifies, under the key of the corpus certificate the
+    // row names. The body's verdict above does not depend on it.
+    if (testCase.countersignature !== undefined)
+        checks['countersignature'] = capture(() => countersignatureOf(testCase.countersignature!.label));
+
+}
+
+
+/**
+ * Verify the one countersignature at the given label of a COSE_Sign1 message.
+ *
+ * COSE.TS reads none of the labels a row asks about. It names label 7
+ * (`HeaderLabel.counterSignature`), and its `countersignatures` getter reads
+ * label 11 alone. So the question is answered by saying so, as an error
+ * rather than as a verdict, and the day COSE.TS reads one this is where the
+ * reading goes.
+ */
+function countersignatureOf(label: number): Check {
+    throw new Error(`COSE.TS reads no countersignature at label ${String(label)}`);
 }
 
 
