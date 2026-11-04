@@ -3521,7 +3521,8 @@ The divergences go from three to two, and nothing else moves: 646 / 610 / 464
 hold them to it. Unlike the multi-prime row, a third implementation that
 verified this message would be breaking a MUST rather than declining an
 option, so the case for promoting it is stronger. Promoting it is still the
-maintainer's call, so it is offered here and not made.
+maintainer's call, so it is offered here and not made. (Made the same day: see
+*Decided: the hash row is normative* below.)
 
 **Falsified.** In Styx, seven changes, each failing only what it should:
 
@@ -3539,6 +3540,31 @@ In the suite, the first of them fails nothing and moves the divergences from
 two back to three. That is the limit of a `survey` row. The divergence pass
 sees the regression and the run stays green, which is what the promotion
 offered above would change.
+
+### Decided: the hash row is normative (2026-11-04)
+
+The maintainer took that promotion as well. `a-key-restricted-to-another-hash`
+is `normative`, and an implementation that verifies a PS256 message under a key
+restricted to SHA-384 now fails the run. Unlike the multi-prime row, this is
+not a requirement of this suite alone: RFC 4055 Section 3.3 states it as a MUST,
+so a third implementation that fails the row is wrong about RFC 4055 and has not
+merely declined an option. The description, written in `tools/X509Cases` and
+regenerated, says so. Every message in the file is byte for byte what it was.
+
+It moved three checks across, and nothing else moved:
+
+| | before | now |
+|---|---|---|
+| csharp | 646 normative, 59 survey | 647, 58: its verdict on the row |
+| typescript | 610, 59 | 611, 58: the same |
+| csharp↔typescript | 464, 17 | 465, 16: the agreement of the two verdicts |
+| divergences | 2 | 2 |
+
+**Falsified** with the same change as above, Styx never asking
+`PermitsAlgorithm`. Before the promotion it failed nothing. Now the run exits 1
+with two normative failures, both on this row: C#'s verdict, and the agreement
+of the two verdicts. The divergences go to three. The scheme row beside it is
+untouched and still `survey`, as nothing was decided about it.
 
 ### Falsification
 
@@ -3565,9 +3591,9 @@ thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
 that minting made possible, the key with three primes, and the two party fields
-no row set. 646 (C#) / 610 (TypeScript) / 56 (the third reader) normative, 464
+no row set. 647 (C#) / 611 (TypeScript) / 56 (the third reader) normative, 465
 agreements, zero failures, zero messages verified against what the third reader
-refuses, 59 survey observations each and 17 on the agreement rows.
+refuses, 58 survey observations each and 16 on the agreement rows.
 
 And two cross-implementation divergences, where this suite ran at zero for a
 while. Each of them is a row built to produce it: a parameter RFC 4055 does
@@ -3582,8 +3608,9 @@ question and not this suite's.
 
 The promotion of 2026-11-03 moved five rows across: the two cross-open
 verdicts, one per opening implementation, and the three byte agreements of the
-case. The promotion of 2026-11-04 moved six: the four agreements and the two
-cross-verifications of the key with three primes.
+case. The promotions of 2026-11-04 moved nine: the four agreements and the two
+cross-verifications of the key with three primes, and the two verdicts and
+their agreement on the hash a key is restricted to.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, 11 do: the two that do not are the deprecated counter

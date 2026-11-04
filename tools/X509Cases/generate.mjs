@@ -1557,7 +1557,7 @@ const KEY_TYPES = [
         key:         'id-RSASSA-PSS, with parameters naming SHA-384',
         algorithm:   PS256,
         expected:    'reject',
-        class:       'survey',
+        class:       'normative',
         reason:      'the certificate restricts the key to RSASSA-PSS with SHA-384 and the ' +
                      'message is signed with PS256, and RFC 4055 §3.3 requires the signature\'s ' +
                      'parameters to be the key\'s',
@@ -1572,9 +1572,10 @@ const KEY_TYPES = [
                      'and refuses PS256 beside it. Styx verified it until 2041ccbc, because ' +
                      'Bouncy Castle keeps the identifier on the certificate and not on the key, ' +
                      'and since then reads the restriction from the certificate and refuses ' +
-                     'as well. So the row that was a divergence is an agreement now. It stays ' +
-                     '`survey` until the maintainer promotes it, though this is the half of ' +
-                     'the pair with a MUST behind it.',
+                     'as well. So the row that was a divergence is an agreement now, and it is ' +
+                     '`normative` since 2026-11-04 by the maintainer\'s decision: the half of ' +
+                     'the pair with a MUST behind it, so an implementation that verifies this ' +
+                     'message breaks RFC 4055 rather than declining an option.',
     },
     {
         id:          'a-key-whose-salt-is-a-floor-and-not-a-width',
