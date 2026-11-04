@@ -1650,8 +1650,8 @@ const COUNTERSIGNATURES = [
                      'file is written. Unlike it, it does not cover the body\'s signature, which ' +
                      'is the flaw RFC 9338 replaced it for. RFC 9052 §3.1 still says the label ' +
                      '"must be understood by new implementations, to remain compatible with ' +
-                     'senders that adhere to" RFC 8152. Styx reads and verifies it since fb3314be; ' +
-                     'COSE.TS carries the name and reads nothing. The verdict on the body asks ' +
+                     'senders that adhere to" RFC 8152. Styx reads and verifies it since fb3314be, ' +
+                     'COSE.TS since a42bffa. The verdict on the body asks ' +
                      'only what the row above asks, whether a header nobody reads may cost a sound ' +
                      'message its verification, and both verify. `normative` on the same ' +
                      'sentence. Whether a verifier also processes the countersignature is what ' +
@@ -1659,8 +1659,8 @@ const COUNTERSIGNATURES = [
                      'separately: `countersignature` names whose key it must verify under, the ' +
                      'certificate `strangerMeter` of the corpus, and each implementation is asked ' +
                      'whether it does. That second question is `survey`, because the "must" is ' +
-                     'lowercase and the label deprecated, and an implementation that reads no ' +
-                     'label 7 answers it by saying so. There is no ' +
+                     'lowercase and the label deprecated, and an implementation that read no ' +
+                     'label 7 would answer it by saying so. There is no ' +
                      '`crit` row for the same reason as above, and besides, RFC 9052 §3.1 says ' +
                      'labels 0 to 7 "SHOULD be omitted" from crit.',
     },

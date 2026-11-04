@@ -111,10 +111,10 @@ RSA of its own, both paddings, from the modular exponentiation up, and
 certificate it mints is the corpus's own leaf with one field written
 differently, which the generator proves by minting it again with the field as
 the corpus has it and refusing to run unless that comes out byte for byte.
-What the two families found is one of the suite's two remaining divergences
-(the other is a countersignature only one side reads), two more that Styx has
-since closed, and the one place where a certificate everybody agrees is
-correctly encoded is refused all the same ([FINDINGS.md](FINDINGS.md) §28).
+What the two families found is the suite's remaining divergence, two more
+that Styx has since closed, and the one place where a certificate
+everybody agrees is correctly encoded is refused all the same
+([FINDINGS.md](FINDINGS.md) §28).
 
 Reading those encodings has a third party too: `tools/DerArbiter` answers the
 one question they turn on — is this certificate a single DER encoding — with

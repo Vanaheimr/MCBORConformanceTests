@@ -680,22 +680,32 @@ function runCoseX509Validate(testCase: VectorCase, checks: Record<string, Check>
     // message carries verifies, under the key of the corpus certificate the
     // row names. The body's verdict above does not depend on it.
     if (testCase.countersignature !== undefined)
-        checks['countersignature'] = capture(() => countersignatureOf(testCase.countersignature!.label));
+        checks['countersignature'] = capture(() => countersignatureOf(hexToBytes(testCase.message!),
+                                                                      testCase.countersignature!.label,
+                                                                      certificateOf(testCase.countersignature!.signer).publicKey));
 
 }
 
 
 /**
  * Verify the one countersignature at the given label of a COSE_Sign1 message.
- *
- * COSE.TS reads none of the labels a row asks about. It names label 7
- * (`HeaderLabel.counterSignature`), and its `countersignatures` getter reads
- * label 11 alone. So the question is answered by saying so, as an error
- * rather than as a verdict, and the day COSE.TS reads one this is where the
- * reading goes.
+ * Label 7 is the countersignature of RFC 8152, which COSE.TS reads since
+ * a42bffa. A label this runner has no reader for is an exception, and so
+ * recorded as an error rather than as a verdict.
  */
-function countersignatureOf(label: number): Check {
-    throw new Error(`COSE.TS reads no countersignature at label ${String(label)}`);
+function countersignatureOf(message: Uint8Array, label: number, publicKey: CoseKey): Check {
+
+    if (label !== 7)
+        throw new Error(`This runner reads no countersignature at label ${String(label)}!`);
+
+    const parsed            = CoseSign1.parse(message);
+    const countersignatures = parsed.rfc8152Countersignatures;
+
+    if (countersignatures.length !== 1)
+        throw new Error(`The message carries ${String(countersignatures.length)} RFC 8152 countersignatures, not one!`);
+
+    return verification(parsed.verifyRfc8152Countersignature(countersignatures[0]!, publicKey));
+
 }
 
 

@@ -3862,7 +3862,47 @@ that runner, judged against the other side's clean results:
 
 Still the maintainer's call: whether COSE.TS reads label 7, and whether the
 second question becomes `normative`. Promoting it as things stand would fail
-every run on the TypeScript side.
+every run on the TypeScript side. (The first was decided the same day: see the
+next subsection.)
+
+### Decided: COSE.TS reads label 7 (2026-11-04)
+
+The maintainer had COSE.TS meet the compatibility sentence as well. Since
+COSE.TS `a42bffa`, it mirrors Styx `fb3314be` feature for feature:
+
+- `CoseSign1.rfc8152Countersignatures` reads label 7, through the reader that
+  `countersignatures` now shares.
+- `verifyRfc8152Countersignature` verifies one over the Sig_structure that the
+  static `toBeRfc8152Countersigned` builds, with the context
+  `RFC8152_COUNTERSIGNATURE_CONTEXT`. The `crit` and algorithm checks are the
+  ones version 2 runs.
+- Nothing writes one.
+
+Its six new tests are held to the same two examples of cose-wg/Examples as
+Styx's, the Sig_structure byte for byte. They were falsified the same six ways
+Styx's were, and failed the same counts: 3 / 6 / 11 / 3 / 3 / 3. The 11 are
+the version 2 tests when label 7 is read for label 11. `npm run verify`: 677
+passed.
+
+The TypeScript runner now asks COSE.TS rather than recording that it cannot:
+
+| | before | now |
+|---|---|---|
+| csharp | 650 normative, 58 survey | unchanged, still *verified* |
+| typescript | 614, 58: *error: COSE.TS reads no countersignature at label 7* | 614, 58: *verified* |
+| csharp↔typescript | 468, 16: the verdicts disagree | 468, 16: they agree |
+| divergences | 2 | **1** |
+
+**Falsified** twice in COSE.TS, each measured on a fresh TypeScript run:
+
+| what was changed in COSE.TS | what happened |
+|---|---|
+| the RFC 8152 context string replaced by version 2's | TypeScript refuses, *"The signature is not valid for this payload and this key!"*. Its survey row and the agreement row turn false, and the divergences go to 2. Both records say `ok` here, so it is the verdict comparison added the same morning that counts this one. Without it, this divergence would not have been seen |
+| label 11 read for label 7 | TypeScript finds no countersignature to verify and records an error. The same rows turn false, and the divergences go to 2 |
+
+The second question can now be promoted without failing a run, since both sides
+answer it rightly. Whether it is, given a lowercase "must" and a deprecated
+label, is the maintainer's call. It is offered here and not done.
 
 ### Falsification
 
@@ -3894,15 +3934,15 @@ row set, and the two countersignatures nobody reads. 650 (C#) / 614
 zero messages verified against what the third reader refuses, 58 survey
 observations each and 16 on the agreement rows.
 
-And two cross-implementation divergences, where this suite ran at zero for a
-while. Both are rows built to produce one. The first is the restriction of a key
-to RSASSA-PSS as a scheme, which RFC 4055 states as a wish. The second is the
-countersignature of label 7, which Styx verifies and COSE.TS does not read.
-Three more have been closed. The
+And one cross-implementation divergence, where this suite ran at zero for a
+while. It is a row built to produce it: the restriction of a key to RSASSA-PSS
+as a scheme, which RFC 4055 states as a wish. Four more have been closed. The
 first was a key form RFC 8230 offers and one side declined, until Styx
 `244aa8c3` read it too. The second was the hash such a key is restricted to, a
 MUST of Section 3.3, until Styx `2041ccbc` honoured it too. The third was a
-parameter RFC 4055 does not allow, until Styx `82af43fd` refused it too.
+parameter RFC 4055 does not allow, until Styx `82af43fd` refused it too. The
+fourth was the countersignature of label 7, which Styx verified and COSE.TS did
+not read, until COSE.TS `a42bffa` read it too.
 Divergences are the first thing a reader of the report meets, and they are the point. A divergence is what this suite is for, and `survey` is
 how one is written down while which side is right remains the specification's
 question and not this suite's.
