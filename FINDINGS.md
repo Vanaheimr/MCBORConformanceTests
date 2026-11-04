@@ -3110,6 +3110,8 @@ certificate and refusing it is right, and nothing asks a reader to police a
 field it does not interpret, which is what a certificate library does for every
 algorithm whose parameters it has no use for. Which of the two a verifier
 should be is for the specification to settle rather than for this suite.
+(Styx refuses it as well since `82af43fd`: see *Decided: Styx refuses what RFC
+4055 does not allow* below.)
 
 **The third reader is what makes this family different from §25's.** A
 zero-length OCTET STRING is a correct DER encoding of a correct ASN.1 value;
@@ -3566,6 +3568,53 @@ with two normative failures, both on this row: C#'s verdict, and the agreement
 of the two verdicts. The divergences go to three. The scheme row beside it is
 untouched and still `survey`, as nothing was decided about it.
 
+### Decided: Styx refuses what RFC 4055 does not allow (2026-11-04)
+
+The maintainer had Styx take up the first divergence of the RSA certificates
+as well. `a-parameter-rfc-4055-does-not-allow` is a certificate with a
+zero-length OCTET STRING beside `sha256WithRSAEncryption`, consistent in both
+copies and under a valid signature. Styx verified it, because Bouncy Castle
+compares the two copies and accepts whatever parameters both share. Since Styx
+`82af43fd`, `COSECertificateChain.TryParse` refuses it, next to the DER check
+and at the same point. It checks every certificate of the `COSE_X509` and both
+copies of the signature algorithm, for md5, sha1, sha224, sha256, sha384 and
+sha512WithRSAEncryption. A NULL and nothing at all are read as before, and
+every other signature algorithm is untouched. That is the line COSE.TS draws
+with `expectNoParameters`.
+
+| row | Styx before | Styx now | COSE.TS |
+|---|---|---|---|
+| `a-parameter-rfc-4055-does-not-allow` | verified | refused, *"says it was signed with '1.2.840.113549.1.1.11' and carries parameters beside it, where RFC 4055 Section 5 allows a NULL or nothing at all"* | refused |
+| `the-parameter-rfc-4055-asks-for`, a NULL | verified | verified | verified |
+| `no-parameters-at-all` | verified | verified | verified |
+
+The divergences go from two to one, and nothing else moves: 647 / 611 / 465 /
+56, zero failures.
+
+**The row stays `survey`.** This time the reason is weaker than for the hash
+row. RFC 4055 §5 makes the certificate invalid, but nothing in it or in RFC
+9360 is addressed to a verifier of COSE messages. A third implementation that
+verified the message would be lenient about a field it does not interpret, and
+would not be breaking a rule addressed to it. Both sides refuse now, so a
+`normative` row would hold them to it. Promoting it is the maintainer's call,
+offered here and not made.
+
+**Falsified.** In Styx, four changes, each failing only what it should:
+
+| what was changed in Styx | Styx tests failing |
+|---|---|
+| the parameters never asked | 7: three odd parameter sets, three more PKCS #1 v1.5 hashes, and an issuing certificate at position 1 |
+| a NULL refused as well | 19: every test whose certificates Bouncy Castle signs with RSA, since it writes a NULL |
+| absent parameters refused | 1 |
+| `sha1WithRSAEncryption` left out | 1 |
+
+The Styx tests mint their certificates through a signature factory that signs
+as Bouncy Castle does and names the algorithm with whatever parameters a test
+asks for. So the odd parameters are consistent in both copies and the signature
+verifies, which a test asserts before it expects the refusal. In the suite, the
+first change fails nothing and moves the divergences from one back to two, the
+limit of a `survey` row once again.
+
 ### Falsification
 
 | what was changed | what happened |
@@ -3595,14 +3644,14 @@ no row set. 647 (C#) / 611 (TypeScript) / 56 (the third reader) normative, 465
 agreements, zero failures, zero messages verified against what the third reader
 refuses, 58 survey observations each and 16 on the agreement rows.
 
-And two cross-implementation divergences, where this suite ran at zero for a
-while. Each of them is a row built to produce it: a parameter RFC 4055 does
-not allow, and the restriction of a key to RSASSA-PSS as a scheme, which RFC
-4055 states as a wish. Two more have been closed. One was a key form RFC 8230
-offers and one side declined, until Styx `244aa8c3` read it too. The other was
-the hash such a key is restricted to, a MUST of Section 3.3, until Styx
-`2041ccbc` honoured it too.
-They are the first thing a reader of the report meets, and they are the point. A divergence is what this suite is for, and `survey` is
+And one cross-implementation divergence, where this suite ran at zero for a
+while. It is a row built to produce it: the restriction of a key to RSASSA-PSS
+as a scheme, which RFC 4055 states as a wish. Three more have been closed. The
+first was a key form RFC 8230 offers and one side declined, until Styx
+`244aa8c3` read it too. The second was the hash such a key is restricted to, a
+MUST of Section 3.3, until Styx `2041ccbc` honoured it too. The third was a
+parameter RFC 4055 does not allow, until Styx `82af43fd` refused it too.
+Divergences are the first thing a reader of the report meets, and they are the point. A divergence is what this suite is for, and `survey` is
 how one is written down while which side is right remains the specification's
 question and not this suite's.
 

@@ -1456,16 +1456,16 @@ const RFC4055 = [
                      'third encoder: patching a minted certificate reaches only an inconsistent ' +
                      'one, which both implementations refuse, and the refusals say so. Measured ' +
                      'here: Bouncy Castle reads this certificate, reports its parameters as `04 ' +
-                     '00`, and verifies the signature — so Styx verifies this message — while ' +
-                     'COSE.TS refuses it at the parse, saying the identifier "carries parameters ' +
-                     '… where RFC 4055 allows a NULL or nothing at all". `survey`, because ' +
-                     'neither answer is wrong. RFC 4055 §5 says the parameters MUST be NULL, so ' +
-                     'nothing here is a valid certificate and refusing it is right; and nothing ' +
-                     'asks a reader to police a field it does not interpret, which is what a ' +
-                     'certificate library does for every algorithm whose parameters it has no ' +
-                     'use for. Which of the two a verifier should be is for the specification to ' +
-                     'settle rather than for this suite, and until it does the row records both ' +
-                     'verdicts side by side every run.',
+                     '00`, and verifies the signature, so Styx verified this message until ' +
+                     '82af43fd; since then it refuses it as well, where it reads the chain, next ' +
+                     'to the DER check. COSE.TS refuses it at the parse, saying the identifier ' +
+                     '"carries parameters … where RFC 4055 allows a NULL or nothing at all". So ' +
+                     'the row that was a divergence is an agreement now. It stays `survey` ' +
+                     'until the maintainer promotes it. RFC 4055 §5 says the parameters MUST be ' +
+                     'NULL, so nothing here is a valid certificate and refusing it is right, ' +
+                     'but nothing asks a reader to police a field it does not interpret, so a ' +
+                     'third implementation that verified it would not be breaking a rule ' +
+                     'addressed to it.',
     },
     {
         id:          'no-parameters-at-all',
