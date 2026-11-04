@@ -3742,7 +3742,64 @@ change whether the body verifies. The "must" is lowercase rather than a
 BCP 14 MUST, and the label it protects is the one RFC 9338 deprecated for
 attesting to less than it appears to. Whether Styx and COSE.TS should read
 it anyway, as the compatibility sentence asks, or record that they do not, is
-the maintainer's call. It is recorded here and not decided.
+the maintainer's call. It is recorded here and not decided. (Decided for Styx
+the same day: see *Decided: Styx reads label 7* below.)
+
+### Decided: Styx reads label 7 (2026-11-04)
+
+The maintainer had Styx meet the compatibility sentence. Since Styx `fb3314be`:
+
+- `COSESign1.RFC8152Countersignatures` reads label 7. Its value is a
+  COSE_Signature or an array of them, the two shapes label 11 has, and one
+  reader now serves both getters.
+- `VerifyRFC8152Countersignature` verifies one over the Sig_structure of
+  RFC 8152 Section 4.4, which `ToBeRFC8152Countersigned` builds. The checks
+  on the countersignature itself, its `crit` and the algorithm it states or
+  the caller expects, are shared with version 2 rather than copied.
+- Nothing writes one. `AddCountersignature` writes version 2, as before.
+- The doc comments say what a valid one does not attest: its signer signed
+  this payload under this protected bucket, and that is all.
+
+The tests are held to the COSE working group's own examples,
+`countersign/signed1-01` and `signed1-02` of cose-wg/Examples:
+
+- One EdDSA countersignature written bare, and an EdDSA and an ES256 one in an
+  array.
+- The working group publishes what each countersigner signed. Styx's
+  Sig_structure is compared with it byte for byte, and the EdDSA
+  countersignature is deterministic besides.
+- Label 7 is not read as label 11, and neither structure verifies the other's
+  countersignature.
+- Replacing the body signature leaves an RFC 8152 countersignature valid. That
+  is the flaw itself, stated as a test.
+- Changing the payload or the protected bucket breaks the countersignature.
+- A label 7 that holds no countersignature is refused.
+
+**Falsified.** In Styx, six changes, each failing only what it should:
+
+| what was changed in Styx | Styx tests failing |
+|---|---|
+| the context string of version 2 | 3: the published examples, and the test with the body signature replaced |
+| label 11 read for label 7 | 6 |
+| label 7 read for label 11 | 7: the version 2 tests |
+| the body's protected bucket left out of the structure | 3 |
+| the payload left out | 3 |
+| verifying over the version 2 structure | 3 |
+
+**In the suite nothing moves**, and that is honest rather than missing: 650 /
+614 / 468 / 60, one divergence. The label-7 row asks what a verdict on the body
+can ask, and a countersignature, read or not, does not change that verdict. The
+row's description, written in `tools/X509Cases` and regenerated, now says Styx
+reads it. Every message in the file is byte for byte what it was.
+
+What the suite does not see is the new asymmetry. Styx reads label 7 and
+COSE.TS does not, and no row records either side's verdict on a
+countersignature. One could: the row's countersignature is the generator's own,
+made with the corpus's `strangerMeter` key, so a check per implementation of
+whether it verifies would hold Styx to a computation that is not its own, and
+would record COSE.TS's "not read" beside it as a `survey` divergence. Whether
+that is wanted, and whether COSE.TS should read label 7 as well, is the
+maintainer's call. It is offered here and not done.
 
 ### Falsification
 

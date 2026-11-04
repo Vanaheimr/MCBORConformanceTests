@@ -1633,8 +1633,8 @@ const COUNTERSIGNATURES = [
                      'file is written. Unlike it, it does not cover the body\'s signature, which ' +
                      'is the flaw RFC 9338 replaced it for. RFC 9052 §3.1 still says the label ' +
                      '"must be understood by new implementations, to remain compatible with ' +
-                     'senders that adhere to" RFC 8152, and neither implementation understands it: ' +
-                     'both carry the name and nothing reads the value. What a verdict can ask is ' +
+                     'senders that adhere to" RFC 8152. Styx reads and verifies it since fb3314be; ' +
+                     'COSE.TS carries the name and reads nothing. What a verdict can ask is ' +
                      'only what the row above asks, whether a header nobody reads may cost a sound ' +
                      'message its verification, and both verify. `normative` on the same ' +
                      'sentence. Whether a verifier should also process the countersignature is ' +
