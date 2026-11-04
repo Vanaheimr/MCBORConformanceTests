@@ -3597,7 +3597,8 @@ row. RFC 4055 §5 makes the certificate invalid, but nothing in it or in RFC
 verified the message would be lenient about a field it does not interpret, and
 would not be breaking a rule addressed to it. Both sides refuse now, so a
 `normative` row would hold them to it. Promoting it is the maintainer's call,
-offered here and not made.
+offered here and not made. (Made the same day: see *Decided: the NULL row is
+normative* below.)
 
 **Falsified.** In Styx, four changes, each failing only what it should:
 
@@ -3614,6 +3615,36 @@ asks for. So the odd parameters are consistent in both copies and the signature
 verifies, which a test asserts before it expects the refusal. In the suite, the
 first change fails nothing and moves the divergences from one back to two, the
 limit of a `survey` row once again.
+
+### Decided: the NULL row is normative (2026-11-04)
+
+The maintainer took this promotion too. `a-parameter-rfc-4055-does-not-allow`
+is `normative`, and an implementation that verifies a message whose
+certificate carries anything other than a NULL, or nothing at all, beside
+`sha256WithRSAEncryption` now fails the run. Of the three promotions of the
+day it rests on the narrowest ground, and the description says so. RFC 4055 §5
+makes the certificate invalid, but nothing in it or in RFC 9360 is addressed to
+a verifier of COSE messages. So, as with the multi-prime row, this is a
+requirement of this suite. A third implementation that verified the message
+would fail here for being lenient about a field it does not interpret, not for
+breaking a rule addressed to it. The description was written in
+`tools/X509Cases` and the file regenerated. Every message in it is byte for
+byte what it was.
+
+It moved three checks across, and nothing else moved:
+
+| | before | now |
+|---|---|---|
+| csharp | 647 normative, 58 survey | 648, 57: its verdict on the row |
+| typescript | 611, 58 | 612, 57: the same |
+| csharp↔typescript | 465, 16 | 466, 15: the agreement of the two verdicts |
+| divergences | 1 | 1 |
+
+**Falsified** with the same change as above: Styx never asks whether the
+certificate has the parameters a PKCS #1 v1.5 signature allows. Before the
+promotion that failed nothing. Now the run exits 1 with two normative
+failures, both on this row: C#'s verdict and the agreement of the two
+verdicts. The divergences go to two.
 
 ### Falsification
 
@@ -3640,9 +3671,9 @@ thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
 that minting made possible, the key with three primes, and the two party fields
-no row set. 647 (C#) / 611 (TypeScript) / 56 (the third reader) normative, 465
+no row set. 648 (C#) / 612 (TypeScript) / 56 (the third reader) normative, 466
 agreements, zero failures, zero messages verified against what the third reader
-refuses, 58 survey observations each and 16 on the agreement rows.
+refuses, 57 survey observations each and 15 on the agreement rows.
 
 And one cross-implementation divergence, where this suite ran at zero for a
 while. It is a row built to produce it: the restriction of a key to RSASSA-PSS
@@ -3657,9 +3688,10 @@ question and not this suite's.
 
 The promotion of 2026-11-03 moved five rows across: the two cross-open
 verdicts, one per opening implementation, and the three byte agreements of the
-case. The promotions of 2026-11-04 moved nine: the four agreements and the two
-cross-verifications of the key with three primes, and the two verdicts and
-their agreement on the hash a key is restricted to.
+case. The promotions of 2026-11-04 moved twelve: the four agreements and the
+two cross-verifications of the key with three primes, the two verdicts and
+their agreement on the hash a key is restricted to, and the same three on the
+parameter RFC 4055 does not allow.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, 11 do: the two that do not are the deprecated counter

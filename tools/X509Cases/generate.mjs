@@ -1444,7 +1444,7 @@ const RFC4055 = [
         id:          'a-parameter-rfc-4055-does-not-allow',
         parameters:  'a zero-length OCTET STRING',
         expected:    'reject',
-        class:       'survey',
+        class:       'normative',
         reason:      'the signature algorithm carries a zero-length OCTET STRING where RFC 4055 ' +
                      '§5 requires a NULL or nothing, and the certificate is consistent in it: ' +
                      'both copies carry it and the issuer\'s signature covers one of them',
@@ -1460,12 +1460,14 @@ const RFC4055 = [
                      '82af43fd; since then it refuses it as well, where it reads the chain, next ' +
                      'to the DER check. COSE.TS refuses it at the parse, saying the identifier ' +
                      '"carries parameters … where RFC 4055 allows a NULL or nothing at all". So ' +
-                     'the row that was a divergence is an agreement now. It stays `survey` ' +
-                     'until the maintainer promotes it. RFC 4055 §5 says the parameters MUST be ' +
-                     'NULL, so nothing here is a valid certificate and refusing it is right, ' +
-                     'but nothing asks a reader to police a field it does not interpret, so a ' +
-                     'third implementation that verified it would not be breaking a rule ' +
-                     'addressed to it.',
+                     'the row that was a divergence is an agreement now, and it is `normative` ' +
+                     'since 2026-11-04 by the maintainer\'s decision. RFC 4055 §5 says the ' +
+                     'parameters MUST be NULL, so nothing here is a valid certificate and ' +
+                     'refusing it is right. Nothing in RFC 4055 or RFC 9360 is addressed to a ' +
+                     'verifier of COSE messages, so this is a requirement of this suite: a third ' +
+                     'implementation that verified the message would fail here for being lenient ' +
+                     'about a field it does not interpret, and not for breaking a rule addressed ' +
+                     'to it.',
     },
     {
         id:          'no-parameters-at-all',
