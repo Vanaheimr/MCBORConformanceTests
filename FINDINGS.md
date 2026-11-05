@@ -3995,6 +3995,37 @@ Every line exits 0, and the last one shows no new divergence at all. That is
 required row catches. Whether the two rows become `normative`, now that both
 sides answer them, is the maintainer's call. It would hold both implementations
 to a restriction RFC 4055 states as a wish. It is offered here and not done.
+(Done the same day: see the next subsection.)
+
+### Decided: the scheme rows are normative (2026-11-05)
+
+The maintainer promoted both rows:
+
+- `a-key-restricted-to-the-other-rsa-scheme`
+- `a-restriction-that-names-no-hash-with-the-other-scheme`
+
+RFC 4055 still states the restriction as a wish, and both rows still say so.
+What decided it is what decided label 7: only a required row catches two
+implementations going lenient at once. The second row was that case, measured
+on the day before this decision.
+
+| | before | now |
+|---|---|---|
+| csharp | 651 normative, 57 survey | 653, 55 |
+| typescript | 615, 57 | 617, 55 |
+| csharp↔typescript | 469, 15 | 471, 13 |
+| the third reader | 60 | 60 |
+| divergences | 0 | 0 |
+
+**Falsified** again on fresh runs of both sides, by taking the scheme check back
+out. The divergences are the same as in the table above. Only the exit codes
+change:
+
+| what was taken out | as `survey` | as `normative` |
+|---|---|---|
+| Styx's | 2 divergences, exit 0 | 4 failures: C#'s two verdicts and both agreements. Exit **1** |
+| COSE.TS's | 1 divergence, exit 0 | 2 failures: TypeScript's verdict on the row without parameters, and its agreement. Exit **1** |
+| both at once | 1 divergence, exit 0, and the shared leniency counted as agreement | 4 failures: both sides' verdicts on the row without parameters, C#'s on the other row and that row's agreement. The agreement on the row without parameters **passes**, because two lenient readers agree. Exit **1** |
 
 ### Falsification
 
@@ -4022,9 +4053,9 @@ the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
 that minting made possible, the key with three primes, the two party fields no
 row set, and the two countersignatures: one that nobody reads, and one that
-both have read since 2026-11-04. 651 (C#) / 615 (TypeScript) / 60 (the third
-reader) normative, 469 agreements, zero failures, zero messages verified
-against what the third reader refuses, 57 survey observations each and 15 on
+both have read since 2026-11-04. 653 (C#) / 617 (TypeScript) / 60 (the third
+reader) normative, 471 agreements, zero failures, zero messages verified
+against what the third reader refuses, 55 survey observations each and 13 on
 the agreement rows.
 
 And no cross-implementation divergence, for the first time since §25. Five
@@ -4048,7 +4079,9 @@ case. The promotions of 2026-11-04 moved twelve: the four agreements and the
 two cross-verifications of the key with three primes, the two verdicts and
 their agreement on the hash a key is restricted to, and the same three on the
 parameter RFC 4055 does not allow. The promotion of 2026-11-05 moved three: the
-two verdicts on the label-7 countersignature and their agreement.
+two verdicts on the label-7 countersignature and their agreement. A second
+promotion that day moved six: the two verdicts and their agreement on each of
+the two rows that ask about the scheme.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, all 13 do since 2026-11-04. The last two were

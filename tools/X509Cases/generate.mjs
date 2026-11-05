@@ -1796,7 +1796,7 @@ const KEY_TYPES = [
         key:         'id-RSASSA-PSS, with parameters naming SHA-256',
         algorithm:   RS256,
         expected:    'reject',
-        class:       'survey',
+        class:       'normative',
         reason:      'the certificate restricts the key to RSASSA-PSS with SHA-256 and the ' +
                      'message is signed with RSASSA-PKCS1-v1_5, which no key named by ' +
                      'id-RSASSA-PSS is for',
@@ -1814,9 +1814,11 @@ const KEY_TYPES = [
                      'and not on the key, so Styx verified. Since 2026-11-05, by the ' +
                      'maintainer\'s decision, both honour the restriction: Styx since 70e1eac1 and ' +
                      'COSE.TS since 2cf2699 refuse any message under such a key that is not ' +
-                     'RSASSA-PSS, and say so for the scheme. `survey` still: RFC 4055 states ' +
-                     'the restriction as what the owner wishes rather than as what a verifier ' +
-                     'must enforce, and RFC 9360 says nothing about it at all.',
+                     'RSASSA-PSS, and say so for the scheme. `normative` since 2026-11-05, by ' +
+                     'the same decision, although RFC 4055 states the restriction as what the ' +
+                     'owner wishes rather than as what a verifier must enforce, and RFC 9360 ' +
+                     'says nothing about it at all: a required row is what fails a run in ' +
+                     'which both implementations go lenient at once.',
     },
     {
         id:          'a-key-restricted-to-another-hash',
@@ -1886,7 +1888,7 @@ const KEY_TYPES = [
         key:         'id-RSASSA-PSS, with no parameters',
         algorithm:   RS256,
         expected:    'reject',
-        class:       'survey',
+        class:       'normative',
         reason:      'the certificate restricts the key to RSASSA-PSS, naming no hash, and the ' +
                      'message is signed with RSASSA-PKCS1-v1_5',
         description: 'The second row\'s question with the parameters gone, and until ' +
@@ -1898,10 +1900,11 @@ const KEY_TYPES = [
                      'both refuse it: Styx since 70e1eac1, and COSE.TS since 2cf2699, which ' +
                      'keeps the restriction on the certificate rather than on the key. So the ' +
                      'enforcement no longer comes from the parameters naming a hash but from ' +
-                     'the identifier. `survey` still, because §3.1 puts the restriction in the ' +
-                     'key owner\'s wishes and no specification here turns it into a verifier\'s ' +
-                     'duty. It is also the shape §25 warns about: two implementations lenient ' +
-                     'at once, which only a required row catches.',
+                     'the identifier. §3.1 puts the restriction in the key owner\'s wishes and ' +
+                     'no specification here turns it into a verifier\'s duty, and the row is ' +
+                     '`normative` since 2026-11-05 all the same, by the maintainer\'s decision: ' +
+                     'it is the shape §25 warns about, two implementations lenient at once, ' +
+                     'which only a required row catches.',
     },
 ];
 
