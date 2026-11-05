@@ -111,8 +111,8 @@ RSA of its own, both paddings, from the modular exponentiation up, and
 certificate it mints is the corpus's own leaf with one field written
 differently, which the generator proves by minting it again with the field as
 the corpus has it and refusing to run unless that comes out byte for byte.
-What the two families found is the suite's remaining divergence, two more
-that Styx has since closed, and the one place where a certificate
+What the two families found is three divergences, all closed since, by Styx
+alone or by both, and the one place where a certificate
 everybody agrees is correctly encoded is refused all the same
 ([FINDINGS.md](FINDINGS.md) §28).
 

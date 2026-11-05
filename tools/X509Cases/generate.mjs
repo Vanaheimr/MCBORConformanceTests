@@ -1807,15 +1807,16 @@ const KEY_TYPES = [
                      'makes refusing it an answer. What forbids it is one sentence about intent: ' +
                      'id-RSASSA-PSS is in the subject public key info "when the RSA private key ' +
                      'owner wishes to limit the use of the public key exclusively to RSASSA-PSS" ' +
-                     '[RFC 4055 §3.1]. Measured: COSE.TS attaches the PS256 the parameters name ' +
-                     'to the key and then refuses the message for stating another algorithm; ' +
+                     '[RFC 4055 §3.1]. Measured: COSE.TS attached the PS256 the parameters name ' +
+                     'to the key and refused the message for stating another algorithm; ' +
                      'Bouncy Castle hands Styx an RsaKeyParameters that is indistinguishable ' +
                      'from the control\'s, keeping the identifier on the certificate structure ' +
-                     'and not on the key, so Styx verifies. `survey`: the restriction is real ' +
-                     'and RFC 4055 states it, and it states it as what the owner wishes rather ' +
-                     'than as what a verifier must enforce, and RFC 9360 says nothing about it ' +
-                     'at all. Which of the two a verifier should be is for the specification to ' +
-                     'settle rather than for this suite.',
+                     'and not on the key, so Styx verified. Since 2026-11-05, by the ' +
+                     'maintainer\'s decision, both honour the restriction: Styx since 70e1eac1 and ' +
+                     'COSE.TS since 2cf2699 refuse any message under such a key that is not ' +
+                     'RSASSA-PSS, and say so for the scheme. `survey` still: RFC 4055 states ' +
+                     'the restriction as what the owner wishes rather than as what a verifier ' +
+                     'must enforce, and RFC 9360 says nothing about it at all.',
     },
     {
         id:          'a-key-restricted-to-another-hash',
@@ -1888,22 +1889,19 @@ const KEY_TYPES = [
         class:       'survey',
         reason:      'the certificate restricts the key to RSASSA-PSS, naming no hash, and the ' +
                      'message is signed with RSASSA-PKCS1-v1_5',
-        description: 'The second row\'s question with the parameters gone, and the one row here ' +
-                     'where both implementations are lenient together — which is why it is ' +
-                     'written down rather than required. Measured: both verify this message. ' +
-                     'Styx for the reason it verifies the second row, and COSE.TS for a ' +
-                     'different one it states in its own changelog: the restriction here is to a ' +
-                     'scheme and not to an algorithm, and the COSE algorithms bundle a scheme ' +
-                     'with a hash, so "RSASSA-PSS with whichever hash" is not a name it has to ' +
-                     'attach to the key — a key would have to carry a family instead. So this ' +
-                     'row and the second one together say where the enforcement comes from: ' +
-                     'from the parameters naming a hash, and not from the identifier. `survey`, ' +
-                     'and `reject` in it is what honouring §3.1 would mean rather than what ' +
-                     'this suite asks of anyone. It is also the shape §25 warns about — two ' +
-                     'implementations lenient at once, which recording catches and requiring ' +
-                     'nothing does not — and the reason it is recorded and not promoted is that ' +
-                     '§3.1 puts the restriction in the key owner\'s wishes and no specification ' +
-                     'here turns it into a verifier\'s duty.',
+        description: 'The second row\'s question with the parameters gone, and until ' +
+                     '2026-11-05 the one row here where both implementations were lenient ' +
+                     'together. Both verified this message: Styx for the reason it verified the ' +
+                     'second row, and COSE.TS because the restriction here is to a scheme and ' +
+                     'not to an algorithm, and "RSASSA-PSS with whichever hash" is not a name ' +
+                     'COSE has to attach to the key. Since then, by the maintainer\'s decision, ' +
+                     'both refuse it: Styx since 70e1eac1, and COSE.TS since 2cf2699, which ' +
+                     'keeps the restriction on the certificate rather than on the key. So the ' +
+                     'enforcement no longer comes from the parameters naming a hash but from ' +
+                     'the identifier. `survey` still, because §3.1 puts the restriction in the ' +
+                     'key owner\'s wishes and no specification here turns it into a verifier\'s ' +
+                     'duty. It is also the shape §25 warns about: two implementations lenient ' +
+                     'at once, which only a required row catches.',
     },
 ];
 

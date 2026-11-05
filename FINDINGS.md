@@ -3936,6 +3936,66 @@ That is §25's argument, and the measurement below is §26's table again.
 The second line is the reason. Two implementations that stop reading label 7
 together refuse together, and before the promotion nothing in the run said so.
 
+### Decided: both honour the scheme (2026-11-05)
+
+The maintainer settled the last open question of this section: both
+implementations honour the restriction of an `id-RSASSA-PSS` key to its scheme.
+RFC 4055 §3.1 states that restriction as what the key owner "wishes". Neither
+it nor RFC 9360 makes it a verifier's duty in so many words. It is honoured all
+the same: the owner said what the key is for, and a verifier that accepts
+another scheme gains nothing a legitimate signer needs.
+
+- **Styx `70e1eac1`.** `COSECertificateChain.PermitsAlgorithm` refuses any
+  message under such a key that is not RSASSA-PSS, with or without
+  parameters, before it looks at the hash. Its test
+  `The_scheme_itself_is_not_enforced`, which pinned the leniency so that
+  changing it would be a decision, is replaced by `The_scheme_is_enforced` and
+  `A_key_without_parameters_still_restricts_the_scheme`. 934 passed. Falsified
+  three times:
+  - the scheme check removed: 4 tests fail;
+  - the check only where the key has parameters: 1 fails;
+  - every key restricted, `rsaEncryption` too: 6 fail.
+- **COSE.TS `2cf2699`.** Its own reason for the leniency was that "RSASSA-PSS
+  with whichever hash" is not a COSE algorithm a key could carry. The
+  restriction is kept on the certificate instead, as
+  `X509Certificate.restrictedToRsassaPss`, and
+  `CoseSign1.verifyWithCertificateChain` asks it before it verifies. The
+  scheme comes before the hash here too, so both sides now refuse the
+  parameterised row for its scheme rather than one of them for its hash. 681
+  passed. Falsified four times:
+  - the scheme check removed: 1 test fails;
+  - the restriction never kept: 2 fail;
+  - `rsaEncryption` restricted too: 2 fail;
+  - RSASSA-PSS refused instead: 2 fail.
+
+Both say it in nearly the same words: *"... restricts its key to RSASSA-PSS,
+and this message is signed with 'RS256', which is not RSASSA-PSS [RFC 4055,
+Section 3.1]!"*
+
+| row | Styx before | COSE.TS before | both now |
+|---|---|---|---|
+| `a-key-restricted-to-the-other-rsa-scheme` | verified | refused, for its hash | refused, for its scheme |
+| `a-restriction-that-names-no-hash-with-the-other-scheme` | verified | verified | refused |
+
+**The suite has no divergences**, for the first time since §25. The gates are
+unmoved at 651 / 615 / 469 / 60, because both rows are `survey`. Their four
+verdicts and two agreements pass now instead of failing.
+
+**Falsified** in the suite, each on a fresh run of both sides, by taking the
+scheme check back out:
+
+| what was taken out | what the run shows |
+|---|---|
+| Styx's | both rows diverge again, C#'s verdicts and both agreements false. Exit 0 |
+| COSE.TS's | the row without parameters diverges, TypeScript's verdict and the agreement false. The other row holds, because COSE.TS still refuses it for its hash. Exit 0 |
+| both at once | the state of the day before: one divergence, and the row without parameters with both verdicts false and the agreement **true**, because two lenient readers agree. Exit 0 |
+
+Every line exits 0, and the last one shows no new divergence at all. That is
+§25's case once more: two implementations lenient at once, which only a
+required row catches. Whether the two rows become `normative`, now that both
+sides answer them, is the maintainer's call. It would hold both implementations
+to a restriction RFC 4055 states as a wish. It is offered here and not done.
+
 ### Falsification
 
 | what was changed | what happened |
@@ -3967,15 +4027,17 @@ reader) normative, 469 agreements, zero failures, zero messages verified
 against what the third reader refuses, 57 survey observations each and 15 on
 the agreement rows.
 
-And one cross-implementation divergence, where this suite ran at zero for a
-while. It is a row built to produce it: the restriction of a key to RSASSA-PSS
-as a scheme, which RFC 4055 states as a wish. Four more have been closed. The
+And no cross-implementation divergence, for the first time since §25. Five
+have been closed. The
 first was a key form RFC 8230 offers and one side declined, until Styx
 `244aa8c3` read it too. The second was the hash such a key is restricted to, a
 MUST of Section 3.3, until Styx `2041ccbc` honoured it too. The third was a
 parameter RFC 4055 does not allow, until Styx `82af43fd` refused it too. The
 fourth was the countersignature of label 7, which Styx verified and COSE.TS did
-not read, until COSE.TS `a42bffa` read it too.
+not read, until COSE.TS `a42bffa` read it too. The fifth was the restriction of
+a key to RSASSA-PSS as a scheme, which RFC 4055 states as a wish, until Styx
+`70e1eac1` and COSE.TS `2cf2699` both honoured it. Honouring it also closed the
+one leniency the two shared.
 Divergences are the first thing a reader of the report meets, and they are the point. A divergence is what this suite is for, and `survey` is
 how one is written down while which side is right remains the specification's
 question and not this suite's.
