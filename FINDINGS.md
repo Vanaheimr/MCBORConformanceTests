@@ -3508,7 +3508,9 @@ under an `id-RSASSA-PSS` key still verifies in Styx, and
 `a-key-restricted-to-the-other-rsa-scheme` is still a divergence. RFC 4055
 states that restriction as what the owner wishes, and no MUST stands behind
 it, so it remains open and was not part of this decision. Styx's tests pin the
-leniency, so a change to it will be a decision and not an accident.
+leniency, so a change to it will be a decision and not an accident. (Decided
+on 2026-11-05: see *Decided: both honour the scheme* and *Decided: the scheme
+rows are normative* below.)
 
 | row | Styx before | Styx now | COSE.TS |
 |---|---|---|---|
