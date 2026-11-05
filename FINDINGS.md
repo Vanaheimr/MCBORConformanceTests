@@ -3902,7 +3902,39 @@ The TypeScript runner now asks COSE.TS rather than recording that it cannot:
 
 The second question can now be promoted without failing a run, since both sides
 answer it rightly. Whether it is, given a lowercase "must" and a deprecated
-label, is the maintainer's call. It is offered here and not done.
+label, is the maintainer's call. It is offered here and not done. (Done the
+next day: see the next subsection.)
+
+### Decided: the countersignature question is normative (2026-11-05)
+
+The maintainer promoted the second question of the label-7 row. The `class`
+inside its `countersignature` field is `normative` now, and the verdict on the
+body was already. The "must" of RFC 9052 §3.1 is still lowercase and the label
+still deprecated, and the row says so. What decided it is what the class buys:
+
+- A `survey` row catches one side falling back only through the divergence
+  pass.
+- It cannot catch both falling back together, because two refusals agree.
+
+That is §25's argument, and the measurement below is §26's table again.
+
+| | before | now |
+|---|---|---|
+| csharp | 650 normative, 58 survey | 651, 57 |
+| typescript | 614, 58 | 615, 57 |
+| csharp↔typescript | 468, 16 | 469, 15 |
+| the third reader | 60 | 60 |
+| divergences | 1 | 1 |
+
+**Falsified**, each on a fresh run of both sides:
+
+| what was changed | as `survey` | as `normative` |
+|---|---|---|
+| COSE.TS alone: the RFC 8152 context string replaced by version 2's | 0 failures, 2 divergences, exit 0 (measured the day before) | 2 failures, TypeScript's verdict and the agreement of the two; 2 divergences; `npm test` exit **1** |
+| the same change in Styx and COSE.TS at once | 0 failures, **1 divergence**, the summary identical to the green run of the day before, exit **0** | 2 failures, C#'s verdict and TypeScript's, the agreement row **passing**; 1 divergence; exit **1** |
+
+The second line is the reason. Two implementations that stop reading label 7
+together refuse together, and before the promotion nothing in the run said so.
 
 ### Falsification
 
@@ -3929,10 +3961,11 @@ thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
 that minting made possible, the key with three primes, the two party fields no
-row set, and the two countersignatures nobody reads. 650 (C#) / 614
-(TypeScript) / 60 (the third reader) normative, 468 agreements, zero failures,
-zero messages verified against what the third reader refuses, 58 survey
-observations each and 16 on the agreement rows.
+row set, and the two countersignatures: one that nobody reads, and one that
+both have read since 2026-11-04. 651 (C#) / 615 (TypeScript) / 60 (the third
+reader) normative, 469 agreements, zero failures, zero messages verified
+against what the third reader refuses, 57 survey observations each and 15 on
+the agreement rows.
 
 And one cross-implementation divergence, where this suite ran at zero for a
 while. It is a row built to produce it: the restriction of a key to RSASSA-PSS
@@ -3952,14 +3985,16 @@ verdicts, one per opening implementation, and the three byte agreements of the
 case. The promotions of 2026-11-04 moved twelve: the four agreements and the
 two cross-verifications of the key with three primes, the two verdicts and
 their agreement on the hash a key is restricted to, and the same three on the
-parameter RFC 4055 does not allow.
+parameter RFC 4055 does not allow. The promotion of 2026-11-05 moved three: the
+two verdicts on the label-7 countersignature and their agreement.
 
 Of the 44 algorithms both implement, all 44 now have a vector. Of the 13 header
 parameters both name, all 13 do since 2026-11-04. The last two were
 `Countersignature0 version 2` of label 12 and the deprecated counter signature
 of label 7, both §26's shape: a registered label both can name and neither
-reads. The second comes with a sentence of RFC 9052 that neither side meets,
-recorded above.
+reads. The second comes with a sentence of RFC 9052 that neither side met
+then. Both meet it since 2026-11-04, and the row has required it of them since
+2026-11-05, as recorded above.
 Of
 the 8 header algorithm parameters both name, all 8 do since 2026-11-04: `PartyU
 other` (−23) and `PartyV nonce` (−25) were the two the one party row left out,

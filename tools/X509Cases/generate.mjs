@@ -1637,9 +1637,10 @@ const COUNTERSIGNATURES = [
         class:       'normative',
         // A second question, asked of each implementation on its own: does
         // the countersignature verify under the key of the certificate
-        // `strangerMeter`? `survey`, because the "must be understood" of RFC
-        // 9052 §3.1 is lowercase and the label is deprecated.
-        countersignature: { signer: 'strangerMeter', expected: 'verifies', class: 'survey' },
+        // `strangerMeter`? `normative` since 2026-11-05, by the maintainer's
+        // decision, although the "must be understood" of RFC 9052 §3.1 is
+        // lowercase and the label deprecated: both implementations read it.
+        countersignature: { signer: 'strangerMeter', expected: 'verifies', class: 'normative' },
         carries:     'counter signature (label 7) of RFC 8152, made with the key of strangerMeter, beside the chain',
         description: 'The sound chain in x5chain, and in the unprotected bucket the `counter ' +
                      'signature` of RFC 8152 [label 7]: a COSE_Signature whose protected bucket ' +
@@ -1658,9 +1659,10 @@ const COUNTERSIGNATURES = [
                      'RFC 9052 asks, and no verdict on the body can show it, so the row asks it ' +
                      'separately: `countersignature` names whose key it must verify under, the ' +
                      'certificate `strangerMeter` of the corpus, and each implementation is asked ' +
-                     'whether it does. That second question is `survey`, because the "must" is ' +
-                     'lowercase and the label deprecated, and an implementation that read no ' +
-                     'label 7 would answer it by saying so. There is no ' +
+                     'whether it does. That second question is `normative` too since 2026-11-05, ' +
+                     'by the maintainer\'s decision: the "must" is lowercase and the label ' +
+                     'deprecated, but both implementations read it, and only a required row ' +
+                     'fails a run in which both stop reading it at once. There is no ' +
                      '`crit` row for the same reason as above, and besides, RFC 9052 §3.1 says ' +
                      'labels 0 to 7 "SHOULD be omitted" from crit.',
     },
