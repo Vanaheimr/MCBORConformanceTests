@@ -4029,6 +4029,98 @@ change:
 | COSE.TS's | 1 divergence, exit 0 | 2 failures: TypeScript's verdict on the row without parameters, and its agreement. Exit **1** |
 | both at once | 1 divergence, exit 0, and the shared leniency counted as agreement | 4 failures: both sides' verdicts on the row without parameters, C#'s on the other row and that row's agreement. The agreement on the row without parameters **passes**, because two lenient readers agree. Exit **1** |
 
+### An authority's key is restricted too (2026-11-05)
+
+Styx `70e1eac1` and COSE.TS `2cf2699` enforced RFC 4055 §3.1 on one key only:
+the one that signed the message. The restriction belongs to the key, though,
+and an authority's key signs certificates. Both implementations accepted two
+certificates they should not have:
+
+- a certificate signed with sha256WithRSAEncryption by an authority whose key
+  is `id-RSASSA-PSS`;
+- with the authority's parameters naming SHA-256, a certificate signed with
+  RSASSA-PSS over SHA-384.
+
+The maintainer decided to close this in both. Since Styx `7642de3d`
+(`IsIssuedBy`) and COSE.TS `d1c7c54` (`verifySignedBy`), an `id-RSASSA-PSS`
+issuer key has to be honoured in two ways:
+
+- **The scheme, with or without parameters.** The issuer may have signed with
+  RSASSA-PSS and nothing else [RFC 4055 §3.1].
+- **Scenario 3 of §3.3, where it names parameters.** The hash, the MGF and the
+  MGF's hash must be the key's, and the salt must reach the key's floor.
+
+A trust anchor is held to the same rules, because the last certificate is
+checked against it by the same method. The session that made both changes
+asked for the rows. This section adds them.
+
+**A seventh family in `tools/X509Cases`.**
+
+- **The authority, issued again.** It is `rsaManufacturerCA`, issued again by
+  `rsaRoot` with only its key type changed. That needs the root's key, so
+  `tools/CertificateCorpus` now publishes it beside the authority's own in
+  `issuerKeys`. The corpus is deterministic: regenerated, every certificate
+  and every other key is byte for byte what it was.
+- **The meter certificate, issued again.** It is `rsaMeter`, issued again by
+  the authority with only its signature changed. The generator's RSA signs over
+  SHA-384 as well now, for the one certificate that needs it.
+- **The surgery is checked.** A new `reissue` does both, and the generator
+  refuses to run unless both certificates, issued again unchanged, come out as
+  the corpus's own bytes. PKCS #1 v1.5 is deterministic, so that check says
+  three things: the surgery is right, the SHA-384 signature is right, and the
+  root's key is the one Bouncy Castle used.
+- **The message.** It is signed RS256 with `rsaMeter`'s own key, which is
+  `rsaEncryption` throughout, so only the chain is under test.
+
+| row | authority's key | meter certificate signed with | expected |
+|---|---|---|---|
+| `an-authority-open-to-either-rsa-scheme` | `rsaEncryption` | sha256WithRSA | accept: the corpus's own chain |
+| `an-authority-restricted-to-the-other-rsa-scheme` | `id-RSASSA-PSS`, no parameters | sha256WithRSA | **reject** |
+| `an-authority-restricted-to-rsassa-pss-signing-with-it` | `id-RSASSA-PSS`, no parameters | PSS over SHA-256 | accept |
+| `an-authority-restricted-to-another-hash` | `id-RSASSA-PSS`, SHA-256 | PSS over SHA-384 | **reject** |
+| `an-authority-restricted-to-the-hash-it-signs-with` | `id-RSASSA-PSS`, SHA-256 | PSS over SHA-256 | accept |
+| `an-authority-restricted-to-sha-384-signing-with-it` | `id-RSASSA-PSS`, SHA-384 | PSS over SHA-384 | accept: proves the SHA-384 signature, so the reject row above is not refused for a broken one |
+| `an-authority-whose-salt-is-a-floor` | `id-RSASSA-PSS`, salt floor 20 | PSS over SHA-256, salt 32 | accept |
+| `an-anchor-restricted-to-the-other-rsa-scheme` | the anchor: `id-RSASSA-PSS`, no parameters | sha256WithRSA | **reject** |
+| `an-anchor-open-to-either-rsa-scheme` | the anchor: `rsaEncryption` | sha256WithRSA | accept |
+
+**The two anchor rows carry their anchor in the row.** The anchor certificate
+is not in the corpus, so the row carries it in a new field,
+`anchorCertificates`, as DER in hex. Both runners add those to the anchors
+they look up by name. The control carries its anchor the same way, and it is
+byte for byte the corpus's `rsaManufacturerCA`. So the new path is measured
+with a certificate both sides already trust.
+
+All nine rows are `normative`:
+
+- The scheme rows stand on the maintainer's decision of the same day, which
+  honours §3.1's wish.
+- The hash row stands on a MUST.
+- The accept rows stand on what both must not refuse.
+
+| | before | now |
+|---|---|---|
+| csharp | 653 normative | 662 |
+| typescript | 617 | 626 |
+| csharp↔typescript | 471 | 480 |
+| the third reader | 60 | 78: two per row, the count of certificates and that they are DER |
+| divergences | 0 | 0 |
+
+**Falsified**, every time on fresh runs of both sides:
+
+| what was changed | what happened |
+|---|---|
+| the old pins, Styx `70e1eac1` and COSE.TS `2cf2699` | the three reject rows fail on both sides, 6 failures, exit 1. Every accept row passes, the SHA-384 control included. **0 divergences**: both were lenient the same way, which only the per-side verdicts show |
+| Styx's `IssuerKeyPermits` call removed from `IsIssuedBy` | 6 failures, C#'s verdict and the agreement on each reject row; 3 divergences; exit 1 |
+| COSE.TS's `if (issuer.restrictedToRsassaPss)` made `if (false)` in `x509.ts` | the same 6 on the TypeScript side; 3 divergences; exit 1 |
+| both at once | 6 failures, both sides' verdicts, the agreements **passing**; 0 divergences; exit 1 |
+
+The copy of the corpus in COSE.TS (`tests/certificate-corpus.json`, which
+`tools/CertificateCorpus` writes as well) was left as it was. COSE.TS's tests
+read no `issuerKeys`, so the copy lacks only the root's key and nothing they
+use. The next regeneration made from within COSE.TS will bring the two copies
+level.
+
 ### Falsification
 
 | what was changed | what happened |
@@ -4049,14 +4141,15 @@ has falsified nothing — including itself.
 
 ### Where it leaves the suite
 
-Thirty-six cases: four signatures, the EdDSA pair, two key wraps, two
+Forty-five cases: four signatures, the EdDSA pair, two key wraps, two
 thumbprints, two Partial IV, the SHA-1 thumbprint of §24, the six RSA rows that
 the count produced, the four certificate rows that the asymmetry it turned up
 produced, the three parameter rows that had to be minted, the six key-type rows
 that minting made possible, the key with three primes, the two party fields no
-row set, and the two countersignatures: one that nobody reads, and one that
-both have read since 2026-11-04. 653 (C#) / 617 (TypeScript) / 60 (the third
-reader) normative, 471 agreements, zero failures, zero messages verified
+row set, the two countersignatures (one that nobody reads, and one that both
+have read since 2026-11-04), and the nine rows about an authority's key.
+662 (C#) / 626 (TypeScript) / 78 (the third reader) normative, 480 agreements,
+zero failures, zero messages verified
 against what the third reader refuses, 55 survey observations each and 13 on
 the agreement rows.
 

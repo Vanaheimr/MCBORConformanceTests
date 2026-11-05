@@ -1469,8 +1469,16 @@ static void RunCoseX509Validate(JsonObject TestCase, JsonObject Checks, JsonObje
 
     Checks["validate"] = Capture(() => {
 
+        // The corpus's anchors by name, and those a row carries itself: an
+        // anchor the corpus does not hold, written down as DER in hex.
+        var carried = TestCase["anchorCertificates"] is JsonArray certificates
+                          ? certificates.Select(each => new X509CertificateParser().
+                                                            ReadCertificate(Convert.FromHexString(each!.GetValue<String>())))
+                          : [];
+
         var anchors = TestCase["trustAnchors"]!.AsArray().
                           Select(each => CertificateOf(Corpus, each!.GetValue<String>())).
+                          Concat(carried).
                           ToArray();
 
         return ValidateChain(Convert.FromHexString(TestCase["message"]!.GetValue<String>()),

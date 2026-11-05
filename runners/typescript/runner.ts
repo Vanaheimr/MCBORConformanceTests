@@ -154,6 +154,9 @@ interface VectorCase {
     critical?:         boolean;
     expected?:         string;
 
+    // cose-x509-messages: trust anchors the corpus does not hold, as DER in hex
+    anchorCertificates?: string[];
+
     // cose-x509-messages: a countersignature to verify under a corpus certificate
     countersignature?: { label: number; signer: string; expected: string; class: string };
 }
@@ -665,7 +668,10 @@ function runCoseX509Validate(testCase: VectorCase, checks: Record<string, Check>
     checks['validate'] = capture(() => {
 
         const at      = new Date(corpusOrThrow().validateAt);
-        const anchors = (testCase.trustAnchors ?? []).map(certificateOf);
+        // The corpus's anchors by name, and those a row carries itself: an
+        // anchor the corpus does not hold, written down as DER in hex.
+        const anchors = [...(testCase.trustAnchors ?? []).map(certificateOf),
+                         ...(testCase.anchorCertificates ?? []).map(each => X509Certificate.parse(hexToBytes(each)))];
 
         const result  = CoseSign1.parse(hexToBytes(testCase.message!))
                             .verifyWithCertificateChain(anchors, { at });

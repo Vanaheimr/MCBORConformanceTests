@@ -131,7 +131,7 @@ import { dirname, join }               from 'node:path';
 import { fileURLToPath }               from 'node:url';
 
 import { brainpoolP256r1 }             from '@noble/curves/misc.js';
-import { sha256 }                      from '@noble/hashes/sha2.js';
+import { sha256, sha384 }              from '@noble/hashes/sha2.js';
 // For the one row whose thumbprint has to be a correct SHA-1: a hash neither
 // implementation computes, which is why a third encoder has to.
 import { sha1 }                        from '@noble/hashes/legacy.js';
@@ -210,12 +210,23 @@ function fixedWidth(value, octets) {
  * MGF1 with SHA-256 [RFC 8017, Appendix B.2.1]: the hash of the seed and a
  * four-octet counter, concatenated until `length` octets are there.
  */
-function mgf1(seed, length) {
+/**
+ * The two hashes the RSA here signs with: SHA-256 for everything the corpus
+ * holds, and SHA-384 for the one certificate of the seventh family that has to
+ * be signed with a hash its authority's key does not name.
+ */
+const HASHES = {
+    'SHA-256': { digest: sha256, length: 32, digestInfo: hex('3031300D060960864801650304020105000420') },
+    'SHA-384': { digest: sha384, length: 48, digestInfo: hex('3041300D060960864801650304020205000430') },
+};
+
+
+function mgf1(seed, length, hash = HASHES['SHA-256']) {
 
     const blocks = [];
 
-    for (let counter = 0; counter * 32 < length; counter++)
-        blocks.push(sha256(concat(seed,
+    for (let counter = 0; counter * hash.length < length; counter++)
+        blocks.push(hash.digest(concat(seed,
                                   Uint8Array.from([(counter >>> 24) & 0xFF, (counter >>> 16) & 0xFF,
                                                    (counter >>>  8) & 0xFF,  counter        & 0xFF]))));
 
@@ -247,7 +258,7 @@ const PSS_SALT = sha256(Buffer.from('tools/X509Cases, one fixed PSS salt', 'utf8
  * that costs it nothing — `s ** e mod n` has to come back as the encoded
  * message that went in.
  */
-function pssSign(message, key) {
+function pssSign(message, key, hash = HASHES['SHA-256']) {
 
     const n      = number(hex(key.n));
     const octets = hex(key.n).length;
@@ -256,15 +267,19 @@ function pssSign(message, key) {
     // message is 256 octets with its leading bit cleared.
     const emBits = n.toString(2).length - 1;
     const emLen  = Math.ceil(emBits / 8);
-    const hLen   = 32;
+    const hLen   = hash.length;
 
-    const mHash  = sha256(message);
-    const H      = sha256(concat(new Uint8Array(8), mHash, PSS_SALT));
+    // A salt as long as the hash, as every COSE PS* has [RFC 8230, Section 2].
+    // For SHA-256 it is PSS_SALT itself, so nothing minted before moves.
+    const salt   = hash.digest(Buffer.from('tools/X509Cases, one fixed PSS salt', 'utf8'));
+
+    const mHash  = hash.digest(message);
+    const H      = hash.digest(concat(new Uint8Array(8), mHash, salt));
 
     const db     = concat(new Uint8Array(emLen - hLen - hLen - 2),
                           Uint8Array.from([0x01]),
-                          PSS_SALT);
-    const mask   = mgf1(H, emLen - hLen - 1);
+                          salt);
+    const mask   = mgf1(H, emLen - hLen - 1, hash);
     const masked = db.map((octet, at) => octet ^ mask[at]);
 
     masked[0] &= 0xFF >> (8 * emLen - emBits);
@@ -300,14 +315,14 @@ const SHA256_DIGESTINFO = hex('3031300D060960864801650304020105000420');
  * returned, which is the whole of the check: `s ** e mod n` has to come back
  * as the encoded message that went in.
  */
-function pkcs1Sign(message, key) {
+function pkcs1Sign(message, key, hash = HASHES['SHA-256']) {
 
     const n       = number(hex(key.n));
     const e       = number(hex(key.e));
     const d       = number(hex(key.d));
     const octets  = hex(key.n).length;
 
-    const digestInfo = concat(SHA256_DIGESTINFO, sha256(message));
+    const digestInfo = concat(hash.digestInfo, hash.digest(message));
 
     // EM = 0x00 || 0x01 || PS || 0x00 || T, with PS as many 0xFF as it takes.
     const encoded = concat(Uint8Array.from([0x00, 0x01]),
@@ -372,7 +387,7 @@ function sign1({ payload, chain, signingKey, algorithm = ESB256,
                 ? [[int(32), Array.isArray(bag) ? array(bag.map(bstr)) : bstr(bag)]]
                 : []),
         ...(chain
-                ? [[int(33), array(chain.map(bstr))]]
+                ? [[int(33), chain.length === 1 ? bstr(chain[0]) : array(chain.map(bstr))]]
                 : []),
         ...(thumbprint
                 ? [[int(34), array([int(thumbprint.algorithm), bstr(thumbprint.digest)])]]
@@ -1117,6 +1132,127 @@ function remintKey(identifier) {
                          algorithmIdentifier(hex(OID_SHA256_WITH_RSA), PARAMETERS['a NULL']));
 
 }
+
+
+// ---------------------------------------------- an authority issued again --
+
+/**
+ * The key that signed `rsaManufacturerCA`, from the corpus's `issuerKeys`,
+ * checked against the certificate the way `issuerKey` is: the 384 octets of
+ * its modulus have to be in `rsaRoot`.
+ */
+const rootIssuerKey = corpus.issuerKeys.rsaRoot.keyRsa;
+
+if (!upper(hex(corpus.certificates.rsaRoot)).includes(upper(hex(rootIssuerKey.n))))
+    throw new Error('the published issuer key is not the key in rsaRoot');
+
+/** sha384WithRSAEncryption [RFC 4055, Section 5], which `rsaManufacturerCA` is signed with. */
+const OID_SHA384_WITH_RSA = '06092A864886F70D01010C';
+
+
+/**
+ * A corpus certificate issued again: its signature algorithm replaced in the
+ * copy within the TBSCertificate and in the copy beside it, its subject public
+ * key algorithm replaced where `keyAlgorithm` says so, and the body signed
+ * again by `sign`. Everything else is the corpus's, read out and written back.
+ *
+ * The general form of `remint` and `remintKey` above, which each vary one
+ * field of `rsaMeter` under one signature. The seventh family needs both
+ * fields varied, of two certificates, under three signatures, and the check
+ * below - that issuing both certificates again unchanged gives the corpus's
+ * bytes - is what says the surgery is right.
+ */
+function reissue(name, { keyAlgorithm = null, signatureAlgorithm, sign }) {
+
+    const { tbs }  = parts(hex(corpus.certificates[name]));
+    const content  = record(tbs, 0);
+
+    // The version, the serial number, the signature, the issuer, the
+    // validity, the subject and the subject public key info [RFC 5280,
+    // Section 4.1], and the extensions after them, which are kept as they are.
+    const elements = [];
+    let   at       = content.from;
+
+    for (let element = 0; element < 7; element++) {
+        elements.push(record(tbs, at));
+        at = elements[element].to;
+    }
+
+    const field = element => tbs.subarray(element === 0 ? content.from : elements[element - 1].to,
+                                          elements[element].to);
+
+    let info = field(6);
+
+    if (keyAlgorithm !== null) {
+
+        const spki      = elements[6];
+        const algorithm = record(tbs, spki.from);
+        const inner     = concat(keyAlgorithm, tbs.subarray(algorithm.to, spki.to));
+
+        info = concat(Uint8Array.from([0x30]), twoOctets(inner.length), inner);
+
+    }
+
+    const body      = concat(field(0), field(1), signatureAlgorithm, field(3), field(4), field(5),
+                             info, tbs.subarray(elements[6].to, content.to));
+
+    const signed    = concat(Uint8Array.from([0x30]), twoOctets(body.length), body);
+    const signature = sign(signed);
+    const value     = concat(Uint8Array.from([0x03]), twoOctets(signature.length + 1),
+                             Uint8Array.from([0x00]), signature);
+    const whole     = concat(signed, signatureAlgorithm, value);
+
+    return concat(Uint8Array.from([0x30]), twoOctets(whole.length), whole);
+
+}
+
+
+/**
+ * `rsaManufacturerCA` issued again by `rsaRoot`, with its key written as
+ * `keyAlgorithm` says - one of KEY_ALGORITHMS - and signed as the corpus
+ * signed it, PKCS #1 v1.5 over SHA-384. Only the key type moves.
+ */
+const authority = keyAlgorithm => reissue('rsaManufacturerCA', {
+    keyAlgorithm:       KEY_ALGORITHMS[keyAlgorithm],
+    signatureAlgorithm: algorithmIdentifier(hex(OID_SHA384_WITH_RSA), PARAMETERS['a NULL']),
+    sign:               signed => pkcs1Sign(signed, rootIssuerKey, HASHES['SHA-384']),
+});
+
+/**
+ * How the authority signs `rsaMeter` below: as the corpus did, and in the two
+ * RSASSA-PSS that a key restricted to a hash can be asked about. The PSS
+ * parameter sets are Bouncy Castle's own, lifted out of the corpus.
+ */
+const ISSUER_SIGNATURES = {
+    'sha256WithRSAEncryption': {
+        identifier: algorithmIdentifier(hex(OID_SHA256_WITH_RSA), PARAMETERS['a NULL']),
+        sign:       signed => pkcs1Sign(signed, issuerKey),
+    },
+    'RSASSA-PSS over SHA-256': {
+        identifier: algorithmIdentifier(hex(OID_RSASSA_PSS), pssParametersOf('rsaPssMeter')),
+        sign:       signed => pssSign(signed, issuerKey),
+    },
+    'RSASSA-PSS over SHA-384': {
+        identifier: algorithmIdentifier(hex(OID_RSASSA_PSS), pssParametersOf('rsaPssManufacturerCA')),
+        sign:       signed => pssSign(signed, issuerKey, HASHES['SHA-384']),
+    },
+};
+
+/** `rsaMeter` issued again by its authority, signed as `signature` says. */
+const meterSignedWith = signature => reissue('rsaMeter', {
+    signatureAlgorithm: ISSUER_SIGNATURES[signature].identifier,
+    sign:               ISSUER_SIGNATURES[signature].sign,
+});
+
+// The surgery held to the corpus: both certificates issued again with nothing
+// changed are the corpus's, byte for byte - which is possible only because
+// PKCS #1 v1.5 is deterministic, and which says that `reissue`, the SHA-384
+// signature and the root's key are what Bouncy Castle used.
+if (upper(authority('rsaEncryption')) !== upper(hex(corpus.certificates.rsaManufacturerCA)))
+    throw new Error('rsaManufacturerCA issued again unchanged is not the corpus\'s');
+
+if (upper(meterSignedWith('sha256WithRSAEncryption')) !== upper(hex(corpus.certificates.rsaMeter)))
+    throw new Error('rsaMeter issued again unchanged is not the corpus\'s');
 
 
 // ----------------------------------------------------------------- the cases --
@@ -1909,6 +2045,150 @@ const KEY_TYPES = [
 ];
 
 
+/**
+ * The seventh family: an authority whose key is `id-RSASSA-PSS`.
+ *
+ * The family above asks what such a key may verify when it signed the message.
+ * The restriction belongs to the key, though, and an authority's key signs
+ * certificates: "when the RSA private key owner wishes to limit the use of the
+ * public key exclusively to RSASSA-PSS" [RFC 4055, Section 3.1] says nothing
+ * about which signatures. So here the key restricted is `rsaManufacturerCA`'s,
+ * issued again by `rsaRoot` with only its key type changed, and what it is
+ * asked about is the certificate it signed, `rsaMeter`, issued again with only
+ * its signature changed. The message is signed RS256 with `rsaMeter`'s own key,
+ * which is `rsaEncryption` throughout, so only the chain is under test.
+ *
+ * `authority` keys into KEY_ALGORITHMS and `signature` into ISSUER_SIGNATURES.
+ * `anchor` puts the authority in the trust anchors instead of the chain, so
+ * that the restriction is asked of a key that is trusted rather than
+ * certified: the last certificate of a chain is checked against its anchor.
+ * Every reject row has an accept row beside it that differs in one thing.
+ */
+const AUTHORITIES = [
+    {
+        id:          'an-authority-open-to-either-rsa-scheme',
+        authority:   'rsaEncryption',
+        signature:   'sha256WithRSAEncryption',
+        expected:    'accept',
+        description: 'The control: `rsaManufacturerCA` issued again by `rsaRoot` with its key as ' +
+                     'the corpus writes it, `rsaEncryption`, over `rsaMeter` as the corpus signed ' +
+                     'it. Both come out byte for byte the corpus\'s, which the generator ' +
+                     'checks before it writes anything, so this row is the corpus\'s own RSA ' +
+                     'chain and says that issuing the authority again is sound. `rsaEncryption` ' +
+                     '"says what the key is and nothing about what it is for", so the PKCS #1 ' +
+                     'v1.5 signature on the meter certificate is one this authority may make.',
+    },
+    {
+        id:          'an-authority-restricted-to-the-other-rsa-scheme',
+        authority:   'id-RSASSA-PSS, with no parameters',
+        signature:   'sha256WithRSAEncryption',
+        expected:    'reject',
+        reason:      'the authority\'s key is restricted to RSASSA-PSS and the certificate ' +
+                     'it signed is signed with RSASSA-PKCS1-v1_5',
+        description: 'The same chain with the authority\'s key written as `id-RSASSA-PSS` ' +
+                     'without parameters: the key restricted to RSASSA-PSS, naming no hash, and ' +
+                     'the meter certificate under it signed with sha256WithRSAEncryption, which ' +
+                     'is perfectly good arithmetic with that key. The restriction belongs to the ' +
+                     'key, and this key signs certificates [RFC 4055, Section 3.1]. Styx since ' +
+                     '7642de3d and COSE.TS since d1c7c54 refuse it. Before that, both verified ' +
+                     'it: the restriction of 2026-11-05 was enforced only on the key that signed ' +
+                     'the message. `normative` on the maintainer\'s decision of that day, ' +
+                     'which honours the restriction although RFC 4055 states it as a wish.',
+    },
+    {
+        id:          'an-authority-restricted-to-rsassa-pss-signing-with-it',
+        authority:   'id-RSASSA-PSS, with no parameters',
+        signature:   'RSASSA-PSS over SHA-256',
+        expected:    'accept',
+        description: 'The control for the row above: the same authority, naming no hash, and ' +
+                     'the meter certificate signed with RSASSA-PSS over SHA-256, MGF1 over ' +
+                     'SHA-256 and a 32-octet salt, with Bouncy Castle\'s parameter set. ' +
+                     'Scenario 2 of RFC 4055 Section 3.3: no parameters, so no parameter ' +
+                     'validation, and any RSASSA-PSS is one this key may make. It also says ' +
+                     'that an authority written as `id-RSASSA-PSS` chains at all, so that the ' +
+                     'row above is refused for its scheme and not for its key type.',
+    },
+    {
+        id:          'an-authority-restricted-to-another-hash',
+        authority:   'id-RSASSA-PSS, with parameters naming SHA-256',
+        signature:   'RSASSA-PSS over SHA-384',
+        expected:    'reject',
+        reason:      'the authority\'s key is restricted to RSASSA-PSS with SHA-256 and the ' +
+                     'certificate it signed is signed with RSASSA-PSS over SHA-384, and RFC 4055 ' +
+                     '§3.3 requires the signature\'s parameters to be the key\'s',
+        description: 'The authority\'s key restricted to RSASSA-PSS with SHA-256, and the ' +
+                     'meter certificate under it signed with RSASSA-PSS over SHA-384, with ' +
+                     'Bouncy Castle\'s SHA-384 parameter set. The scheme agrees and the hash ' +
+                     'does not. Scenario 3 of RFC 4055 Section 3.3 is a MUST: "all parameters ' +
+                     'in the signature structure algorithm identifier MUST match the parameters ' +
+                     'in the key structure algorithm identifier except the saltLength field". ' +
+                     'Styx since 7642de3d and COSE.TS since d1c7c54 refuse it; both verified it ' +
+                     'before. `normative`.',
+    },
+    {
+        id:          'an-authority-restricted-to-the-hash-it-signs-with',
+        authority:   'id-RSASSA-PSS, with parameters naming SHA-256',
+        signature:   'RSASSA-PSS over SHA-256',
+        expected:    'accept',
+        description: 'The control for the row above: the same authority and a meter certificate ' +
+                     'signed with the RSASSA-PSS its parameters name, SHA-256, MGF1 over ' +
+                     'SHA-256 and a 32-octet salt.',
+    },
+    {
+        id:          'an-authority-restricted-to-sha-384-signing-with-it',
+        authority:   'id-RSASSA-PSS, with parameters naming SHA-384',
+        signature:   'RSASSA-PSS over SHA-384',
+        expected:    'accept',
+        description: 'The control for the signature two rows up: the same certificate signed ' +
+                     'with RSASSA-PSS over SHA-384, under an authority whose parameters name ' +
+                     'SHA-384. Without it, a SHA-384 signature this generator had got wrong ' +
+                     'would make that row refused for a broken signature, and it would pass ' +
+                     'for the wrong reason.',
+    },
+    {
+        id:          'an-authority-whose-salt-is-a-floor',
+        authority:   'id-RSASSA-PSS, with parameters asking for a salt of 20',
+        signature:   'RSASSA-PSS over SHA-256',
+        expected:    'accept',
+        description: 'The salt length of a key is a floor and not a width [RFC 4055, Section ' +
+                     '3.3], at the authority as at the signer: the key asks for at least twenty ' +
+                     'octets and the meter certificate is signed with a 32-octet salt. An ' +
+                     'implementation that compared an authority\'s parameters with the ' +
+                     'signature\'s for equality would refuse it.',
+    },
+    {
+        id:          'an-anchor-restricted-to-the-other-rsa-scheme',
+        authority:   'id-RSASSA-PSS, with no parameters',
+        signature:   'sha256WithRSAEncryption',
+        anchor:      true,
+        expected:    'reject',
+        reason:      'the trust anchor\'s key is restricted to RSASSA-PSS and the ' +
+                     'certificate it signed is signed with RSASSA-PKCS1-v1_5',
+        description: 'The second row\'s question asked of a trust anchor: the chain is ' +
+                     '`rsaMeter` alone, as the corpus signed it, and the anchor is ' +
+                     '`rsaManufacturerCA` with its key written as `id-RSASSA-PSS` without ' +
+                     'parameters. That certificate is not in the corpus, so it travels in the ' +
+                     'row\'s `anchorCertificates`. A key that is trusted is restricted as ' +
+                     'much as one that is certified. Both implementations check the last ' +
+                     'certificate against its anchor with the method that checks each ' +
+                     'certificate against its issuer, so both refuse it since 7642de3d and ' +
+                     'd1c7c54. `normative`, as the second row.',
+    },
+    {
+        id:          'an-anchor-open-to-either-rsa-scheme',
+        authority:   'rsaEncryption',
+        signature:   'sha256WithRSAEncryption',
+        anchor:      true,
+        expected:    'accept',
+        description: 'The control for the row above: the same anchor with its key as the corpus ' +
+                     'writes it, `rsaEncryption`, carried the same way, in `anchorCertificates`. ' +
+                     'It is byte for byte the corpus\'s `rsaManufacturerCA`, so this also ' +
+                     'says that a chain of `rsaMeter` alone ends at an anchor both ' +
+                     'implementations accept.',
+    },
+];
+
+
 const cases = [
 
     ...LABELS.map(entry => ({
@@ -2059,6 +2339,30 @@ const cases = [
         der:           true,
         keyType:       `${entry.key}, over a message signed with ` +
                        `${entry.algorithm === PS256 ? 'PS256' : 'RS256'}`,
+        computedBy:    'tools/X509Cases',
+        description:   entry.description,
+    })),
+
+    ...AUTHORITIES.map(entry => ({
+        id:            entry.id,
+        // Every row is normative: see AUTHORITIES above.
+        class:         'normative',
+        message:       upper(sign1({
+                           payload:    source.payload,
+                           chain:      entry.anchor
+                                           ? [meterSignedWith(entry.signature)]
+                                           : [meterSignedWith(entry.signature), authority(entry.authority)],
+                           signingKey: rsaKey,
+                           algorithm:  RS256,
+                       })),
+        trustAnchors:  entry.anchor ? [] : ['rsaRoot'],
+        ...(entry.anchor ? { anchorCertificates: [upper(authority(entry.authority))] } : {}),
+        expected:      entry.expected,
+        ...(entry.reason ? { reason: entry.reason } : {}),
+        certificates:  entry.anchor ? 1 : 2,
+        der:           true,
+        authority:     `${entry.anchor ? 'a trust anchor' : 'an authority'} whose key is ` +
+                       `${entry.authority}, over a certificate signed with ${entry.signature}`,
         computedBy:    'tools/X509Cases',
         description:   entry.description,
     })),
@@ -2237,6 +2541,43 @@ for (const entry of cases) {
 
     }
 
+    // The seventh family: the certificates are the ones the case names, the
+    // authority's key type is stated exactly once, and the meter certificate
+    // states its signature algorithm in both of its copies.
+    const issuing = AUTHORITIES.find(candidate => candidate.id === entry.id);
+
+    if (issuing !== undefined) {
+
+        const meter    = meterSignedWith(issuing.signature);
+        const issuer   = authority(issuing.authority);
+        const expected = issuing.anchor ? [meter] : [meter, issuer];
+
+        if (chain === null ||
+            chain.length !== expected.length ||
+            chain.some((certificate, at) => upper(certificate) !== upper(expected[at])))
+            throw new Error(`${entry.id} does not carry the chain its case claims`);
+
+        const anchors = entry.anchorCertificates ?? [];
+
+        if (issuing.anchor
+                ? anchors.length !== 1 || anchors[0] !== upper(issuer) || entry.trustAnchors.length !== 0
+                : anchors.length !== 0 || entry.trustAnchors.join() !== 'rsaRoot')
+            throw new Error(`${entry.id} does not carry the anchor its case claims`);
+
+        if (upper(issuer).split(upper(KEY_ALGORITHMS[issuing.authority])).length - 1 !== 1 ||
+            !upper(issuer).includes(upper(hex(issuerKey.n))))
+            throw new Error(`${entry.id} does not certify the authority's key as the key type its case names`);
+
+        if (upper(meter).split(upper(ISSUER_SIGNATURES[issuing.signature].identifier)).length - 1 !== 2)
+            throw new Error(`${entry.id} does not state the signature its case names in both copies`);
+
+        if (thumbprint !== null)
+            throw new Error(`${entry.id} carries a thumbprint, which this family does not`);
+
+        continue;
+
+    }
+
     if (chain === null || chain.length !== 2)
         throw new Error(`${entry.id} does not carry a chain of two certificates`);
 
@@ -2382,7 +2723,11 @@ writeFileSync(join(root, 'vectors', 'cose-x509-messages.json'),
                                'consistently in both of the copies a certificate holds — which ' +
                                'no patch can reach, so this family mints its certificate and ' +
                                'signs it (§28, normative where RFC 4055 puts the rule on the ' +
-                               'reader in its own words, survey where the two disagree). ' +
+                               'reader in its own words, survey where the two disagree), and an ' +
+                               'authority or a trust anchor whose key is id-RSASSA-PSS over a ' +
+                               'certificate it signed, which has to be issued again under the ' +
+                               'root (§28, normative). A row may carry `anchorCertificates`, ' +
+                               'trust anchors that are not in the corpus, as DER in hex. ' +
                                'Generated by tools/X509Cases from the noble primitives and the ' +
                                'RSA written out in it; the chain, the signing key and the ' +
                                'issuing key come from cose-x509-corpus.json, and three ' +
@@ -2403,7 +2748,8 @@ for (const entry of cases)
                 `${String(hex(entry.message).length).padStart(4)} bytes  ` +
                 `${entry.thumbprintAlgorithm !== undefined
                        ? `x5t ${entry.thumbprintAlgorithm}`
-                       : entry.encoding ?? entry.headers ?? entry.parameters ?? entry.keyType}` +
+                       : entry.encoding ?? entry.headers ?? entry.parameters ?? entry.keyType ??
+                         entry.authority}` +
                 `${entry.thumbprintOver !== undefined
                        ? `, x5t over ${entry.thumbprintOver}`
                        : ''}`);
