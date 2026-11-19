@@ -141,7 +141,7 @@ two can see.
 | `tools/EcdhCases/` | generates `vectors/cose-ecdh.json` from the noble primitives alone, independently of both implementations under test, and refuses to write anything unless it first reproduces a published working-group example byte for byte |
 | `tools/X509Cases/` | generates `vectors/cose-x509-messages.json` the same way — signed messages carrying what neither implementation will construct: a thumbprint labelled with an algorithm that is not a hash algorithm (or with one that is and that neither of them computes), a certificate written down in an encoding that is not DER, a certificate source neither of them reads, `x5bag` and `x5u` ([FINDINGS.md](FINDINGS.md) §26), a signature algorithm carrying a parameter RFC 4055 Section 5 does not allow in both of the copies a certificate holds, and a key the certificate restricts to RSASSA-PSS, which is what `id-RSASSA-PSS` in a subject public key info means — the last two take minting, and so take RSA of its own ([FINDINGS.md](FINDINGS.md) §28). Rules both sides enforce on the way out, or header parameters neither of them writes at all, which is why only a third encoder can compare them |
 | `tools/DerArbiter/` | a third reader, not a third encoder: for every message of `vectors/cose-x509-messages.json` it says how many certificates it carries and whether each is a single DER encoding, using `System.Formats.Asn1` and referencing nothing else. Normative about the vectors, and about neither implementation ([FINDINGS.md](FINDINGS.md) §27) |
-| `runners/csharp/` | console runner referencing `Styx.csproj` (net10.0) |
+| `runners/csharp/` | console runner referencing `Styx.csproj` (net11.0) |
 | `runners/typescript/` | `tsx` runner importing the TS implementation from source |
 | `compare/run.mjs` | the driver: runs both, cross-feeds, judges, reports |
 | `results/` | generated: raw recordings, `report.md`, `verdicts.json` |
@@ -149,7 +149,7 @@ two can see.
 
 ## Running
 
-Prerequisites: .NET SDK 10, Node.js ≥ 20, and one-time network access for
+Prerequisites: .NET SDK 11, Node.js ≥ 20, and one-time network access for
 NuGet restore and `npm install` (the TypeScript runner needs `tsx`).
 
 ```

@@ -4189,3 +4189,57 @@ Of
 the 8 header algorithm parameters both name, all 8 do since 2026-11-04: `PartyU
 other` (−23) and `PartyV nonce` (−25) were the two the one party row left out,
 and the row beside it sets them.
+
+## 29. .NET 11 converts a double to a decimal differently (added 2026-11-19)
+
+Styx `2874a327` (2026-11-11) moved every Styx project to .NET 11. From the next
+night on, the nightly run against the latest submodules was red, six nights in
+a row:
+
+- At first the runner's .NET 10 SDK could not build `net11.0` at all
+  (`NETSDK1045`).
+- Once the runner image carried an SDK 11, the suite's own C# runner, still
+  `net10.0`, could not reference Styx (`NU1201`).
+
+The pinned run stayed green throughout, because it builds the pinned Styx.
+
+Moving the suite's three C# projects to `net11.0` was not the whole of it. With
+nothing else changed and Styx still at its pin `7642de3d`, the run on the .NET
+11 runtime turned up something the build errors had hidden: 7 C# failures and
+6 divergences, all on one value. The coverage probability of
+`uncertainty-full-map`, `p=0.95`, came out of C# as a 28-digit decimal
+fraction instead of the canonical `4([-2, 95])` the specification's annex
+prints:
+
+| | .NET 10 | .NET 11 |
+|---|---|---|
+| `(decimal)0.95` | `0.95`, scale 2 | `0.9499999999999999555910790150`, scale 28 |
+
+.NET 11 converts a `double` to a `decimal` without rounding to 15 significant
+digits first, so the cast now gives the binary value as nearly as 28 digits
+can hold it. Styx keeps the coverage probability, and the degrees of freedom,
+as `Double` and encoded them through that cast. The same source on a newer
+runtime wrote other bytes for the same reading. It broke canonical encoding,
+the agreement with TypeScript and the worked example's round trip, and no
+build error or Styx unit test said so.
+
+Styx had fixed it by then. Its `836bc075` ("Decimals from doubles and from
+JSON numbers are the numbers they are written as, on .NET 11 too") converts
+through `AsDecimal()`. So the suite now:
+
+- targets `net11.0` in the runner, `tools/DerArbiter` and
+  `tools/CertificateCorpus`;
+- builds with SDK `11.0.x` in both workflows;
+- pins Styx `a6b9f9fb`, its current master.
+
+| | Styx `7642de3d` on .NET 11 | Styx `a6b9f9fb` on .NET 11 |
+|---|---|---|
+| csharp | 655 normative, 7 failures | 662, 0 |
+| csharp↔typescript | 479, 1 failure | 480, 0 |
+| divergences | 6 | 0 |
+
+`tools/CertificateCorpus` writes the same corpus on .NET 11, byte for byte.
+
+Nobody planted this one. A runtime upgrade changed one number's bytes, and the
+annex value that pins those bytes caught it. That is the reason the canonical
+encodings are vectors and not descriptions.
